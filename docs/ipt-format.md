@@ -1,7 +1,7 @@
 # Inventor 部品ファイル（.ipt）の構造解析
 
 サンプル `E_Plate_改_Φ54.5.ipt`（Inventor 2026 で保存）を実際に分解して確認した内容をまとめる。
-再現は `npm run inspect -- <file>.ipt --dump out/`（`app/tools/inspect.mjs`）で行える。
+再現は `npm run inspect -- <file>.ipt --dump out/`（`program/tools/inspect.mjs`）で行える。
 
 ## 1. 結論
 
@@ -80,7 +80,7 @@ A1〜D の 9 ファイル（ねじ穴・切り欠き・角窓を持つ筒と板�
 | ねじ（`INV_NMX_THREAD_TAG`） | doubles: ピッチ, ねじ山の高さ（cm）。positions: ねじの始点, 終点, …。strings: 名前, 呼び径, 呼び（`M6x1`）, 種類（`ISO Metric profile`）, 空, 空, 等級（`6H`）, ピッチ, 外径, …, 谷の径, …, 下穴径。1 つの面に 2 つ付くこともある（穴の両端のねじ） | ねじ穴の円筒の直径 = 谷の径（M6 → 4.917）。始点・終点の距離 = ねじ長さ（M6: 12 mm）。始点・終点の座標系はフィーチャにより異なり、穴の中心とは一致しないことがある |
 | 履歴のシェル | 最終形状のシェルは 1 つ（lump からの next 連鎖）。ほかにも lump を持ち主とするシェルがあるが、どこからも参照されない（ロールバック用の過去の形状） | 最終形状の面数・外形がサムネイルと一致する |
 | 質量特性 | Design Tracking Properties の PID 58〜60（体積・表面積などと推測）は全ファイルで同じ値。部品の値ではなくテンプレートの値 | 形の違う 9 ファイルで同値 |
-| 材質・密度 | Design Tracking Properties（ストリーム `\x05PypkizqiUjudbposAayal4qdGf`、MS-OLEPS）の PID 20 = 材質の名前（`鋼、軟鋼`）、PID 61 = 密度（g/cm³、倍精度）。読み取りは `app/src/formats/ipt/properties.js`。ビューアは体積 × 密度で質量を示す | 同じ部品を書き出した STEP の材質・密度（7.85 g/cm³）と、samples/ipt の 8 部品で一致 |
+| 材質・密度 | Design Tracking Properties（ストリーム `\x05PypkizqiUjudbposAayal4qdGf`、MS-OLEPS）の PID 20 = 材質の名前（`鋼、軟鋼`）、PID 61 = 密度（g/cm³、倍精度）。読み取りは `program/app/static/js/formats/ipt/properties.js`。ビューアは体積 × 密度で質量を示す | 同じ部品を書き出した STEP の材質・密度（7.85 g/cm³）と、samples/ipt の 8 部品で一致 |
 
 ファイル名の「Φ54.5」は、A〜D では外周の円筒の直径（外径）と一致する。
 
@@ -134,7 +134,7 @@ flowchart LR
   J["フィーチャ記述 JSON<br/>（唯一の正）"] --> V["three.js プレビュー"]
   J --> B["Inventor ビルダー<br/>（Inventor API）"]
   B --> I[".ipt<br/>フィーチャツリー付き"]
-  I --> Q["アプリの .ipt 解析<br/>（app/src/formats/ipt）"]
+  I --> Q["アプリの .ipt 解析<br/>（program/app/static/js/formats/ipt）"]
   Q -- "寸法・穴・R を照合（評価関数）" --> J
 ```
 

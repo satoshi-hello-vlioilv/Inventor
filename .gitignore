@@ -1,3 +1,4 @@
 __pycache__/
 *.pyc
+# 開発用（Node の評価・調べる道具）。npm で入れたものがあれば置く場所
 node_modules/

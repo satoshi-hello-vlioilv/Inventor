@@ -1,3 +1,3 @@
-# 起動ファイル（UTF-16・BOM 付き）と起動処理（UTF-8・CRLF）は、改行や文字コードの変換で壊れないよう、バイト列のまま扱う
-*.vbs binary
-*.bat binary
+# Windows のコマンドプロンプト・WSH がそのまま読む形（CP932・CRLF）を保つ。改行や文字の変換をしない
+*.bat -text
+*.vbs -text

@@ -2,17 +2,11 @@
   "name": "inventor-3d-tool",
   "private": true,
   "type": "module",
+  "description": "開発用（JavaScript の評価と調べる道具）。アプリの実行には使わない。依存は無い（three・fzstd は program/app/static/vendor の同梱を importmap で読む）",
   "scripts": {
-    "build": "node app/build.mjs",
-    "test": "node --test \"app/test/*.test.mjs\"",
-    "test:launcher": "node app/test/launcher-wine.mjs",
-    "inspect": "node app/tools/inspect.mjs"
-  },
-  "dependencies": {
-    "fzstd": "0.1.1"
-  },
-  "devDependencies": {
-    "esbuild": "0.28.2",
-    "three": "0.170.0"
+    "test": "node --import ./program/tests/js/importmap.mjs --test \"program/tests/js/*.test.mjs\"",
+    "inspect": "node --import ./program/tests/js/importmap.mjs program/tools/inspect.mjs",
+    "fixtures:builder": "node --import ./program/tests/js/importmap.mjs program/tools/builder-fixtures.mjs",
+    "fixtures:html": "node program/tools/capture-html.mjs"
   }
 }
