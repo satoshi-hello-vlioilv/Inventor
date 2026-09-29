@@ -43,11 +43,25 @@ describe("LS-4 部品 3D ビューア（three.js r180）", () => {
     assert.deepEqual(sorted([p.width, p.height]).map((v) => +v.toFixed(3)), [20, 560]);
     near(p.length, 10, "押し出し長");
   });
-  test("丸刃: 面取りで高さが 4 段になるため近似（メッシュ）。外形は φ240 × 厚み 5", () => {
+  test("丸刃 パターン B: 外径 φ240・内径 φ200＋キー溝 幅 20 × 深さ 6 を厚み 5 で押し出し、内径側の縁に C1（両面）", () => {
     const [p] = solids("LS4_parts_viewer.blade");
-    assert.equal(p.kind, "mesh");
-    assert.match(p.reason, /4 段/);
-    assert.deepEqual(sorted(p.bbox.size).map((v) => +v.toFixed(3)), [5, 240, 240]);
+    assert.equal(p.kind, "prism", p.reason);
+    assert.equal(p.shape, "円 φ240.000");
+    near(p.length, 5, "厚み");
+    const [hole] = p.segments.holes;
+    near(hole.find((s) => s.type === "arc").radius, 100, "内径の半径");
+    // キー溝: 最も長い直線が溝の底（中心から IN_R + depth = 106）。溝の側壁の点は底の向きに ±KEY_W/2
+    const floor = hole.filter((s) => s.type === "line").sort((a, b) => Math.hypot(b.b[0] - b.a[0], b.b[1] - b.a[1]) - Math.hypot(a.b[0] - a.a[0], a.b[1] - a.a[1]))[0];
+    const along = [floor.b[0] - floor.a[0], floor.b[1] - floor.a[1]].map((v, _, d) => v / Math.hypot(...d));
+    const normal = [-along[1], along[0]];
+    near(Math.abs(floor.a[0] * normal[0] + floor.a[1] * normal[1]), 106, "溝の底までの距離");
+    const key = hole.flatMap((s) => [s.a, s.b]).filter(([x, y]) => Math.abs(x * normal[0] + y * normal[1]) > 100.5);
+    near(Math.max(...key.map(([x, y]) => Math.abs(x * along[0] + y * along[1]))), 10, "溝幅の半分");
+    // 面取り: 穴の縁だけ、両面とも C1（外周の刃先は面取りなし）
+    assert.deepEqual(p.chamfers.map((c) => [c.loop, c.side]).sort(), [[1, -1], [1, 1]]);
+    for (const c of p.chamfers) near(c.distance, 1, "面取り");
+    // 元の HTML は面取りの外側の輪郭を「同じ角度で再サンプリング」して作るため、キー溝の角付近だけ CAD の留め継ぎと差が出る
+    for (const c of p.chamfers) assert.ok(c.cornerDeviation > 1e-3 && c.cornerDeviation < 0.2, `角の差 ${c.cornerDeviation}`);
   });
 });
 
@@ -134,5 +148,38 @@ describe("three.js 標準の形状クラス", () => {
       assert.equal(hole[0].type, "circle");
       near(hole[0].radius, 2.25, "穴の半径", 0.01);
     }
+  });
+  describe("ExtrudeGeometry の面取り（bevel）", () => {
+    // 40 × 20 の板に φ10 の穴。three.js の bevel は輪郭を bevelSize だけ外へ広げた側壁と、元の輪郭の端面をつなぐ。
+    // 穴は重複点のない 96 角形で作る（absarc の全周は始点と終点が 2e-15 ずれて重複点が残り、bevel がその点を外へ
+    // 飛ばしてメッシュに細いトゲができる。その場合は正しく「側面の形が分岐している」として近似になる）
+    const plate = (options) => {
+      const s = new THREE.Shape();
+      s.moveTo(0, 0); s.lineTo(40, 0); s.lineTo(40, 20); s.lineTo(0, 20); s.lineTo(0, 0);
+      const ring = Array.from({ length: 96 }, (_, i) => new THREE.Vector2(20 + 5 * Math.cos((-2 * Math.PI * i) / 96), 10 + 5 * Math.sin((-2 * Math.PI * i) / 96)));
+      s.holes.push(new THREE.Path(ring));
+      return recognize(new THREE.ExtrudeGeometry(s, { depth: 10, bevelEnabled: true, curveSegments: 48, ...options }))[0];
+    };
+    test("直線の面取り（bevelSegments 1・幅と深さが同じ）→ 押し出し＋外周と穴の縁に C1（両面）", () => {
+      const p = plate({ bevelSegments: 1, bevelSize: 1, bevelThickness: 1 });
+      assert.equal(p.kind, "prism", p.reason);
+      assert.deepEqual(sorted([p.width, p.height]).map((v) => +v.toFixed(3)), [22, 42]);
+      near(p.length, 12, "押し出し長（厚み 10 ＋ 面取り 1 × 2）");
+      near(p.segments.holes[0][0].radius, 4, "穴の半径（側壁は輪郭を 1 広げた位置）", 0.01);
+      assert.deepEqual(p.chamfers.map((c) => [c.loop, c.side]).sort(), [[0, -1], [0, 1], [1, -1], [1, 1]]);
+      for (const c of p.chamfers) {
+        near(c.distance, 1, "面取り");
+        assert.ok(c.cornerDeviation <= 1e-3, `角の差 ${c.cornerDeviation}（three.js の bevel は留め継ぎ）`);
+      }
+    });
+    test("幅と深さが違う面取り → 未対応として近似（理由を示す）", () => {
+      const p = plate({ bevelSegments: 1, bevelSize: 1, bevelThickness: 2 });
+      assert.equal(p.kind, "mesh");
+      assert.match(p.reason, /不等辺の面取り/);
+    });
+    test("丸い面取り（bevelSegments 3）→ 等距離の面取りではないので近似", () => {
+      const p = plate({ bevelSegments: 3, bevelSize: 1, bevelThickness: 1 });
+      assert.equal(p.kind, "mesh");
+    });
   });
 });

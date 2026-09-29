@@ -11,7 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 FORMAT = "inventor-builder"
-VERSION = 1
+VERSIONS = (1, 2)  # 2: 押し出しの面取り（chamfers）を追加
+SAMPLES_PER_TURN = 16384  # 面取りの計算で円弧を折れ線にする細かさ（1 周の分割数）
 
 Point2 = tuple[float, float]
 Vec3 = tuple[float, float, float]
@@ -37,6 +38,19 @@ class Segment:
 
 
 @dataclass(frozen=True)
+class Chamfer:
+    """押し出しの端面の縁の等距離面取り。"""
+
+    loop: int  # 断面のループの番号（0 = 外周、1 以降 = 穴）
+    side: int  # +1 = Z が +長さ/2 の端面、-1 = -長さ/2 の端面
+    distance: float
+
+    @property
+    def label(self) -> str:
+        return f"{'外周' if self.loop == 0 else f'穴 {self.loop}'}の縁（{'+Z' if self.side > 0 else '-Z'} 側）"
+
+
+@dataclass(frozen=True)
 class Frame:
     """部品のローカル座標系（取り込んだシーン内での位置と向き、mm）。"""
 
@@ -57,6 +71,7 @@ class Part:
     expect_volume: float
     expect_area: float
     instances: tuple[Frame, ...]
+    chamfers: tuple[Chamfer, ...] = ()
 
     @property
     def full_revolve(self) -> bool:
@@ -111,7 +126,9 @@ def _part(raw: dict) -> Part:
             nxt = loop[(j + 1) % len(loop)]
             if s.type == "circle" or math.dist(s.b, nxt.a) > 1e-6:
                 raise SpecError(f"{key} のループ {i}: {j} 番目の終点が次の始点とつながっていません")
+    chamfers = tuple(_chamfer(c, key, kind, loops, raw) for c in raw.get("chamfers", []))
     return Part(
+        chamfers=chamfers,
         key=key,
         name=str(raw.get("name", key)),
         kind=kind,
@@ -126,6 +143,19 @@ def _part(raw: dict) -> Part:
     )
 
 
+def _chamfer(raw: dict, key: str, kind: str, loops, part: dict) -> Chamfer:
+    where = f"{key} の面取り"
+    if kind != "extrude":
+        raise SpecError(f"{where}: 面取りは押し出しにだけ指定できます")
+    side = {"+Z": 1, "-Z": -1}.get(raw.get("side"))
+    loop, distance = raw.get("loop"), raw.get("distance")
+    if side is None or not isinstance(loop, int) or not 0 <= loop < len(loops) or not isinstance(distance, (int, float)):
+        raise SpecError(f"{where}: loop（ループの番号）・side（+Z / -Z）・distance（mm）を指定してください")
+    if not 0 < distance < float(part["extrude"]["distance"]) / 2:
+        raise SpecError(f"{where}: 大きさ {distance} mm は 0 より大きく、厚みの半分より小さくしてください")
+    return Chamfer(loop, side, float(distance))
+
+
 def load_spec(path: str | Path) -> Spec:
     try:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -133,8 +163,8 @@ def load_spec(path: str | Path) -> Spec:
         raise SpecError(f"変換データを読めません: {error}") from error
     if data.get("format") != FORMAT:
         raise SpecError("変換データ（format: inventor-builder）ではありません")
-    if data.get("version") != VERSION:
-        raise SpecError(f"対応していない版です（version {data.get('version')}、このビルダーは {VERSION}）")
+    if data.get("version") not in VERSIONS:
+        raise SpecError(f"対応していない版です（version {data.get('version')}、このビルダーは {' / '.join(map(str, VERSIONS))}）")
     if data.get("units") != "mm":
         raise SpecError("単位は mm のみ対応しています")
     parts = tuple(_part(p) for p in data.get("parts", []))
@@ -185,8 +215,46 @@ def loop_integrals(loop) -> dict[str, float]:
     return {"area": area, "moment": moment, "perimeter": perimeter, "lateral": lateral}
 
 
-def properties(kind: str, loops, angle_deg: float | None = None, distance: float | None = None) -> tuple[float, float]:
-    """体積と表面積（断面と同じ長さの単位）。"""
+def polygonize(loop, samples_per_turn: int = SAMPLES_PER_TURN) -> list[Point2]:
+    """ループを折れ線にする（終点は次の部分の始点なので含めない）。円は反時計回り。"""
+    points: list[Point2] = []
+    for s in loop:
+        if s.type == "line":
+            points.append(s.a)
+            continue
+        if s.type == "circle":
+            a0, sweep, r = 0.0, 2 * math.pi, s.radius
+        else:
+            a0, sweep, r = arc_angles(s)
+        n = max(1, math.ceil(samples_per_turn * abs(sweep) / (2 * math.pi)))
+        points += [(s.center[0] + r * math.cos(a0 + sweep * k / n), s.center[1] + r * math.sin(a0 + sweep * k / n)) for k in range(n)]
+    return points
+
+
+def distance_to_segment(p: Point2, s: Segment) -> float:
+    """点から断面の部分（直線・円弧・円）までの最短距離。"""
+    if s.type == "circle":
+        return abs(math.dist(p, s.center) - s.radius)
+    if s.type == "arc":
+        a0, sweep, r = arc_angles(s)
+        angle = math.atan2(p[1] - s.center[1], p[0] - s.center[0])
+        if ((angle - a0) if sweep > 0 else (a0 - angle)) % (2 * math.pi) <= abs(sweep):
+            return abs(math.dist(p, s.center) - r)
+        return min(math.dist(p, s.a), math.dist(p, s.b))
+    (x0, y0), (x1, y1) = s.a, s.b
+    dx, dy = x1 - x0, y1 - y0
+    t = max(0.0, min(1.0, ((p[0] - x0) * dx + (p[1] - y0) * dy) / ((dx * dx + dy * dy) or 1)))
+    return math.hypot(p[0] - (x0 + t * dx), p[1] - (y0 + t * dy))
+
+
+def distance_to_loop(p: Point2, loop) -> float:
+    return min(distance_to_segment(p, s) for s in loop)
+
+
+def properties(kind: str, loops, angle_deg: float | None = None, distance: float | None = None, chamfers=()) -> tuple[float, float]:
+    """体積と表面積（断面と同じ長さの単位）。面取りは折れ線で計算する（chamfer モジュール）。"""
+    from .chamfer import chamfer  # noqa: PLC0415
+
     integrals = [loop_integrals(loop) for loop in loops]
     if kind == "revolve":
         theta = math.radians(angle_deg)
@@ -196,8 +264,13 @@ def properties(kind: str, loops, angle_deg: float | None = None, distance: float
     ordered = sorted(integrals, key=lambda i: -abs(i["area"]))
     section = abs(ordered[0]["area"]) - sum(abs(i["area"]) for i in ordered[1:])
     perimeter = sum(i["perimeter"] for i in integrals)
-    return section * distance, 2 * section + perimeter * distance
+    volume, area = section * distance, 2 * section + perimeter * distance
+    for c in chamfers:
+        cut_volume, cut_face = chamfer(polygonize(loops[c.loop]), c.distance, c.loop > 0)
+        volume -= cut_volume
+        area += (math.sqrt(2) - 1) * cut_face - integrals[c.loop]["perimeter"] * c.distance
+    return volume, area
 
 
 def part_properties(part: Part) -> tuple[float, float]:
-    return properties(part.kind, part.loops, part.angle_deg, part.distance)
+    return properties(part.kind, part.loops, part.angle_deg, part.distance, part.chamfers)

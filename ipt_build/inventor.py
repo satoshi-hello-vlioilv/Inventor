@@ -3,7 +3,9 @@
 作り方（部品のローカル座標系は変換データと同じ）:
     回転体   … XY 平面のスケッチに断面（x = 半径, y = 軸方向）を描き、Y 軸まわりに回転する。
                360° 未満は XY 平面に対して対称に回す
-    押し出し … XY 平面のスケッチに断面を描き、Z 方向に XY 平面に対して対称に押し出す
+    押し出し … XY 平面のスケッチに断面を描き、Z 方向に XY 平面に対して対称に押し出す。
+               面取りは、押し出した端面（Z = ±長さ/2 の平らな面）の稜線のうち、指定したループの上にあるものを選び、
+               等距離の面取り（ChamferFeatures.AddUsingDistance）をかける。同じ大きさの面取りは 1 つのフィーチャにまとめる
 対称にするのは、回転・押し出しの「正方向」の解釈に左右されず、変換データと同じ形にするため。
 
 Inventor API の長さの単位は cm、角度はラジアン。mm → cm の換算はこのモジュールの中だけで行う。
@@ -15,11 +17,12 @@ import math
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .spec import Part, Segment
+from .spec import Part, Segment, distance_to_loop
 from .verify import check_file
 
 MM_PER_CM = 10.0
 REL_TOL = 1e-4  # 体積・表面積の照合の許容差（相対）
+EDGE_TOL = 1e-3  # mm。稜線が端面・ループの上にあるとみなす距離
 
 # Inventor API の列挙値
 K_PART_DOCUMENT = 12290  # DocumentTypeEnum.kPartDocumentObject
@@ -45,7 +48,8 @@ def describe(part: Part) -> str:
             counts[s.type] = counts.get(s.type, 0) + 1
     section = "・".join(f"{SEGMENT_LABEL[k]} {v}" for k, v in counts.items())
     extent = f"{part.angle_deg:g}°" if part.kind == "revolve" else f"長さ {part.distance:g} mm"
-    return f"{KIND_LABEL[part.kind]} {extent}／断面 {section}（three.js から変換）"
+    chamfer = "".join(f"・面取り C{d:g}（縁 {sum(c.distance == d for c in part.chamfers)} か所）" for d in sorted({c.distance for c in part.chamfers}))
+    return f"{KIND_LABEL[part.kind]} {extent}{chamfer}／断面 {section}（three.js から変換）"
 
 
 @dataclass
@@ -126,6 +130,38 @@ class Builder:
                 first = head
             previous = tail
 
+    # ---- 面取り -----------------------------------------------------------------
+    @staticmethod
+    def _items(collection) -> list:
+        return [collection.Item(i) for i in range(1, collection.Count + 1)]
+
+    def cap_edges(self, body, part: Part, chamfer) -> list:
+        """面取りする稜線: 端面（全ての稜線が Z = ±長さ/2 にある面）の稜線のうち、指定したループの上にあるもの。"""
+        z = chamfer.side * part.distance / 2
+        loop = part.loops[chamfer.loop]
+        selected = []
+        for face in self._items(body.Faces):
+            edges = self._items(face.Edges)
+            points = [(p.X * MM_PER_CM, p.Y * MM_PER_CM, p.Z * MM_PER_CM) for p in (e.PointOnEdge for e in edges)]
+            if not edges or any(abs(p[2] - z) > EDGE_TOL for p in points):
+                continue
+            selected += [e for e, p in zip(edges, points) if distance_to_loop(p[:2], loop) <= EDGE_TOL]
+        return selected
+
+    def add_chamfers(self, definition, part: Part) -> None:
+        body = definition.SurfaceBodies.Item(1)
+        by_distance: dict[float, list] = {}
+        for chamfer in part.chamfers:
+            edges = self.cap_edges(body, part, chamfer)
+            if not edges:
+                raise RuntimeError(f"面取りする稜線が見つかりません（{chamfer.label}）")
+            by_distance.setdefault(chamfer.distance, []).extend(edges)
+        for distance, edges in by_distance.items():
+            collection = self.app.TransientObjects.CreateEdgeCollection()
+            for edge in edges:
+                collection.Add(edge)
+            definition.Features.ChamferFeatures.AddUsingDistance(collection, cm(distance))
+
     # ---- 部品 -------------------------------------------------------------------
     def build_part(self, part: Part, out_dir: Path) -> PartResult:
         result = PartResult(part)
@@ -148,6 +184,8 @@ class Builder:
                 extrude = features.ExtrudeFeatures.CreateExtrudeDefinition(profile, K_JOIN)
                 extrude.SetDistanceExtent(cm(part.distance), K_SYMMETRIC)
                 features.ExtrudeFeatures.Add(extrude)
+                if part.chamfers:
+                    self.add_chamfers(definition, part)
 
             tracking = doc.PropertySets.Item("Design Tracking Properties")
             tracking.Item("Part Number").Value = part.name

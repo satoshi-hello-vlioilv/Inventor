@@ -7,12 +7,15 @@ import path from "node:path";
 import { describe, test } from "node:test";
 import { cross, dot, length } from "../src/ipt/vec.js";
 import { expectedProperties, featureOf, maxDeviation, meshProperties } from "../src/export/inventor.js";
+import { loopCorners, loopIntegrals } from "../src/recognize/geometry2d.js";
 import { recognizeSnapshot } from "../src/recognize/index.js";
+import { pointAt } from "../src/recognize/mesh.js";
+import { CORNER_ZONE } from "../src/recognize/prism.js";
 import { BUILDER_FIXTURES, builderFixtures, fixtureText } from "./builder-fixtures.mjs";
 import { readHtmlFixture } from "./helpers.mjs";
 
 const FIXTURES = [
-  "LS4_parts_viewer.spacer-t10", "LS4_parts_viewer.spacer-t50", "LS4_parts_viewer.rubber", "LS4_parts_viewer.finger",
+  "LS4_parts_viewer.spacer-t10", "LS4_parts_viewer.spacer-t50", "LS4_parts_viewer.rubber", "LS4_parts_viewer.finger", "LS4_parts_viewer.blade",
   "spool_reel_assembly_v2.steel", "spool_reel_assembly_v2.paper", "spool_reel_assembly_v2.rubber",
   "spool_reel_assembly_v2.reel", "spool_reel_assembly_v2.assy",
 ];
@@ -30,7 +33,9 @@ describe("変換データが元の形状を正しく表す", () => {
         const feature = featureOf(part);
         if (!feature) continue;
         checked += 1;
-        assert.ok(maxDeviation(part, feature) <= 1e-4, `部品 ${part.id}: 頂点が面から ${maxDeviation(part, feature)} mm 離れている`);
+        // 面取りの角付近は、認識が報告した差（cornerDeviation）まで許す。報告値が実際の差の上限になっていることの確認
+        const bound = Math.max(1e-4, ...(part.chamfers ?? []).map((c) => c.cornerDeviation));
+        assert.ok(maxDeviation(part, feature) <= bound, `部品 ${part.id}: 頂点が面から ${maxDeviation(part, feature)} mm 離れている`);
         const exact = expectedProperties(feature), mesh = meshProperties(part);
         assert.ok(Math.abs(exact.volume - mesh.volume) / exact.volume <= CHORD_TOL, `部品 ${part.id}: 体積 ${mesh.volume} vs ${exact.volume}`);
         assert.ok(Math.abs(exact.area - mesh.area) / exact.area <= CHORD_TOL, `部品 ${part.id}: 表面積 ${mesh.area} vs ${exact.area}`);
@@ -41,6 +46,31 @@ describe("変換データが元の形状を正しく表す", () => {
       assert.ok(checked > 0);
     });
   }
+});
+
+describe("丸刃（面取り付き押し出し）", () => {
+  const [part] = recognizeSnapshot(readHtmlFixture("LS4_parts_viewer.blade")).parts;
+  const feature = featureOf(part);
+  test("面取りの角の範囲の外では、全頂点が再構成した面の上にある（1e-4 mm 以内）", () => {
+    const f = feature.frame;
+    const zones = feature.chamfers.flatMap((c) => loopCorners(feature.loops[c.loop]).map((p) => ({ p, r: CORNER_ZONE * c.distance })));
+    const away = new Set([...new Set(part.tris)].filter((i) => {
+      const d = pointAt(part.points, i).map((v, k) => v - f.origin[k]);
+      const [x, y] = [dot(d, f.x), dot(d, f.y)];
+      return zones.every(({ p, r }) => Math.hypot(x - p[0], y - p[1]) > r);
+    }));
+    assert.ok(away.size >= 0.98 * new Set(part.tris).size, "照合から外すのは角付近のわずかな頂点だけ（実測 88 / 8640）");
+    assert.ok(maxDeviation(part, feature, away) <= 1e-4, `${maxDeviation(part, feature, away)} mm`);
+  });
+  test("体積は元のメッシュと 2e-5 以内で一致（メッシュの円は 0.25° 刻みの折れ線）", () => {
+    const exact = expectedProperties(feature), mesh = meshProperties(part);
+    assert.ok(Math.abs(exact.volume - mesh.volume) / exact.volume <= 2e-5, `${mesh.volume} vs ${exact.volume}`);
+  });
+  test("面取りを除いた押し出しより、両面の C1 の分（穴の縁の長さ × 1²/2 × 2 にほぼ等しい）だけ体積が小さい", () => {
+    const removed = expectedProperties({ ...feature, chamfers: undefined }).volume - expectedProperties(feature).volume;
+    const edge = loopIntegrals(feature.loops[1]).perimeter;
+    assert.ok(Math.abs(removed - edge) / edge < 0.01, `削られる体積 ${removed} ≈ 縁の長さ ${edge} × 1`);
+  });
 });
 
 describe("手計算した厳密値との一致", () => {

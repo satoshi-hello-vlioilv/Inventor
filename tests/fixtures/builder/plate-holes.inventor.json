@@ -1,6 +1,6 @@
 {
  "format": "inventor-builder",
- "version": 1,
+ "version": 2,
  "units": "mm",
  "source": {
   "file": "plate_holes.html",

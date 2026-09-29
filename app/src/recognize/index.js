@@ -57,8 +57,7 @@ function summarizeRevolve(fit) {
 /** 押し出しとして認識できたら寸法をまとめる。 */
 function summarizePrism(fit) {
   const us = fit.outer.map((p) => p[0]), vs = fit.outer.map((p) => p[1]);
-  const outer = fitSegments(fit.outer, true, TOL);
-  const holes = fit.holes.map((l) => fitSegments(l, true, TOL));
+  const { outer, holes } = fit.segments;
   const lines = outer.filter((s) => s.type === "line").length;
   const shape = outer.length === 1 && outer[0].type === "circle" ? `円 φ${(2 * outer[0].radius).toFixed(3)}`
     : lines === outer.length && lines === 4 ? "四角形" : lines === outer.length ? `${lines} 角形` : describeSegments(outer);
@@ -69,7 +68,8 @@ function summarizePrism(fit) {
     height: Math.max(...vs) - Math.min(...vs),
     shape,
     holes: holes.length,
-    segments: { outer, holes },
+    segments: fit.segments,
+    chamfers: fit.chamfers,
     profileText: describeSegments(outer) + (holes.length ? `／穴 ${holes.length}` : ""),
   };
 }

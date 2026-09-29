@@ -20,7 +20,7 @@ from ipt_build.inventor import K_JOIN, K_SYMMETRIC, Builder
 from tests.fake_inventor import FakeInventor
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "builder"
-NAMES = ["spacer-t50", "finger", "reel", "plate-holes"]
+NAMES = ["spacer-t50", "finger", "blade", "reel", "plate-holes"]
 
 
 def spec_of(name):
@@ -91,6 +91,84 @@ class BuildPartsTest(unittest.TestCase):
         self.assertTrue(all(d.closed for d in app.documents))
 
 
+class ChamferTest(unittest.TestCase):
+    """丸刃: 外周 φ240・内径 φ200＋キー溝を厚み 5 で押し出し、穴の縁の両面に C1。"""
+
+    def build(self):
+        app = FakeInventor()
+        [part] = spec_of("blade").parts
+        with tempfile.TemporaryDirectory() as tmp:
+            result = Builder(app).build_part(part, Path(tmp))
+        return app, part, result
+
+    def test_chamfers_the_hole_edges_on_both_caps_in_one_feature_in_cm(self):
+        app, part, result = self.build()
+        self.assertIsNone(result.error)
+        self.assertTrue(result.ok, f"体積 {result.volume_diff:+.2e} / 表面積 {result.area_diff:+.2e}")
+        log = app.documents[0].ComponentDefinition.log
+        self.assertEqual(log[0], ("extrude", 0.5, K_SYMMETRIC, K_JOIN))
+        # 代替オブジェクトのループ番号は「円 → 線をたどったループ」の順（外周の円が 0、穴が 1）
+        self.assertEqual(log[1], ("chamfer", 0.1, [(1, -1), (1, 1)]))
+        self.assertEqual([(c.loop, c.side, c.distance) for c in part.chamfers], [(1, -1, 1.0), (1, 1, 1.0)])
+
+    def test_selects_every_edge_of_the_loop_on_the_cap_and_nothing_else(self):
+        app = FakeInventor()
+        [part] = spec_of("blade").parts
+        builder = Builder(app)
+        with tempfile.TemporaryDirectory() as tmp:
+            builder.build_part(part, Path(tmp))
+        body = app.documents[0].ComponentDefinition.SurfaceBodies.Item(1)
+        for chamfer in part.chamfers:
+            edges = builder.cap_edges(body, part, chamfer)
+            self.assertEqual(len(edges), len(part.loops[chamfer.loop]))
+            self.assertEqual({(e.loop, e.side) for e in edges}, {(1, chamfer.side)})
+
+    def test_the_chamfer_changes_volume_and_area_as_expected(self):
+        # 評価関数の確認: 面取りを作らないと、削られるはずの材料が残り、体積の照合で不一致になること
+        with mock.patch.object(Builder, "add_chamfers", lambda self, definition, part: None):
+            _, part, result = self.build()
+        self.assertFalse(result.ok)
+        self.assertGreater(result.volume_diff, 1e-3)
+
+    def test_description_mentions_the_chamfer(self):
+        from ipt_build.inventor import describe
+
+        self.assertIn("面取り C1（縁 2 か所）", describe(spec_of("blade").parts[0]))
+
+
+class PolygonChamferTest(unittest.TestCase):
+    """ipt_build.chamfer（折れ線の方法）を手計算の式と照合する（JS 版とは独立）。"""
+
+    def test_square_circle_and_a_vanishing_corner_cut(self):
+        from ipt_build.chamfer import chamfer
+
+        root2 = math.sqrt(2)
+        square = [(0, 0), (10, 0), (10, 10), (0, 10)]
+        cut = [(0, 0), (10, 0), (10, 9.5), (9.5, 10), (0, 10)]
+        n = 20000
+        circle = [(7 * math.cos(2 * math.pi * i / n), 7 * math.sin(2 * math.pi * i / n)) for i in range(n)]
+        vanish = 0.5 / (2 - root2)  # 切り口の辺が消える距離
+
+        def cut_removed(s):  # 外周を内側へ s ずらしたときに削られる面積
+            return (100 - 0.125) - ((10 - 2 * s) ** 2 - max(0.5 - (2 - root2) * s, 0) ** 2 / 2)
+
+        steps = 20000
+        integral = sum(cut_removed((k + 0.5) / steps) for k in range(steps)) / steps  # 中点則（区切りの前後で 2 次式）
+        cases = [
+            # 正方形の外周: 削られる面積 100 − (10 − 2s)² = 40s − 4s² → 体積 20 − 4/3
+            (square, False, 1, 20 - 4 / 3, 100 - 64),
+            # 正方形の穴: (10 + 2s)² − 100 = 40s + 4s² → 体積 20 + 4/3
+            (square, True, 1, 20 + 4 / 3, 144 - 100),
+            (circle, True, 1.5, math.pi * (7 * 1.5**2 + 1.5**3 / 3), math.pi * (8.5**2 - 49)),
+            (cut, False, 1, integral, cut_removed(1)),
+        ]
+        for points, is_hole, d, volume, face in cases:
+            v, f = chamfer(points, d, is_hole)
+            self.assertAlmostEqual(v, volume, delta=2e-6 * abs(volume) + 1e-7)
+            self.assertAlmostEqual(f, face, delta=2e-6 * abs(face) + 1e-9)
+        self.assertGreater(1, vanish)  # 面取り 1 の途中で切り口の辺が消える場合を含む
+
+
 class AssemblyTest(unittest.TestCase):
     def test_reel_places_459_occurrences_at_the_captured_positions(self):
         app = FakeInventor()
@@ -156,6 +234,18 @@ class SpecTest(unittest.TestCase):
         json.dump(data, tmp)
         tmp.close()
         return tmp.name
+
+    def test_rejects_chamfers_on_revolves_or_thicker_than_half(self):
+        blade = json.loads((FIXTURES / "blade.inventor.json").read_text(encoding="utf-8"))
+        revolve = json.loads((FIXTURES / "spacer-t50.inventor.json").read_text(encoding="utf-8"))
+        revolve["parts"][0]["chamfers"] = blade["parts"][0]["chamfers"]
+        thick = json.loads(json.dumps(blade))
+        thick["parts"][0]["chamfers"][0]["distance"] = 2.5
+        wrong_side = json.loads(json.dumps(blade))
+        wrong_side["parts"][0]["chamfers"][0]["side"] = "Z"
+        for label, data in {"revolve": revolve, "thick": thick, "side": wrong_side, "version": {**blade, "version": 3}}.items():
+            with self.subTest(label=label), self.assertRaises(SpecError):
+                load_spec(self.write(data))
 
     def test_rejects_other_formats_versions_units_and_open_loops(self):
         base = json.loads((FIXTURES / "finger.inventor.json").read_text(encoding="utf-8"))

@@ -2,16 +2,17 @@
 //
 // 部品ごとのローカル座標系（mm）:
 //   回転体   … 断面を XY 平面に「x = 半径、y = 軸方向」で描き、Y 軸まわりに回す。部分回転は XY 平面に対して対称
-//   押し出し … 断面を XY 平面に描き、Z 方向に押し出す。XY 平面に対して対称
+//   押し出し … 断面を XY 平面に描き、Z 方向に押し出す。XY 平面に対して対称。
+//              端面（Z = ±長さ/2）の縁の面取りは chamfers に「どのループの、どちらの端面の縁を、何 mm」で並べる
 // 対称にするのは、Inventor の回転・押し出しの「正方向」の解釈に左右されない形にするため。
 // 同じ形の部品は 1 つにまとめ、取り込んだシーン内の配置（instances）を並べる。
 
 import { add, cross, dot, length, mul, sub } from "../ipt/vec.js";
 import { pointAt } from "../recognize/mesh.js";
-import { distanceToLoop, loopIntegrals } from "./geometry2d.js";
+import { chamferIntegrals, distanceToLoop, insideSection, loopIntegrals, offsetIntoMaterial } from "../recognize/geometry2d.js";
 
 export const FORMAT = "inventor-builder";
-export const VERSION = 1;
+export const VERSION = 2; // 2: 押し出しの面取り（chamfers）を追加
 
 /** float32 由来の誤差を除く: 0.001 mm の格子から 0.0001 mm 以内なら格子に合わせ、それ以外は 0.000001 mm に丸める。 */
 export function snapValue(v) {
@@ -56,10 +57,14 @@ function extrudeFeature(part) {
   const x = mul(projected, 1 / length(projected));
   const alpha = Math.atan2(dot(x, v), dot(x, u));
   const loops = [part.segments.outer, ...part.segments.holes].map((l) => snapLoop(rotateLoop(l, alpha)));
+  const chamfers = (part.chamfers ?? [])
+    .map((c) => ({ loop: c.loop, side: c.side > 0 ? "+Z" : "-Z", distance: snapValue(c.distance) }))
+    .sort((a, b) => a.loop - b.loop || a.side.localeCompare(b.side));
   return {
     kind: "extrude",
     loops,
     extrude: { distance: snapValue(h1 - h0) },
+    ...(chamfers.length && { chamfers }),
     frame: { origin: add(axis.origin, mul(z, (h0 + h1) / 2)), x, y: cross(z, x), z },
   };
 }
@@ -71,7 +76,11 @@ export function featureOf(part) {
   return null;
 }
 
-/** 形状定義から体積（mm³）と表面積（mm²）を厳密に計算する。Inventor が作った部品の検証に使う。 */
+/**
+ * 形状定義から体積（mm³）と表面積（mm²）を厳密に計算する。Inventor が作った部品の検証に使う。
+ * 面取り（等距離 d）は、削られる体積を引き、端面の面積を削られた分だけ減らし、45° の面取り面（端面に投影した面積の √2 倍）を
+ * 加え、側壁をその縁の長さ × d だけ短くする。
+ */
 export function expectedProperties(feature) {
   if (feature.kind === "revolve") {
     const deg = feature.revolve.angle_deg;
@@ -79,18 +88,50 @@ export function expectedProperties(feature) {
     const I = loopIntegrals(feature.loops[0]);
     return { volume: theta * Math.abs(I.moment), area: theta * I.lateral + (deg < 360 ? 2 * Math.abs(I.area) : 0) };
   }
-  const [outer, ...holes] = feature.loops.map(loopIntegrals);
+  const integrals = feature.loops.map(loopIntegrals);
+  const [outer, ...holes] = integrals;
   const section = Math.abs(outer.area) - holes.reduce((s, h) => s + Math.abs(h.area), 0);
-  const perimeter = outer.perimeter + holes.reduce((s, h) => s + h.perimeter, 0);
+  const perimeter = integrals.reduce((s, i) => s + i.perimeter, 0);
   const L = feature.extrude.distance;
-  return { volume: section * L, area: 2 * section + perimeter * L };
+  let volume = section * L, area = 2 * section + perimeter * L;
+  for (const c of feature.chamfers ?? []) {
+    const cut = chamferIntegrals(feature.loops[c.loop], c.distance, c.loop > 0);
+    if (!cut) throw new Error(`ループ ${c.loop} の面取り ${c.distance} mm の輪郭を作れません`);
+    volume -= cut.volume;
+    area += (Math.SQRT2 - 1) * cut.face - integrals[c.loop].perimeter * c.distance;
+  }
+  return { volume, area };
+}
+
+/**
+ * 押し出し（面取りを含む）の表面までの距離。側面は高さ z での断面の輪郭（面取りの範囲では縁を材料側へずらした線）までの
+ * 水平距離、端面は断面の内側にあるときの高さの差。面取り面（45°）では水平距離は実際の距離の √2 倍以下なので、上限を与える。
+ */
+function extrudeDistance([x, y, z], feature, outlines) {
+  const half = feature.extrude.distance / 2;
+  const outlineAt = (h) => {
+    const key = h.toFixed(6);
+    if (!outlines.has(key)) {
+      outlines.set(key, feature.loops.map((loop, k) => {
+        const depth = Math.max(0, ...(feature.chamfers ?? []).filter((c) => c.loop === k)
+          .map((c) => c.distance - (half - (c.side === "+Z" ? h : -h))));
+        return depth > 0 ? offsetIntoMaterial(loop, depth, k > 0).loop : loop;
+      }));
+    }
+    return outlines.get(key);
+  };
+  const clamped = Math.max(-half, Math.min(half, z));
+  const side = Math.hypot(Math.min(...outlineAt(clamped).map((l) => distanceToLoop([x, y], l))), Math.abs(z) - Math.abs(clamped));
+  const cap = insideSection([x, y], outlineAt(Math.sign(z) * half || half)) ? Math.abs(Math.abs(z) - half) : Infinity;
+  return Math.min(side, cap);
 }
 
 /** 元のメッシュの全頂点が、形状定義から再構成した面にどれだけ近いか（最大距離 mm）。変換の正しさの検証に使う。 */
-export function maxDeviation(part, feature) {
+export function maxDeviation(part, feature, vertices = new Set(part.tris)) {
   const f = feature.frame;
+  const outlines = new Map();
   let worst = 0;
-  for (const i of new Set(part.tris)) {
+  for (const i of vertices) {
     const d = sub(pointAt(part.points, i), f.origin);
     const [lx, ly, lz] = [dot(d, f.x), dot(d, f.y), dot(d, f.z)];
     let dist;
@@ -99,10 +140,7 @@ export function maxDeviation(part, feature) {
       dist = distanceToLoop([r, ly], feature.loops[0]);
       const half = (feature.revolve.angle_deg * Math.PI) / 360;
       if (feature.revolve.angle_deg < 360 && r > 1e-6) dist = Math.max(dist, r * Math.max(0, Math.abs(Math.atan2(lz, lx)) - half));
-    } else {
-      const half = feature.extrude.distance / 2;
-      dist = Math.min(Math.abs(Math.abs(lz) - half), ...feature.loops.map((l) => distanceToLoop([lx, ly], l)));
-    }
+    } else dist = extrudeDistance([lx, ly, lz], feature, outlines);
     worst = Math.max(worst, dist);
   }
   return worst;
@@ -127,7 +165,8 @@ function labelOf(part, feature) {
     const base = `φ${short(part.outerDiameter)}x${short(part.length)}`;
     return part.sweepDeg < 360 ? `部分回転_${base}_${short(part.sweepDeg)}deg` : `回転体_${base}`;
   }
-  return `押し出し_${part.shape.replace(/\s+/g, "")}_${short(part.width)}x${short(part.height)}x${short(part.length)}`;
+  const chamfer = [...new Set((feature.chamfers ?? []).map((c) => `_C${short(c.distance)}`))].join("");
+  return `押し出し_${part.shape.replace(/\s+/g, "")}_${short(part.width)}x${short(part.height)}x${short(part.length)}${chamfer}`;
 }
 
 /**
@@ -167,6 +206,7 @@ export function buildInventorSpec(source, recognition) {
         kind: shape.kind,
         sketch: { plane: "XY", loops: shape.loops },
         ...(shape.revolve ? { revolve: { axis: "Y", ...shape.revolve } } : { extrude: { direction: "Z", ...shape.extrude } }),
+        ...(shape.chamfers && { chamfers: shape.chamfers }),
         expect: { volume: round(expect.volume), area: round(expect.area) },
         instances,
       };

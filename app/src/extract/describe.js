@@ -14,7 +14,29 @@ export const EXCLUDED_LABEL = {
   empty: "頂点のない物体",
 };
 
-/** 1 部品の説明（見出しの寸法・補足・種類）。 */
+const CORNER_NOTE_MIN = 1e-3; // mm。これを超える差があれば、角付近の差として書き添える
+
+/** 面取りの説明: 「面取り C1（穴の縁・両面）」。 */
+function describeChamfers(chamfers) {
+  const groups = new Map();
+  for (const c of chamfers) {
+    const key = `${c.loop === 0 ? "外周" : "穴"}の縁|${+c.distance.toFixed(3)}`;
+    groups.set(key, [...(groups.get(key) ?? []), c]);
+  }
+  const text = [...groups].map(([key, list]) => {
+    const [edge, distance] = key.split("|");
+    return `面取り C${distance}（${edge}・${new Set(list.map((c) => c.side)).size > 1 ? "両面" : "片面"}）`;
+  });
+  return text;
+}
+
+/** 変換後の形が元と違う箇所の注意（無ければ null）。 */
+function chamferNote(chamfers) {
+  const corner = Math.max(0, ...chamfers.map((c) => c.cornerDeviation));
+  return corner > CORNER_NOTE_MIN ? `角付近は元の形と最大 ${corner.toFixed(3)} mm 差（CAD 標準の面取りで作るため）` : null;
+}
+
+/** 1 部品の説明（見出しの寸法・補足・注意・種類）。 */
 export function describePart(p) {
   if (p.kind === "revolve") {
     const sector = p.sweepDeg < 360 - 1e-6;
@@ -29,7 +51,8 @@ export function describePart(p) {
     return {
       kind: "prism",
       main: `${fmt(p.width)} × ${fmt(p.height)} × ${fmt(p.length)}`,
-      sub: `断面 ${p.shape}${p.holes ? `（穴 ${p.holes}）` : ""} · 長さ ${fmt(p.length)}`,
+      sub: [`断面 ${p.shape}${p.holes ? `（穴 ${p.holes}）` : ""}`, `長さ ${fmt(p.length)}`, ...describeChamfers(p.chamfers ?? [])].join(" · "),
+      note: chamferNote(p.chamfers ?? []),
     };
   }
   return { kind: "mesh", main: p.bbox.size.map(fmt).join(" × "), sub: p.reason };
@@ -48,7 +71,7 @@ export function describeRecognition(recognition) {
       continue;
     }
     const d = describePart(p);
-    const key = `${d.kind}|${d.main}|${d.sub}`;
+    const key = `${d.kind}|${d.main}|${d.sub}|${d.note ?? ""}`;
     if (!groups.has(key)) groups.set(key, { key, ...d, label: KIND_LABEL[d.kind], tone: TONE[p.kind], ids: [] });
     groups.get(key).ids.push(p.id);
     partInfo.set(p.id, { group: key, text: `${KIND_LABEL[d.kind]} ${d.main} · ${d.sub}` });

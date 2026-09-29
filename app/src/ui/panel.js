@@ -31,11 +31,12 @@ export function renderHeader({ eyebrow, name, meta, isSample, thumbnailUrl }) {
  * 強調表示の行を作る（カーソル・キーボードのフォーカスで連動）。
  * @returns {HTMLButtonElement}
  */
-function featureRow({ kind, dim, count, sub, tone }, onEnter, onLeave) {
+function featureRow({ kind, dim, count, sub, note, tone }, onEnter, onLeave) {
   const button = el("button", "feature");
   button.type = "button";
   if (tone) button.dataset.tone = tone;
   button.append(el("span", "kind", kind), el("span", "dim", dim), el("span", "count", `×${count}`), el("span", "sub", sub));
+  if (note) button.append(el("span", "note", note));
   for (const type of ["pointerenter", "focus"]) button.addEventListener(type, onEnter);
   for (const type of ["pointerleave", "blur"]) button.addEventListener(type, onLeave);
   return button;
@@ -116,7 +117,7 @@ export function renderHtmlPanel({ describe }, handlers) {
     }),
   );
   const rows = renderRows("parts", describe.groups,
-    (g) => ({ kind: g.label, dim: g.main, count: g.ids.length, sub: g.sub, tone: g.tone }), handlers,
+    (g) => ({ kind: g.label, dim: g.main, count: g.ids.length, sub: g.sub, note: g.note, tone: g.tone }), handlers,
     "取り込める形状がありません。元のページで部品が表示されているか確かめてください。");
   $("excluded-summary").textContent = `除外したもの（${counts.excluded}）`;
   definitionList("excluded", describe.excluded.length ? describe.excluded : [["なし", ""]]);
