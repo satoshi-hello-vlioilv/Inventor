@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """画面の本体（Flask）。画面（templates/index.html）と JavaScript（static/js）を配り、ブラウザだけではできないことを受け持つ:
-起動ファイルへドロップされたファイルを渡す・サンプルを配る・画面が閉じられたら止まる（lifecycle.py）。
+起動ファイルへドロップされたファイルを渡す・サンプルを配る・Inventor で作る（builds.py）・画面が閉じられたら止まる（lifecycle.py）。
 
 安全のため、次の 2 つを守る（ほかの Web サイトから、この PC のファイルを読ませない）:
     - 宛先の名前（Host）が 127.0.0.1・localhost の依頼だけを受け付ける（名前を 127.0.0.1 に向けて読み取る攻撃を断つ）
@@ -39,6 +39,10 @@ def create_app(test_config: dict | None = None) -> Flask:
     )
     if test_config:
         app.config.update(test_config)
+    if "BUILDS" not in app.config:
+        from .builds import Builds  # noqa: PLC0415
+
+        app.config["BUILDS"] = Builds(settings.output_root())
 
     @app.before_request
     def only_this_pc():

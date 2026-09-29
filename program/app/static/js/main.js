@@ -1,10 +1,12 @@
 // アプリの入口: 受け取ったファイルを読み（formats/open.js）、3D（viewer/）と仕様パネル（ui/panel.js）に表示し、両者を連動させる。
 //   .ipt・.iam・.stp … モデル（部品・組立）として読み、表示する
 //   .html            … 隔離した iframe で動かし、three.js の形状を取り出して認識し（convert/recognize）、変換データを作る
+//   .json            … 変換データ（.inventor.json）。作る形を 3D で示し（convert/preview.js）、「Inventor で作る」で作る
 // ファイルの受け付けは ui/files.js、ローカルサーバー（サンプル・起動ファイルから届いたもの・生存の知らせ）は server.js、
-// 起動画面は ui/start.js、変換データの保存は ui/convert.js。
+// 起動画面は ui/start.js、変換の節は ui/convert.js、「Inventor で作る」は ui/build.js。
 
-import { buildInventorSpec } from "./convert/inventor.js";
+import { buildInventorSpec, readSpec } from "./convert/inventor.js";
+import { describeSpec, previewScene } from "./convert/preview.js";
 import { recognizeSnapshot } from "./convert/recognize/index.js";
 import { OPENABLE, detectFormat, explainError, partOf, readModel } from "./formats/open.js";
 import { buildDisplayMeshes, describeRecognition } from "./html/describe.js";
@@ -12,7 +14,8 @@ import { SourceFrame } from "./html/frame.js";
 import { setSpec } from "./ui/convert.js";
 import { claimLaunch, keepAlive, listSamples } from "./server.js";
 import { PartLibrary, acceptFiles } from "./ui/files.js";
-import { renderAsmPanel, renderHeader, renderHtmlPanel, renderIptPanel, setPanelMode } from "./ui/panel.js";
+import { initBuild } from "./ui/build.js";
+import { renderAsmPanel, renderHeader, renderHtmlPanel, renderIptPanel, renderSpecPanel, setPanelMode } from "./ui/panel.js";
 import { LAUNCHER } from "./ui/product.js";
 import { startDialog } from "./ui/start.js";
 import { describeAssembly, describeBody } from "./viewer/describe.js";
@@ -23,7 +26,7 @@ const readout = $("readout");
 const readoutChip = readout.querySelector(".chip");
 // 何も指していないときの案内。指す単位（部品は面、組立・HTML は部品）に合わせる
 const IDLE_TEXT = { ipt: readoutChip.textContent, asm: "部品にカーソルを合わせると、名前と寸法を表示します" };
-IDLE_TEXT.html = IDLE_TEXT.asm;
+IDLE_TEXT.html = IDLE_TEXT.spec = IDLE_TEXT.asm;
 const SETTLE_MS = 1200; // 元のページの最初の描画から取り込みまで待つ時間（初期化の完了待ち）
 const READY_TIMEOUT_MS = 15000;
 const EYEBROW = {
@@ -74,7 +77,7 @@ const showAlert = (message) => showMessage("alert", message);
 /** 誤りではない知らせ（開かなかったファイルなど）。 */
 const showNotice = (message) => showMessage("notice", message);
 
-/** 表示モード: empty（何も開いていない）・ipt（部品）・asm（組立）・html。 */
+/** 表示モード: empty（何も開いていない）・ipt（部品）・asm（組立）・html・spec（変換データ）。 */
 function setMode(mode) {
   $("app").classList.toggle("is-html", mode === "html");
   $("app").classList.toggle("is-empty", mode === "empty");
@@ -212,22 +215,47 @@ function loadHtml(text, name, isSample = false) {
   }, READY_TIMEOUT_MS);
 }
 
+// ---- 変換データ（.inventor.json）-----------------------------------------------------
+function loadSpec(text, name, isSample = false) {
+  let spec;
+  try {
+    spec = readSpec(text);
+  } catch (error) {
+    showAlert(`${name}: ${error.message}`);
+    return;
+  }
+  showAlert("");
+  assembly = null;
+  setMode("spec");
+  const { file, captured_at: at } = spec.source;
+  const when = at && !Number.isNaN(Date.parse(at)) ? new Date(at).toLocaleString("ja-JP") : null;
+  renderHeader({ eyebrow: "変換データ（Inventor 用）", name, meta: [file && `${file} から取り込み`, when].filter(Boolean).join(" · "), isSample, thumbnailUrl: null });
+  const describe = describeSpec(spec);
+  viewer?.show(previewScene(spec));
+  const rows = renderSpecPanel({ describe }, rowHandlers((g) => g.ids));
+  current = { info: describe.partInfo, rows };
+  highlight([]);
+  setSpec(spec, name);
+}
+
 async function load(bytes, name, isSample = false) {
   startDialog.close();
   showNotice("");
-  if (detectFormat(name, bytes) === "html") loadHtml(new TextDecoder().decode(bytes), name, isSample);
+  if (SPEC.test(name)) loadSpec(new TextDecoder().decode(bytes), name, isSample);
+  else if (detectFormat(name, bytes) === "html") loadHtml(new TextDecoder().decode(bytes), name, isSample);
   else await loadModel(bytes, name, isSample);
 }
 
 // ---- 受け取ったファイル（ドロップ・選択・起動ファイル）-----------------------------
 // 開けるものの最初の 1 つを開く（組立 → STEP → そのほかの順）。2 つ以上なら起動画面の「受け取ったファイル」に並べて切り替える。
 const library = new PartLibrary(); // 組立が参照する部品を探す場所（受け取ったファイル・サンプル）
+const SPEC = /\.json$/i; // 変換データ（.inventor.json）
+const opens = (item) => OPENABLE.test(item.name) || SPEC.test(item.name);
 const OPEN_FIRST = [/\.iam$/i, /\.(stp|step)$/i];
 const rank = (item) => {
   const i = OPEN_FIRST.findIndex((re) => re.test(item.name));
   return i < 0 ? OPEN_FIRST.length : i;
 };
-const SPEC = /\.json$/i;
 const nameList = (items) => items.map((i) => i.name).join("、");
 let received = [];
 let shown = null; // 表示中の受け取ったファイル（サンプルを開いたら null）
@@ -275,13 +303,11 @@ async function receive(items) {
     return;
   }
   items = [...items].sort((a, b) => rank(a) - rank(b));
-  const usable = items.filter((i) => OPENABLE.test(i.name));
-  const specs = items.filter((i) => SPEC.test(i.name));
-  const others = items.filter((i) => !OPENABLE.test(i.name) && !SPEC.test(i.name));
-  if (!usable.length && !specs.length) usable.push(others.shift()); // 拡張子が違っても、中身で判断して開いてみる
+  const usable = items.filter(opens);
+  const others = items.filter((i) => !opens(i));
+  if (!usable.length) usable.push(others.shift()); // 拡張子が違っても、中身で判断して開いてみる
   const notes = [];
-  if (specs.length) notes.push(`変換データ（${nameList(specs)}）はこの画面では開きません。Inventor のある PC で、起動ファイル（${LAUNCHER}）にドラッグ＆ドロップすると部品を作ります。`);
-  if (others.length) notes.push(`${nameList(others)} は開けません（対応しているのは .ipt・.iam・.stp・.html）。`);
+  if (others.length) notes.push(`${nameList(others)} は開けません（対応しているのは .ipt・.iam・.stp・.html・.inventor.json）。`);
   if (!usable.length) {
     startDialog.close();
     showAlert(notes.join(" "));
@@ -328,6 +354,7 @@ startDialog.setSamples(samples, async (item) => {
 // ---- 起動 ----------------------------------------------------------------------
 setMode("empty");
 keepAlive({ onLost: () => showAlert(`アプリのサーバーが止まりました。起動ファイル（${LAUNCHER}）で開き直してください。`) });
+initBuild(); // 保存先と、作っている途中の仕事（画面を開き直したとき）を読む
 const launch = (await launchReady) ?? { items: [], parts: [], missing: [] };
 launch.parts.forEach((item) => library.add(item)); // 組立と同じフォルダの部品（組立が参照する部品を探す置き場）
 if (launch.items.length) await receive(launch.items); // 開き終えてから起動画面（案内）を出す（開くと起動画面は閉じるため）

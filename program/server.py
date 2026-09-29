@@ -40,7 +40,8 @@ def main() -> int:
     cfg = settings.SERVER
     life = Lifecycle(idle_grace=float(cfg["idle_shutdown_seconds"]), heartbeat_interval=float(cfg["heartbeat_interval_seconds"]),
                      hidden_grace=float(cfg["hidden_idle_shutdown_seconds"]), no_client_grace=float(cfg["no_client_shutdown_seconds"]),
-                     enabled=bool(cfg["auto_shutdown_on_close"]), info_file=settings.SERVER_INFO)
+                     enabled=bool(cfg["auto_shutdown_on_close"]), info_file=settings.SERVER_INFO,
+                     busy=app.config["BUILDS"].busy)  # Inventor で作っている間は止めない
     app.config["LIFECYCLE"] = life
     write_info(app)
     life.start_watchdog()

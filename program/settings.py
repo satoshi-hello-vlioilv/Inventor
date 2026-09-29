@@ -6,6 +6,7 @@ Flask に頼らない（Flask が無い PC でも、起動の係はここを読�
 
     program/                          アプリの中身（このファイルの置き場）
     %LOCALAPPDATA%\\Inventor3DTool\\    PC ごとの作業場所: logs（記録）・runtime（動いているサーバーの名乗り・受け渡し）・pycache
+    ドキュメント\\Inventor 3Dツール\\   「Inventor で作る」の保存先（config/appsettings.json の build.output_dir で変えられる）
 """
 from __future__ import annotations
 
@@ -47,7 +48,36 @@ def load_config(path: Path = CONFIG) -> dict:
         return {}
 
 
-SERVER = {**SERVER_DEFAULTS, **(load_config().get("server") or {})}
+_CONFIG = load_config()
+SERVER = {**SERVER_DEFAULTS, **(_CONFIG.get("server") or {})}
 HOST = "127.0.0.1"  # この PC の中からだけ受け付ける（設定では変えない）
 PORT = int(SERVER["port"])
 URL = f"http://{HOST}:{PORT}/"
+BUILD = {"output_dir": "", **(_CONFIG.get("build") or {})}  # output_dir: 空なら ドキュメント\Inventor 3Dツール
+
+
+def documents_dir() -> Path:
+    """この PC の「ドキュメント」（OneDrive などへ移してあれば、移した先）。"""
+    if os.name == "nt":
+        import ctypes  # noqa: PLC0415
+
+        buffer = ctypes.create_unicode_buffer(260)
+        if ctypes.windll.shell32.SHGetFolderPathW(None, 5, None, 0, buffer) == 0 and buffer.value:  # 5 = CSIDL_PERSONAL
+            return Path(buffer.value)
+    return Path.home() / "Documents"
+
+
+def output_root() -> Path:
+    """「Inventor で作る」の保存先（この下に「<名前>_ipt」を作る）。"""
+    configured = str(BUILD["output_dir"]).strip()
+    return Path(os.path.expandvars(configured)) if configured else documents_dir() / APP_NAME
+
+
+def child_env() -> dict:
+    """このアプリが起こす Python のプロセス（サーバー・部品を作る係）の環境。
+    program を import でき、.pyc を program フォルダに作らず、同じ作業場所を使う。"""
+    env = os.environ.copy()
+    env["INVENTOR_TOOL_LOCAL_ROOT"] = str(LOCAL_ROOT)
+    env["PYTHONPYCACHEPREFIX"] = str(PYCACHE)
+    env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(BASE), env.get("PYTHONPATH")]))
+    return env

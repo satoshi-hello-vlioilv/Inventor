@@ -18,7 +18,7 @@ from ipt_build import SpecError, load_spec
 from ipt_build import inventor as inventor_module
 from ipt_build.__main__ import main
 from ipt_build.inventor import K_JOIN, K_SYMMETRIC, Builder
-from tests.fake_inventor import FakeInventor
+from tests.fake_inventor import FakeComError, FakeInventor
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "builder"
 NAMES = ["spacer-t50", "finger", "blade", "reel", "plate-holes"]
@@ -294,6 +294,51 @@ class CommandTest(unittest.TestCase):
         self.assertTrue(all(p["ok"] for p in report["parts"]))
         self.assertEqual(report["assembly"]["placed"], 459)
         self.assertEqual((app.ScreenUpdating, app.SilentOperation), (True, False))  # 元の設定に戻す
+
+
+class EventsTest(unittest.TestCase):
+    """--events: アプリの「Inventor で作る」が読む進み具合（1 行 1 つの JSON）。"""
+
+    def run_events(self, spec_path, connect):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(inventor_module, "connect", side_effect=connect), \
+                redirect_stdout(io.StringIO()) as out:
+            code = main([str(spec_path), "--out", tmp, "--events"])
+        lines = out.getvalue().splitlines()
+        self.assertTrue(all(line.isascii() for line in lines), "受け取る側の文字コードに左右されないよう ASCII だけ")
+        return code, [json.loads(line) for line in lines]
+
+    def test_reports_every_step_with_the_whole_status(self):
+        code, events = self.run_events(FIXTURES / "reel.inventor.json", lambda: FakeInventor())
+        self.assertEqual(code, 0)
+        kinds = [e["event"] for e in events]
+        self.assertEqual(kinds, ["connecting", "start"] + ["part"] * 25 + ["assembly", "done"])
+        first, last = events[0], events[-1]
+        self.assertEqual([p["verdict"] for p in first["parts"]], [None] * 25, "まだ作っていない部品も並べる")
+        self.assertEqual((last["good"], last["total"]), (25, 25))
+        self.assertTrue(all(p["verdict"] == "ok" and p["file"].endswith(".ipt") for p in last["parts"]))
+        self.assertEqual(last["assembly"], {"file": "spool_reel_assembly_v2.iam", "placed": 459, "error": None})
+        self.assertEqual([e["good"] for e in events if e["event"] == "part"], list(range(1, 26)), "部品ごとに 1 つずつ進む")
+
+    def test_mismatch_is_reported_with_the_difference(self):
+        with mock.patch.object(inventor_module, "cm", lambda v: v):  # 単位換算の誤り → 不一致
+            code, events = self.run_events(FIXTURES / "finger.inventor.json", lambda: FakeInventor())
+        self.assertEqual(code, 1)
+        self.assertEqual(events[-1]["parts"][0]["verdict"], "mismatch")
+        self.assertAlmostEqual(events[-1]["parts"][0]["volume_diff"], 10**3 - 1, places=6)
+
+    def test_errors_are_one_event_with_the_reason(self):
+        tmp = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8")
+        tmp.write('{"format": "other"}')
+        tmp.close()
+        code, events = self.run_events(tmp.name, lambda: FakeInventor())
+        self.assertEqual((code, [e["event"] for e in events]), (2, ["error"]))
+        self.assertIn("inventor-builder", events[0]["message"])
+
+        def refuse():
+            raise FakeComError("Inventor のライセンスが見つかりません")
+        code, events = self.run_events(FIXTURES / "finger.inventor.json", refuse)
+        self.assertEqual((code, [e["event"] for e in events]), (2, ["connecting", "error"]))
+        self.assertEqual(events[-1]["message"], "Inventor のライセンスが見つかりません", "COM の説明をそのまま伝える")
 
 
 if __name__ == "__main__":

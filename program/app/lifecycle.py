@@ -12,6 +12,7 @@
     - 閉じる・再読込     : idle_grace（再読込なら新しいページがすぐ知らせ直す）
     - PC のスリープ復帰  : 見張りの眠りが大きく延びたら、ブラウザが知らせ直すまでの猶予を与え直す
     - 一度もつながらない : no_client_grace（既定 10 分）。ブラウザが開けなかったとき、見えないサーバーを残し続けない
+    - Inventor で作っている間（busy）は止めない（画面を閉じても、作り終えるまで待つ。明示の終了だけは止まる）
 """
 from __future__ import annotations
 
@@ -20,19 +21,22 @@ import os
 import threading
 import time
 from pathlib import Path
+from typing import Callable
 
 log = logging.getLogger("inventor-3d-tool")
 
 
 class Lifecycle:
     def __init__(self, idle_grace: float = 12.0, heartbeat_interval: float = 3.0, enabled: bool = True,
-                 hidden_grace: float = 4 * 3600.0, no_client_grace: float = 600.0, info_file: Path | None = None):
+                 hidden_grace: float = 4 * 3600.0, no_client_grace: float = 600.0, info_file: Path | None = None,
+                 busy: Callable[[], bool] = lambda: False):
         self.idle_grace = float(idle_grace)
         self.hidden_grace = max(float(hidden_grace), self.idle_grace)
         self.no_client_grace = float(no_client_grace)
         self.heartbeat_interval = float(heartbeat_interval)
         self.enabled = bool(enabled)
         self.info_file = Path(info_file) if info_file else None
+        self.busy = busy
         self._last_beat = None        # 最後に知らせを受けた時刻
         self._visible = True          # 画面が表に出ているか（最後の知らせの申告）
         self._explicit_stop = False   # 明示の終了
@@ -65,7 +69,7 @@ class Lifecycle:
         with self._lock:
             if self._explicit_stop:
                 return "explicit"
-            if not self.enabled:
+            if not self.enabled or self.busy():
                 return None
             now = time.monotonic()
             if self._last_beat is None:

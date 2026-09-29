@@ -1,7 +1,8 @@
-// 右側の仕様パネル。3 つの表示を持つ。
+// 右側の仕様パネル。4 つの表示を持つ。
 //   ipt  … 部品（.ipt・STEP の部品・組立の中の部品）: 寸法・形状要素・位相・材質と質量・ファイル構造
 //   asm  … 組立（.iam・STEP）: 外形寸法・部品表・見つからない部品・構成
-//   html … three.js の HTML: 取り込み結果・部品・除外したもの
+//   html … three.js の HTML: 取り込み結果・Inventor へ変換・部品・除外したもの
+//   spec … 変換データ（.inventor.json）: 中身の数・Inventor へ変換・部品
 
 import { AXES, fmt, fmtMass, fmtSize } from "../viewer/describe.js";
 
@@ -58,6 +59,19 @@ function renderRows(listId, groups, toRow, { onEnter, onLeave, onClick }, emptyT
   });
   $(listId).replaceChildren(...(items.length ? items : [el("li", "empty", emptyText)]));
   return rows;
+}
+
+/** 数の札（色・名前・数）。items: [tone, 名前, 数, 説明（カーソルを合わせたとき）] */
+function renderTally(id, items) {
+  $(id).replaceChildren(
+    ...items.map(([tone, label, value, title]) => {
+      const chip = el("span", "tally-chip");
+      chip.dataset.tone = tone;
+      chip.title = title;
+      chip.append(el("span", "swatch"), el("span", null, label), el("b", "num", value));
+      return chip;
+    }),
+  );
 }
 
 const definitionList = (id, pairs) => $(id).replaceChildren(...pairs.flatMap(([k, v]) => [el("dt", null, k), el("dd", null, v)]));
@@ -134,15 +148,7 @@ export function renderAsmPanel({ describe, scene }, handlers) {
     ["exact", "配置", `${scene.instances.length} か所`, "組立の中の部品の数"],
   ];
   if (describe.missing.length) tally.push(["missing", "見つからない", `${describe.missing.length} 種類`, "部品ファイルが無く、表示できない部品"]);
-  $("asm-tally").replaceChildren(
-    ...tally.map(([tone, label, value, title]) => {
-      const chip = el("span", "tally-chip");
-      chip.dataset.tone = tone;
-      chip.title = title;
-      chip.append(el("span", "swatch"), el("span", null, label), el("b", "num", value));
-      return chip;
-    }),
-  );
+  renderTally("asm-tally", tally);
   const row = (g) => ({
     kind: String(g.number).padStart(2, "0"),
     dim: g.name,
@@ -178,24 +184,32 @@ export function renderAsmPanel({ describe, scene }, handlers) {
  */
 export function renderHtmlPanel({ describe }, handlers) {
   const { counts } = describe;
-  const tally = [
+  renderTally("tally", [
     ["exact", "正確", counts.exact, "回転体・押し出しとして寸法を復元"],
     ["approx", "近似", counts.approx, "三角形のまま（円は多角形）"],
     ["excluded", "除外", counts.excluded, "部品ではない表示物"],
-  ];
-  $("tally").replaceChildren(
-    ...tally.map(([tone, label, n, title]) => {
-      const chip = el("span", "tally-chip");
-      chip.dataset.tone = tone;
-      chip.title = title;
-      chip.append(el("span", "swatch"), el("span", null, label), el("b", "num", n));
-      return chip;
-    }),
-  );
+  ]);
   const rows = renderRows("parts", describe.groups,
     (g) => ({ kind: g.label, dim: g.main, count: g.ids.length, sub: g.sub, note: g.note, tone: g.tone }), handlers,
     "取り込める形状がありません。元のページで部品が表示されているか確かめてください。");
   $("excluded-summary").textContent = `除外したもの（${counts.excluded}）`;
   definitionList("excluded", describe.excluded.length ? describe.excluded : [["なし", ""]]);
   return rows;
+}
+
+/**
+ * 変換データ（.inventor.json）の表示。describe は convert/preview.js の describeSpec の結果。
+ * @returns {Map<string, HTMLElement>} 部品のキー → 行
+ */
+export function renderSpecPanel({ describe }, handlers) {
+  const { counts } = describe;
+  const tally = [
+    ["exact", "作る部品", `${counts.parts} 種類`, "回転体・押し出しとして寸法が書かれた部品"],
+    ["exact", "配置", `${counts.placed} か所`, "組立の中の部品の数（2 か所以上なら組立も作る）"],
+  ];
+  if (counts.skipped) tally.push(["approx", "作らない", `${counts.skipped} 個`, "取り込んだときに近似（三角形のまま）だった部品"]);
+  renderTally("spec-tally", tally);
+  return renderRows("parts", describe.groups,
+    (g) => ({ kind: g.label, dim: g.main, count: g.ids.length, sub: g.sub, note: g.note, tone: g.tone, title: g.name }), handlers,
+    "作れる部品がありません");
 }
