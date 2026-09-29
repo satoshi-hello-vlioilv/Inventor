@@ -5,7 +5,8 @@ rem   Inventor部品ビューア.vbs が、黒い画面を出さずにこのフ�
 rem   VBScript が使えない環境では、このファイルを直接ダブルクリック・ドロップしてもよい（黒い画面が出るだけ）。
 rem
 rem   引数なし                ビューアを開く
-rem   .ipt .html .htm         ビューアで開く（まとめて 1 つのウィンドウ。2 つ以上は起動画面の一覧から切り替える）
+rem   .ipt .iam .stp .step .html .htm   ビューアで開く（まとめて 1 つのウィンドウ。2 つ以上は起動画面の一覧から切り替える）
+rem                         .iam は、同じフォルダの .ipt（組立が参照する部品）も一緒に送る
 rem   .json（変換データ）     Python で Inventor の部品を作る（確認はダイアログ、進み具合と結果は HTML のページ）
 rem   それ以外                ビューアで「開けない」と知らせる
 rem
@@ -64,13 +65,13 @@ rem 前のファイルの結果が残らないよう、先に空にする（読�
 type nul > "%WORK%\name.b64"
 cmd /u /c dir /b /a-d "%~1" > "%WORK%\name.txt" 2>nul
 certutil -f -encode "%WORK%\name.txt" "%WORK%\name.b64" >nul
-rem 中身はビューアで開けるもの（.ipt .html .htm）だけ送る。それ以外は名前だけ送り、ビューアが「開けない」と知らせる
+rem 中身はビューアで開けるもの（.ipt .iam .stp .step .html .htm）だけ送る。それ以外は名前だけ送り、ビューアが「開けない」と知らせる
 type nul > "%WORK%\data.b64"
-if /i "%~x1"==".ipt" certutil -f -encode "%~1" "%WORK%\data.b64" >nul
-if /i "%~x1"==".html" certutil -f -encode "%~1" "%WORK%\data.b64" >nul
-if /i "%~x1"==".htm" certutil -f -encode "%~1" "%WORK%\data.b64" >nul
+for %%E in (.ipt .iam .stp .step .html .htm) do if /i "%~x1"=="%%E" certutil -f -encode "%~1" "%WORK%\data.b64" >nul
 copy /b "%PAGE%" + "%WORK%\open.txt" + "%WORK%\name.b64" + "%WORK%\data.txt" + "%WORK%\data.b64" + "%WORK%\close.txt" "%WORK%\next.html" >nul
 move /y "%WORK%\next.html" "%PAGE%" >nul
+rem 組立は、同じフォルダの部品（.ipt）も送る（ビューアがファイル名で参照先と照合する。重なりはビューアが除く）
+if /i "%~x1"==".iam" for %%F in ("%~dp1*.ipt") do call :add "%%~fF"
 exit /b 0
 
 rem ---- 変換データ: Python で Inventor の部品を作る ----------------------------------

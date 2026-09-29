@@ -157,6 +157,13 @@ kbd { font: 500 11px var(--font-ui); padding: 0 4px; border: 1px solid var(--rul
 [data-tone="exact"] { --tone: var(--steel); }
 [data-tone="approx"] { --tone: var(--approx); }
 [data-tone="excluded"] { --tone: var(--rule); }
+[data-tone="missing"] { --tone: var(--approx); }
+/* 部品表: 部品名は長いので、寸法の欄より小さい字で折り返す。行を押すとその部品を開く */
+.features.is-bom .feature { cursor: pointer; }
+.features.is-bom .feature .kind { font: 500 12px var(--font-num); }
+.features.is-bom .feature .dim { font: 500 13px/1.45 var(--font-ui); overflow-wrap: anywhere; }
+.features.is-bom .feature:focus-visible { outline-offset: -2px; }
+.back { align-self: flex-start; }
 .tally { display: flex; flex-wrap: wrap; gap: 6px; }
 .tally-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--rule); border-radius: 999px; background: var(--panel); font-size: 12.5px; }
 .tally-chip .swatch { width: 10px; height: 10px; border-radius: 3px; background: var(--tone); }
@@ -319,7 +326,7 @@ kbd { font: 500 11px var(--font-ui); padding: 0 4px; border: 1px solid var(--rul
     <div class="readout" id="readout" aria-live="polite"><span class="chip">面にカーソルを合わせると、種類と寸法を表示します</span></div>
   </main>
 
-  <aside class="sheet" aria-label="部品の仕様">
+  <aside class="sheet" aria-label="部品・組立の仕様">
     <header class="file">
       <div class="file-row">
         <img class="thumb" id="thumb" alt="Inventor が保存したサムネイル" title="Inventor が保存したサムネイル（表示の見比べ用）" hidden>
@@ -329,10 +336,11 @@ kbd { font: 500 11px var(--font-ui); padding: 0 4px; border: 1px solid var(--rul
           <p class="meta" id="file-source"></p>
         </div>
       </div>
+      <button type="button" class="link back" id="back-to-assembly" hidden>← 組立に戻る</button>
       <button type="button" class="primary" id="open">ファイルを開く</button>
-      <p class="drop-hint">Inventor の部品（.ipt）、または three.js を使った HTML（.html）。画面へのドラッグ＆ドロップ、<kbd>Ctrl</kbd>+<kbd>O</kbd> でも開けます</p>
+      <p class="drop-hint">Inventor の部品（.ipt）・組立（.iam。部品の .ipt も一緒に）、STEP（.stp）、three.js を使った HTML（.html）。画面へのドラッグ＆ドロップ、<kbd>Ctrl</kbd>+<kbd>O</kbd> でも開けます</p>
       <p class="samples"><button type="button" class="link" id="show-start">サンプル・使い方</button></p>
-      <input type="file" id="file-input" accept=".ipt,.html,.htm" multiple hidden>
+      <input type="file" id="file-input" accept=".ipt,.iam,.stp,.step,.html,.htm" multiple hidden>
       <p class="alert" id="alert" role="alert" hidden></p>
       <p class="notice" id="notice" role="status" hidden></p>
     </header>
@@ -357,9 +365,23 @@ kbd { font: 500 11px var(--font-ui); padding: 0 4px; border: 1px solid var(--rul
       <summary id="excluded-summary">除外したもの</summary>
       <dl class="topology" id="excluded"></dl>
     </details>
-    <section data-mode="ipt" hidden>
+    <section data-mode="ipt asm" hidden>
       <h2>外形寸法<span class="unit">mm</span></h2>
       <dl class="dims" id="dims"></dl>
+    </section>
+    <section data-mode="asm" hidden>
+      <h2>部品表<span class="unit">行を押すと、その部品を開きます</span></h2>
+      <div class="tally" id="asm-tally"></div>
+      <ul class="features is-bom" id="bom"></ul>
+    </section>
+    <section data-mode="asm" id="missing-section" hidden>
+      <h2>見つからない部品</h2>
+      <p class="convert-hint" id="missing-hint">組立が参照する部品ファイル（.ipt）を、この画面にドラッグ＆ドロップすると組立に加わります。行を押すとファイルを選べます。</p>
+      <ul class="features is-bom" id="missing"></ul>
+    </section>
+    <section data-mode="asm" hidden>
+      <h2>構成</h2>
+      <dl class="topology" id="asm-info"></dl>
     </section>
     <section data-mode="ipt" hidden>
       <h2>形状要素</h2>
@@ -382,13 +404,13 @@ kbd { font: 500 11px var(--font-ui); padding: 0 4px; border: 1px solid var(--rul
     <p class="hint">ドラッグで回転、右ドラッグで移動、ホイールで拡大縮小。一覧の行にカーソルを合わせると、該当する面・部品が強調されます。ファイルはブラウザ内だけで解析し、外部には送信しません（HTML が読み込む three.js などは、そのページの指定どおり取得します）。</p>
   </aside>
 </div>
-<div class="drop-overlay" id="drop-overlay" hidden><p>ドロップして開く（.ipt / .html）</p></div>
+<div class="drop-overlay" id="drop-overlay" hidden><p>ドロップして開く（.ipt / .iam / .stp / .html）</p></div>
 
 <dialog class="start" id="start" aria-labelledby="start-title">
   <div class="start-body">
     <header class="start-head">
       <h1 id="start-title">Inventor 部品ビューア</h1>
-      <p>Inventor の部品（.ipt）を表示し、three.js で作った 3D モデル（.html）を Inventor の部品に変換します。</p>
+      <p>Inventor の部品（.ipt）・組立（.iam）と STEP（.stp）を表示し、three.js で作った 3D モデル（.html）を Inventor の部品に変換します。</p>
     </header>
     <section class="start-help" id="python-help" role="alert" hidden>
       <h2>Inventor で部品を作るには Python が必要です</h2>
@@ -405,7 +427,7 @@ kbd { font: 500 11px var(--font-ui); padding: 0 4px; border: 1px solid var(--rul
       <div class="dropzone" id="dropzone">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v11m-5-5 5 5 5-5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
         <p class="dropzone-title">ここにファイルをドラッグ＆ドロップ</p>
-        <p class="dropzone-sub">.ipt（Inventor の部品）・.html（three.js を使ったページ）</p>
+        <p class="dropzone-sub">.ipt（部品）・.iam（組立。部品の .ipt も一緒に）・.stp（STEP）・.html（three.js を使ったページ）</p>
         <p class="dropzone-actions"><button type="button" class="primary" id="start-open" autofocus>ファイルを選ぶ</button><span><kbd>Ctrl</kbd>+<kbd>O</kbd></span></p>
       </div>
     </section>

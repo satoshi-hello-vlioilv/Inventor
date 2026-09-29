@@ -24,11 +24,11 @@ test("配布フォルダのビューアが、現在のソースから作った�
   assert.ok(fs.readFileSync(OUT, "utf8") === html, "npm run build で作り直してください");
 });
 
-test("samples/ipt・samples/html の全ファイルをサンプルとして埋め込む", () => {
+test("samples/ipt・iam・stp・html の全ファイルをサンプルとして埋め込む", () => {
   const html = fs.readFileSync(OUT, "utf8");
   const embedded = [...html.matchAll(/<script type="application\/octet-stream" class="sample" data-name="([^"]+)"/g)].map((m) => m[1]);
   assert.deepEqual(embedded, sampleFiles().map((s) => s.name.replace(/&/g, "&amp;")));
-  assert.ok(embedded.some((n) => n.endsWith(".ipt")) && embedded.some((n) => n.endsWith(".html")));
+  for (const ext of [".ipt", ".iam", ".stp", ".html"]) assert.ok(embedded.some((n) => n.endsWith(ext)), ext);
 });
 
 test("起動ファイル（VBS）は UTF-16LE（BOM 付き）・CRLF で、アプリ本体の 起動.bat を画面を出さずに実行するだけ", () => {

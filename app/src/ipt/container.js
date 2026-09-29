@@ -80,6 +80,7 @@ export function openIpt(bytes) {
     fileSize: bytes.length,
     clsid,
     streams: [...streams].map(([path, content]) => ({ path, size: content.length })),
+    streamData: streams, // パス → 中身（組立のファイル参照など、セグメント以外を読むため）
     segments,
     thumbnail,
     thumbnailSize: thumbnail ? pngSize(thumbnail) : null,

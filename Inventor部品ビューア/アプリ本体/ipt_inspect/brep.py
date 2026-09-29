@@ -519,6 +519,19 @@ def _revolved_extent(members: list[Face], scale: float):
     return axis, _r(mul(center, scale)), _r((h1 - h0) * scale), (r0 * scale, r1 * scale)
 
 
+def _face_sweep_deg(face: Face) -> float:
+    """面の円弧が囲む角度。同じ円（中心・向き・半径）の上の円弧は足し合わせ（STEP は 1 周の円を頂点で分けて持つことがある）、
+    円ごとの最大を 360° で頭打ちにする。角の R の上下の縁のように別の円の円弧は足さない。"""
+    circles: dict[tuple, float] = {}
+    for edge in face.edges:
+        if edge.curve.kind != "ellipse":
+            continue
+        c = edge.curve
+        key = (_r(c.origin, 5), _r(_canonical_direction(c.direction)), _r(length(c.major), 5))
+        circles[key] = circles.get(key, 0.0) + edge.sweep_deg
+    return min(_FULL_TURN_DEG, max(circles.values(), default=0.0))
+
+
 def _cylinder_features(faces: list[Face], scale: float) -> list[CylinderFeature]:
     def key_of(f: Face):
         s = f.surface
@@ -530,7 +543,7 @@ def _cylinder_features(faces: list[Face], scale: float) -> list[CylinderFeature]
     features = []
     for members in _connected_groups(faces, key_of):
         surface = members[0].surface
-        sweep = min(_FULL_TURN_DEG, sum(max((e.sweep_deg for e in f.edges), default=0.0) for f in members))
+        sweep = min(_FULL_TURN_DEG, sum(_face_sweep_deg(f) for f in members))
         axis, center, extent_length, _ = _revolved_extent(members, scale)
         threads = [t for f in members for t in f.threads]
         thread = (

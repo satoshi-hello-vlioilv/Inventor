@@ -4,7 +4,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { AXES } from "./describe.js";
-import { edgeSegments, faceGeometry } from "./tessellate.js";
+import { edgeSegments, faceGeometry, meshVolume, partGeometry } from "./tessellate.js";
 
 export const VIEWS = { iso: [1, 1, 1], top: [0, 1, 1e-4], front: [0, 0, 1], right: [1, 0, 0] };
 const TRANSITION_MS = 380;
@@ -54,16 +54,22 @@ export class Viewer {
 
   /**
    * 形状を表示する（前の形状は破棄する）。
-   * scene.bodies … ipt の面（平面・円筒など）と稜線
-   * scene.meshes … HTML から取り出した三角形メッシュ（部品ごとの groups 付き）
+   * scene.bodies    … 部品（ipt・STEP の部品）の面（平面・円筒など）と稜線。面ごとに当たり判定する
+   * scene.instances … 組立（iam・STEP）。部品ごとに作った形状を、配置の数だけ置く。配置ごとに当たり判定する
+   * scene.meshes    … HTML から取り出した三角形メッシュ（部品ごとの groups 付き）
+   * @returns {{ volume?: number, volumes?: number[] }}  体積（mm³）。組立は部品ごと
    */
   show(sceneData) {
     this.clear();
+    let stats = {};
     if (sceneData.meshes) this.#showMeshes(sceneData.meshes);
-    else this.#showBodies(sceneData.bodies);
+    else if (sceneData.instances) stats = this.#showAssembly(sceneData);
+    else stats = this.#showBodies(sceneData.bodies);
+    this.model.updateMatrixWorld(true);
     this.bounds.setFromObject(this.model);
     this.applyColors();
     if (this.fitted) this.setView(VIEWS.iso, false);
+    return stats;
   }
 
   #material(id, tone) {
@@ -80,19 +86,50 @@ export class Viewer {
   }
 
   #showBodies(bodies) {
+    let volume = 0;
     for (const body of bodies) {
       for (const face of body.faces) {
         const geometry = faceGeometry(face);
         if (!geometry) continue;
+        volume += meshVolume(geometry);
         const mesh = new THREE.Mesh(geometry, this.#material(face.id, "exact"));
         mesh.userData.ids = [face.id];
         this.model.add(mesh);
         this.surfaces.push(mesh);
       }
-      const edges = new THREE.BufferGeometry();
-      edges.setAttribute("position", new THREE.Float32BufferAttribute(edgeSegments(body.edges), 3));
-      this.#addEdges(edges);
+      this.#addEdges(this.#edgeGeometry(body.edges));
     }
+    return { volume };
+  }
+
+  #edgeGeometry(edges) {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute(edgeSegments(edges), 3));
+    return geometry;
+  }
+
+  /** 組立: 部品ごとの形状（面をまとめたもの・稜線）を 1 回だけ作り、配置（4×4 行優先、mm）ごとに置く */
+  #showAssembly({ parts, instances }) {
+    const shapes = parts.map((part) => {
+      if (!part.bodies?.length) return null;
+      const { geometry, volume } = partGeometry(part.bodies);
+      return { geometry, volume, edges: this.#edgeGeometry(part.bodies.flatMap((b) => b.edges)) };
+    });
+    for (const inst of instances) {
+      const shape = shapes[inst.part];
+      if (!shape) continue;
+      const matrix = new THREE.Matrix4().set(...inst.matrix);
+      const mesh = new THREE.Mesh(shape.geometry, this.#material(inst.id, "exact"));
+      const lines = new THREE.LineSegments(shape.edges, this.edgeMaterial);
+      for (const obj of [mesh, lines]) {
+        obj.matrixAutoUpdate = false;
+        obj.matrix.copy(matrix);
+        this.model.add(obj);
+      }
+      mesh.userData.ids = [inst.id];
+      this.surfaces.push(mesh);
+    }
+    return { volumes: shapes.map((s) => s?.volume ?? null) };
   }
 
   #showMeshes(meshes) {

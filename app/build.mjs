@@ -2,7 +2,7 @@
 //   node app/build.mjs                    → Inventor部品ビューア/アプリ本体/ipt-viewer.html
 //   node app/build.mjs --fragment FILE    → 外側の <html> 骨格を持たない断片も書き出す（埋め込み用）
 // three.js は importmap で CDN から読み込み、それ以外（解析処理・fzstd）は同梱する。
-// samples/ipt・samples/html に置いたファイルは全てサンプルとして埋め込む（起動画面のサンプル一覧に並ぶ）。
+// samples/ipt・iam・stp・html に置いたファイルは全てサンプルとして埋め込む（起動画面のサンプル一覧に並ぶ）。
 // 起動ファイル（起動.bat）は、ドロップされたファイルを埋め込む script をこのページの末尾に付け足した複製を開く
 // （アプリの処理は type="module" なので、ページを読み終えてから動く。付け足した script はそれより先に動く）。
 
@@ -16,12 +16,14 @@ export const APP_DIR = path.join(ROOT, "Inventor部品ビューア", "アプリ�
 export const OUT = path.join(APP_DIR, "ipt-viewer.html");
 const SAMPLE_DIRS = [
   { dir: "samples/ipt", pattern: /\.ipt$/i },
+  { dir: "samples/iam", pattern: /\.iam$/i },
+  { dir: "samples/stp", pattern: /\.(stp|step)$/i },
   { dir: "samples/html", pattern: /\.html?$/i },
 ];
 const HEAD = '<!doctype html>\n<html lang="ja">\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n';
 const escapeAttr = (s) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 
-/** サンプルとして埋め込むファイル（ipt → html の順、それぞれ名前順）。 */
+/** サンプルとして埋め込むファイル（ipt → iam → stp → html の順、それぞれ名前順）。 */
 export function sampleFiles() {
   return SAMPLE_DIRS.flatMap(({ dir, pattern }) =>
     fs.readdirSync(path.join(ROOT, dir))
