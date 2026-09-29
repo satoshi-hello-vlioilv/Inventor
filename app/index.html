@@ -18,6 +18,7 @@
   --critical: #b3261e;
   --critical-soft: rgba(179, 38, 30, 0.08);
   --steel: #b4bbc3;
+  --approx: #d3a867;
   --edge: #26303c;
   --axis-x: #cc4136;
   --axis-y: #2b8f45;
@@ -30,7 +31,7 @@
     --bg: #141a21; --stage-top: #2b3541; --stage-bottom: #19212a; --panel: #1a2129;
     --ink: #e5eaf0; --muted: #98a4b2; --rule: #2e3a47; --accent: #5e9dff; --accent-ink: #0d1520;
     --accent-soft: rgba(94, 157, 255, 0.14); --critical: #ff8a80; --critical-soft: rgba(255, 138, 128, 0.1);
-    --steel: #a9b1ba; --edge: #0f141a; --axis-x: #ff6a5c; --axis-y: #4cc46c; --axis-z: #5e9dff;
+    --steel: #a9b1ba; --approx: #c89b58; --edge: #0f141a; --axis-x: #ff6a5c; --axis-y: #4cc46c; --axis-z: #5e9dff;
     color-scheme: dark;
   }
 }
@@ -38,7 +39,7 @@
   --bg: #141a21; --stage-top: #2b3541; --stage-bottom: #19212a; --panel: #1a2129;
   --ink: #e5eaf0; --muted: #98a4b2; --rule: #2e3a47; --accent: #5e9dff; --accent-ink: #0d1520;
   --accent-soft: rgba(94, 157, 255, 0.14); --critical: #ff8a80; --critical-soft: rgba(255, 138, 128, 0.1);
-  --steel: #a9b1ba; --edge: #0f141a; --axis-x: #ff6a5c; --axis-y: #4cc46c; --axis-z: #5e9dff;
+  --steel: #a9b1ba; --approx: #c89b58; --edge: #0f141a; --axis-x: #ff6a5c; --axis-y: #4cc46c; --axis-z: #5e9dff;
   color-scheme: dark;
 }
 
@@ -53,6 +54,16 @@ button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); 
   display: grid; grid-template-columns: minmax(0, 1fr) 312px; gap: 16px;
   padding-inline: 16px; padding-block: 16px;
 }
+/* HTML を開いているとき: 元のページ | 取り込んだ形状 | 仕様パネル */
+.app.is-html { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 312px; }
+
+/* ---- 元のページ ---- */
+.source { min-width: 0; min-height: 320px; display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--rule); border-radius: 10px; background: var(--panel); }
+.source-bar { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--rule); }
+.source-bar .source-text { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.source-bar .meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.source-frame { flex: 1; min-height: 0; background: #fff; }
+.source-frame iframe { width: 100%; height: 100%; border: 0; display: block; }
 
 /* ---- 3D ビュー ---- */
 .stage {
@@ -119,7 +130,7 @@ kbd { font: 500 11px var(--font-ui); padding: 0 4px; border: 1px solid var(--rul
 .features { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .feature {
   width: 100%; text-align: start; cursor: default; color: var(--ink);
-  display: grid; grid-template-columns: 2.6em 1fr auto; column-gap: 10px; row-gap: 2px; align-items: baseline;
+  display: grid; grid-template-columns: minmax(2.6em, max-content) 1fr auto; column-gap: 10px; row-gap: 2px; align-items: baseline;
   padding: 9px 12px; background: var(--panel); border: 1px solid var(--rule); border-radius: 8px;
 }
 .feature:hover, .feature.is-active { border-color: var(--accent); background: var(--accent-soft); }
@@ -127,6 +138,21 @@ kbd { font: 500 11px var(--font-ui); padding: 0 4px; border: 1px solid var(--rul
 .feature .dim { font: 500 16px/1.3 var(--font-num); font-variant-numeric: tabular-nums; }
 .feature .count { font: 500 13px var(--font-num); color: var(--muted); }
 .feature .sub { grid-column: 2 / 4; font-size: 12px; color: var(--muted); }
+.feature[data-tone] { border-inline-start: 4px solid var(--tone); }
+[data-tone="exact"] { --tone: var(--steel); }
+[data-tone="approx"] { --tone: var(--approx); }
+[data-tone="excluded"] { --tone: var(--rule); }
+.tally { display: flex; flex-wrap: wrap; gap: 6px; }
+.tally-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--rule); border-radius: 999px; background: var(--panel); font-size: 12.5px; }
+.tally-chip .swatch { width: 10px; height: 10px; border-radius: 3px; background: var(--tone); }
+.tally-chip b { font: 600 13px var(--font-num); }
+.samples { margin: -4px 0 0; font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.sample-list { display: contents; }
+.link {
+  padding: 3px 9px; border: 1px solid var(--rule); border-radius: 999px; background: var(--panel);
+  color: var(--accent); cursor: pointer; font: 500 12px/1.4 var(--font-ui);
+}
+.link:hover { border-color: var(--accent); background: var(--accent-soft); }
 .empty { color: var(--muted); font-size: 13px; }
 
 .topology { margin: 0; display: grid; grid-template-columns: auto 1fr; column-gap: 14px; row-gap: 4px; font-size: 13px; }
@@ -149,15 +175,31 @@ kbd { font: 500 11px var(--font-ui); padding: 0 4px; border: 1px solid var(--rul
 }
 .drop-overlay p { margin: 0; padding: 12px 20px; border-radius: 10px; background: var(--panel); color: var(--ink); font-weight: 600; }
 
+@media (max-width: 1100px) {
+  .app.is-html { height: auto; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .app.is-html .sheet { grid-column: 1 / -1; }
+  .app.is-html .stage, .app.is-html .source { height: 70vh; }
+}
 @media (max-width: 760px) {
-  .app { height: auto; grid-template-columns: minmax(0, 1fr); }
-  .stage { height: 62vh; }
+  .app, .app.is-html { height: auto; grid-template-columns: minmax(0, 1fr); }
+  .stage, .app.is-html .stage, .app.is-html .source { height: 62vh; }
   .readout { left: 88px; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 
-<div class="app">
+<div class="app" id="app">
+  <section class="source" id="source" aria-label="元のページ" hidden>
+    <header class="source-bar">
+      <div class="source-text">
+        <p class="eyebrow">元のページ（操作できます）</p>
+        <p class="meta" id="source-status"></p>
+      </div>
+      <button type="button" class="primary" id="capture">この状態を取り込む</button>
+    </header>
+    <div class="source-frame" id="source-frame"></div>
+  </section>
+
   <main class="stage" id="stage" aria-label="3D ビュー">
     <canvas class="view" id="view"></canvas>
     <div class="toolbar">
@@ -181,29 +223,42 @@ kbd { font: 500 11px var(--font-ui); padding: 0 4px; border: 1px solid var(--rul
       <div class="file-row">
         <img class="thumb" id="thumb" alt="Inventor が保存したサムネイル" title="Inventor が保存したサムネイル（表示の見比べ用）" hidden>
         <div class="file-text">
-          <p class="eyebrow">部品ファイル<span class="badge" id="sample-badge" hidden>サンプル</span></p>
+          <p class="eyebrow"><span id="file-kind">部品ファイル</span><span class="badge" id="sample-badge" hidden>サンプル</span></p>
           <h1 id="file-name">—</h1>
           <p class="meta" id="file-source"></p>
         </div>
       </div>
-      <button type="button" class="primary" id="open">ipt ファイルを開く</button>
-      <p class="drop-hint">画面へのドラッグ＆ドロップ、または <kbd>Ctrl</kbd>+<kbd>O</kbd> でも開けます</p>
-      <input type="file" id="file-input" accept=".ipt" hidden>
+      <button type="button" class="primary" id="open">ファイルを開く</button>
+      <p class="drop-hint">Inventor の部品（.ipt）、または three.js を使った HTML（.html）。画面へのドラッグ＆ドロップ、<kbd>Ctrl</kbd>+<kbd>O</kbd> でも開けます</p>
+      <p class="samples" id="samples" hidden><span>サンプル</span><span class="sample-list" id="sample-list"></span></p>
+      <input type="file" id="file-input" accept=".ipt,.html,.htm" hidden>
       <p class="alert" id="alert" role="alert" hidden></p>
     </header>
-    <section>
+    <section data-mode="html" hidden>
+      <h2>取り込み結果</h2>
+      <div class="tally" id="tally"></div>
+    </section>
+    <section data-mode="html" hidden>
+      <h2>部品<span class="unit">mm</span></h2>
+      <ul class="features" id="parts"></ul>
+    </section>
+    <details class="structure" data-mode="html" hidden>
+      <summary id="excluded-summary">除外したもの</summary>
+      <dl class="topology" id="excluded"></dl>
+    </details>
+    <section data-mode="ipt">
       <h2>外形寸法<span class="unit">mm</span></h2>
       <dl class="dims" id="dims"></dl>
     </section>
-    <section>
+    <section data-mode="ipt">
       <h2>形状要素</h2>
       <ul class="features" id="features"></ul>
     </section>
-    <section>
+    <section data-mode="ipt">
       <h2>位相</h2>
       <dl class="topology" id="topology"></dl>
     </section>
-    <details class="structure">
+    <details class="structure" data-mode="ipt">
       <summary>ファイル構造</summary>
       <p id="structure-summary"></p>
       <div class="table-wrap">
@@ -213,12 +268,12 @@ kbd { font: 500 11px var(--font-ui); padding: 0 4px; border: 1px solid var(--rul
         </table>
       </div>
     </details>
-    <p class="hint">ドラッグで回転、右ドラッグで移動、ホイールで拡大縮小。形状要素にカーソルを合わせると、該当する面が強調されます。ファイルはブラウザ内だけで解析し、外部には送信しません。</p>
+    <p class="hint">ドラッグで回転、右ドラッグで移動、ホイールで拡大縮小。一覧の行にカーソルを合わせると、該当する面・部品が強調されます。ファイルはブラウザ内だけで解析し、外部には送信しません（HTML が読み込む three.js などは、そのページの指定どおり取得します）。</p>
   </aside>
 </div>
-<div class="drop-overlay" id="drop-overlay" hidden><p>ドロップして開く（.ipt）</p></div>
+<div class="drop-overlay" id="drop-overlay" hidden><p>ドロップして開く（.ipt / .html）</p></div>
 
-<!-- @sample -->
+<!-- @samples -->
 <script type="importmap">
 { "imports": {
   "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",

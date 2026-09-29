@@ -1,4 +1,4 @@
-// three.js による 3D 表示。シーン JSON を受け取って描き、視点・稜線・強調表示を受け持つ。
+// three.js による 3D 表示。ipt の面、または HTML から取り出した部品を描き、視点・稜線・強調表示を受け持つ。
 // 色は CSS のテーマトークンから読み、ライト／ダークの切り替えに追従する。
 
 import * as THREE from "three";
@@ -11,10 +11,13 @@ const TRANSITION_MS = 380;
 const reduceMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 const token = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
+const EDGE_ANGLE_DEG = 25; // 取り込んだメッシュで稜線として描く折れ角
+const TONE_TOKEN = { exact: "--steel", approx: "--approx" };
+
 export class Viewer {
   /**
    * @param {{ stage: HTMLElement, canvas: HTMLCanvasElement, gizmo: HTMLCanvasElement }} elements
-   * @param {{ onHover?: (faceId: number | null) => void }} [callbacks]
+   * @param {{ onHover?: (id: number | null) => void }} [callbacks]  id は ipt の面番号、または HTML の部品番号
    */
   constructor({ stage, canvas, gizmo }, { onHover } = {}) {
     this.stage = stage;
@@ -26,7 +29,7 @@ export class Viewer {
     this.renderer.setClearColor(0x000000, 0);
 
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(28, 1, 0.1, 100000);
+    this.camera = new THREE.PerspectiveCamera(28, 1, 0.1, 1e6);
     this.scene.add(this.camera, new THREE.HemisphereLight(0xffffff, 0x8a939e, 1.6));
     const key = new THREE.DirectionalLight(0xffffff, 1.8);
     key.position.set(1.5, 2.5, 3);
@@ -36,7 +39,8 @@ export class Viewer {
     this.controls.addEventListener("change", () => this.requestRender());
     this.model = new THREE.Group();
     this.scene.add(this.model);
-    this.faceMeshes = [];
+    this.surfaces = []; // 当たり判定の対象
+    this.materials = new Map(); // 面・部品の id → { material, tone }
     this.edgeMaterial = new THREE.LineBasicMaterial();
     this.highlighted = new Set();
     this.bounds = new THREE.Box3();
@@ -48,43 +52,81 @@ export class Viewer {
     this.#watchPointer();
   }
 
-  /** シーン JSON を表示する（前の形状は破棄する）。 */
+  /**
+   * 形状を表示する（前の形状は破棄する）。
+   * scene.bodies … ipt の面（平面・円筒など）と稜線
+   * scene.meshes … HTML から取り出した三角形メッシュ（部品ごとの groups 付き）
+   */
   show(sceneData) {
     this.clear();
-    for (const body of sceneData.bodies) {
-      for (const face of body.faces) {
-        const geometry = faceGeometry(face);
-        if (!geometry) continue;
-        const material = new THREE.MeshStandardMaterial({
-          metalness: 0.25, roughness: 0.55, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
-        });
-        const mesh = new THREE.Mesh(geometry, material);
-        mesh.userData.faceId = face.id;
-        this.model.add(mesh);
-        this.faceMeshes.push(mesh);
-      }
-      const geometry = new THREE.BufferGeometry();
-      geometry.setAttribute("position", new THREE.Float32BufferAttribute(edgeSegments(body.edges), 3));
-      this.model.add(new THREE.LineSegments(geometry, this.edgeMaterial));
-    }
+    if (sceneData.meshes) this.#showMeshes(sceneData.meshes);
+    else this.#showBodies(sceneData.bodies);
     this.bounds.setFromObject(this.model);
     this.applyColors();
     if (this.fitted) this.setView(VIEWS.iso, false);
   }
 
+  #material(id, tone) {
+    const material = new THREE.MeshStandardMaterial({
+      metalness: 0.25, roughness: 0.55, side: THREE.DoubleSide,
+      polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
+    });
+    this.materials.set(id, { material, tone });
+    return material;
+  }
+
+  #addEdges(geometry) {
+    this.model.add(new THREE.LineSegments(geometry, this.edgeMaterial));
+  }
+
+  #showBodies(bodies) {
+    for (const body of bodies) {
+      for (const face of body.faces) {
+        const geometry = faceGeometry(face);
+        if (!geometry) continue;
+        const mesh = new THREE.Mesh(geometry, this.#material(face.id, "exact"));
+        mesh.userData.ids = [face.id];
+        this.model.add(mesh);
+        this.surfaces.push(mesh);
+      }
+      const edges = new THREE.BufferGeometry();
+      edges.setAttribute("position", new THREE.Float32BufferAttribute(edgeSegments(body.edges), 3));
+      this.#addEdges(edges);
+    }
+  }
+
+  #showMeshes(meshes) {
+    const matrix = new THREE.Matrix4();
+    for (const m of meshes) {
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute("position", new THREE.Float32BufferAttribute(m.positions, 3)); // 複製される（元データは変えない）
+      if (m.normals) geometry.setAttribute("normal", new THREE.Float32BufferAttribute(m.normals, 3));
+      geometry.setIndex(new THREE.BufferAttribute(m.index, 1));
+      m.groups.forEach((g, i) => geometry.addGroup(g.start, g.count, i));
+      geometry.applyMatrix4(matrix.fromArray(m.matrix));
+      if (!m.normals) geometry.computeVertexNormals();
+      const mesh = new THREE.Mesh(geometry, m.groups.map((g) => this.#material(g.id, g.tone)));
+      mesh.userData.ids = m.groups.map((g) => g.id);
+      this.model.add(mesh);
+      this.surfaces.push(mesh);
+      this.#addEdges(new THREE.EdgesGeometry(geometry, EDGE_ANGLE_DEG));
+    }
+  }
+
   clear() {
     for (const child of [...this.model.children]) {
       child.geometry.dispose();
-      if (child.material !== this.edgeMaterial) child.material.dispose();
       this.model.remove(child);
     }
-    this.faceMeshes = [];
+    for (const { material } of this.materials.values()) material.dispose();
+    this.materials.clear();
+    this.surfaces = [];
     this.highlighted.clear();
     this.requestRender();
   }
 
-  highlight(faceIds) {
-    this.highlighted = new Set(faceIds);
+  highlight(ids) {
+    this.highlighted = new Set(ids);
     this.applyColors();
   }
 
@@ -125,10 +167,11 @@ export class Viewer {
   }
 
   applyColors() {
-    const steel = new THREE.Color(token("--steel"));
     const accent = new THREE.Color(token("--accent"));
-    for (const mesh of this.faceMeshes) {
-      mesh.material.color.copy(this.highlighted.has(mesh.userData.faceId) ? steel.clone().lerp(accent, 0.65) : steel);
+    const tones = Object.fromEntries(Object.entries(TONE_TOKEN).map(([tone, name]) => [tone, new THREE.Color(token(name))]));
+    for (const [id, { material, tone }] of this.materials) {
+      const base = tones[tone] ?? tones.exact;
+      material.color.copy(this.highlighted.has(id) ? base.clone().lerp(accent, 0.65) : base);
     }
     this.edgeMaterial.color.set(token("--edge"));
     this.requestRender();
@@ -206,8 +249,8 @@ export class Viewer {
       requestAnimationFrame(() => {
         pending = false;
         raycaster.setFromCamera(pointer, this.camera);
-        const hit = raycaster.intersectObjects(this.faceMeshes, false)[0];
-        this.onHover(hit ? hit.object.userData.faceId : null);
+        const hit = raycaster.intersectObjects(this.surfaces, false)[0];
+        this.onHover(hit ? hit.object.userData.ids[hit.face.materialIndex ?? 0] ?? null : null);
       });
     });
     this.canvas.addEventListener("pointerleave", () => this.onHover(null));

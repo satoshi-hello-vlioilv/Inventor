@@ -1,0 +1,1210 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>スプール／スリーブ／リール 3Dモデル・組立ビューア</title>
+<style>
+  :root{
+    --bg:#11151a; --panel:rgba(22,27,34,.94); --line:#2c333d;
+    --txt:#e8edf3; --sub:#9aa7b4; --accent:#4da3ff; --accent2:#1d6fd0;
+    --ok:#4cc38a; --warn:#e5a04b; --ng:#e06c6c;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);
+    font-family:"Segoe UI","Yu Gothic UI",Meiryo,system-ui,sans-serif;color:var(--txt)}
+  canvas{display:block}
+  .panel{position:fixed;background:var(--panel);border:1px solid var(--line);
+    border-radius:12px;backdrop-filter:blur(8px);box-shadow:0 8px 28px rgba(0,0,0,.45)}
+
+  /* ---- 左パネル：ヘッダ固定 / 中央スクロール / フッタ固定 ---- */
+  #ui{top:12px;left:12px;width:296px;height:calc(100vh - 24px);
+      display:flex;flex-direction:column;padding:0;overflow:hidden}
+  #uiHead{padding:13px 14px 10px;border-bottom:1px solid var(--line);flex:0 0 auto}
+  #uiBody{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;
+          padding:12px 14px 14px}
+  #uiFoot{flex:0 0 auto;border-top:1px solid var(--line);padding:10px 14px 12px;
+          background:rgba(18,22,28,.75)}
+  #uiBody::-webkit-scrollbar{width:9px}
+  #uiBody::-webkit-scrollbar-thumb{background:#39434f;border-radius:5px;border:2px solid transparent;
+    background-clip:content-box}
+  #uiBody::-webkit-scrollbar-thumb:hover{background:#4c5866;background-clip:content-box}
+  #uiBody::-webkit-scrollbar-track{background:transparent}
+
+  #ui h1{font-size:15px;margin:0 0 3px}
+  #ui .sub{font-size:11px;color:var(--sub);margin:0;line-height:1.5}
+  .label{font-size:11px;color:var(--sub);margin:0 0 6px;letter-spacing:.06em}
+  .g2{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-bottom:14px}
+  .g3{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:14px}
+  .g4{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:14px}
+  .g5{display:grid;grid-template-columns:repeat(5,1fr);gap:5px;margin-bottom:14px}
+  button{position:relative;padding:8px 2px;font-size:11.5px;font-weight:600;color:var(--txt);
+    background:#1b212a;border:1px solid var(--line);border-radius:7px;cursor:pointer;
+    transition:.15s;line-height:1.3}
+  button:hover{background:#243040;border-color:#3d4a5a}
+  button.on{background:var(--accent2);border-color:var(--accent);color:#fff}
+
+  /* 不適合：グレーアウト（押下は可能） */
+  button.bad{opacity:.38;filter:grayscale(1);border-style:dashed}
+  button.bad:hover{opacity:.62;background:#2a2228;border-color:var(--ng)}
+  button.bad::after{content:"!";position:absolute;top:-6px;right:-5px;width:14px;height:14px;
+    border-radius:50%;background:var(--ng);color:#fff;font-size:10px;line-height:14px;
+    text-align:center;font-weight:700;opacity:.95}
+  button.bad.on{background:#5a2c2c;border-color:var(--ng);color:#ffd9d9;opacity:.95;filter:none}
+
+  .wrow{display:flex;gap:8px;align-items:center;margin-bottom:6px}
+  input[type=number]{width:88px;padding:6px 8px;font-size:13px;font-weight:600;
+    background:#1b212a;border:1px solid var(--line);border-radius:6px;color:var(--txt);
+    font-variant-numeric:tabular-nums}
+  input[type=range]{width:100%;accent-color:var(--accent);margin:2px 0 12px}
+  .sec{border-top:1px solid var(--line);padding-top:10px;margin-top:4px}
+  .row{display:flex;justify-content:space-between;gap:10px;font-size:12px;padding:3px 0}
+  .row span:first-child{color:var(--sub);white-space:nowrap}
+  .row b{font-variant-numeric:tabular-nums;font-weight:600;text-align:right}
+  .row b.big{color:var(--accent);font-size:13px}
+  .fit{font-size:11.5px;line-height:1.6;padding:8px 10px;border-radius:8px;
+    background:#171d25;border:1px solid var(--line);margin-top:8px}
+  .fit.alert{border-color:var(--ng);background:#241a1c}
+  .fit .t{font-weight:700;margin-bottom:3px}
+  .ok{color:var(--ok)} .warn{color:var(--warn)} .ng{color:var(--ng)}
+  .toggles{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .toggles button{font-weight:500;color:var(--sub);padding:7px 0}
+  .toggles button.on{background:#20364f;border-color:var(--accent);color:#cfe5ff}
+  .hide{display:none!important}
+
+  #hint{bottom:12px;left:324px;padding:7px 11px;font-size:11px;color:var(--sub)}
+  #note{bottom:12px;right:12px;padding:10px 12px;font-size:11px;color:var(--sub);
+    max-width:330px;line-height:1.6}
+  #note b{color:var(--txt);font-weight:600}
+
+  /* 警告トースト */
+  #toast{position:fixed;top:16px;left:50%;transform:translate(-50%,-20px);
+    max-width:620px;padding:12px 16px;border-radius:11px;
+    background:rgba(56,24,26,.97);border:1px solid var(--ng);
+    box-shadow:0 10px 34px rgba(0,0,0,.55);color:#ffe3e3;font-size:12.5px;line-height:1.65;
+    opacity:0;pointer-events:none;transition:.22s;z-index:50}
+  #toast.show{opacity:1;transform:translate(-50%,0);pointer-events:auto}
+  #toast .th{font-weight:700;font-size:13px;color:#ff9a9a;margin-bottom:4px;
+    display:flex;justify-content:space-between;gap:16px}
+  #toast .tx{color:#ffd6d6}
+  #toast .tv{margin-top:6px;font-variant-numeric:tabular-nums;color:#ffb3b3}
+  #toast .cl{cursor:pointer;color:#ff9a9a;font-weight:700}
+  #loading{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+    font-size:13px;color:var(--sub);background:var(--bg);z-index:99}
+</style>
+</head>
+<body>
+
+<div id="ui" class="panel">
+  <div id="uiHead">
+    <h1 id="title">スプール 3Dビューア</h1>
+    <p class="sub" id="subtitle"></p>
+  </div>
+
+  <div id="uiBody">
+    <p class="label">表示モード</p>
+    <div class="g2" id="mode">
+      <button data-m="single" class="on">単体</button>
+      <button data-m="assy">組立</button>
+    </div>
+
+    <div id="singleUI">
+      <p class="label">種類</p>
+      <div class="g5" id="kind">
+        <button data-k="steel" class="on">鉄</button>
+        <button data-k="paper">紙管</button>
+        <button data-k="bake">ベーク</button>
+        <button data-k="rubber">ゴム</button>
+        <button data-k="reel">リール</button>
+      </div>
+    </div>
+
+    <div id="assyUI" class="hide">
+      <p class="label">① リール（マンドレル）</p>
+      <div class="g2" id="aReel"></div>
+      <p class="label">② ゴムスリーブ</p>
+      <div class="g2" id="aSleeve">
+        <button data-s="0" class="on">無し</button>
+        <button data-s="1">装着</button>
+      </div>
+      <p class="label">③ スプール</p>
+      <div class="g4" id="aSpool">
+        <button data-p="none" class="on">無し</button>
+        <button data-p="steel">鉄</button>
+        <button data-p="paper">紙管</button>
+        <button data-p="bake">ベーク</button>
+      </div>
+    </div>
+
+    <div id="reelUI" class="hide">
+      <p class="label">リール機種</p>
+      <div class="g2" id="reelModel"></div>
+      <p class="label">ドラム拡縮（閉 → 開）</p>
+      <input type="range" id="exp" min="0" max="1" step="0.005" value="1">
+    </div>
+
+    <div id="steelUI" class="hide">
+      <p class="label">鉄スプール幅 (mm)</p>
+      <div class="g4" id="widths"></div>
+    </div>
+
+    <div id="tubeUI" class="hide">
+      <p class="label">内径 (mm)</p>
+      <div class="g3" id="pids"></div>
+      <p class="label">肉厚 (mm)</p>
+      <div class="g3" id="pts"></div>
+      <p class="label">幅 (10 – 1800 mm / 1mm単位)</p>
+      <div class="wrow">
+        <input type="number" id="pwNum" min="10" max="1800" step="1" value="1400">
+        <button id="pwFit" style="flex:1">1400にリセット</button>
+      </div>
+      <input type="range" id="pwRange" min="10" max="1800" step="1" value="1400">
+    </div>
+
+    <p class="label" style="margin-top:4px">表示高さ（基準面からの浮き）</p>
+    <input type="range" id="lift" min="0" max="1500" step="10" value="450">
+
+    <div class="sec" id="spec"></div>
+  </div>
+
+  <div id="uiFoot">
+    <div class="toggles">
+      <button id="t-sec">断面カット</button>
+      <button id="t-xray">外側半透明</button>
+      <button id="t-dim">寸法線</button>
+      <button id="t-wire">ワイヤー</button>
+      <button id="t-spin">自動回転</button>
+      <button id="t-fit">全体表示</button>
+    </div>
+  </div>
+</div>
+
+<div id="hint" class="panel">左ドラッグ:回転 / ホイール:ズーム / 右ドラッグ:移動</div>
+<div id="note" class="panel"></div>
+<div id="toast"></div>
+<div id="loading">モデル生成中…</div>
+
+<script type="importmap">
+{"imports":{
+  "three":"https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/":"https://unpkg.com/three@0.160.0/examples/jsm/"
+}}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+/* ============================================================
+   0. 諸元
+   ============================================================ */
+const S = { OD:557, ID:507, Ro:278.5, Ri:253.5,
+  B1_AX:10, B1_RA:3, B2_AX:10, B2_RA:10, EDGE:1,
+  DENSITY:7.85e-6, WIDTHS:[1050,1100,1200,1300,1400,1500,1600,1800] };
+
+const P = { IDS:[298,398,505], TS:[10,15,20], W_MIN:10, W_MAX:1800, CH:1.0 };
+const DENS = { paper:0.80e-6, bake:1.35e-6 };
+
+const R = { ID:480, OD:587, NOM_ID:508, NOM_OD:610, L:1623,
+  T_IN_AX:20, T_IN_RA:10, T_OUT_AX:50, T_OUT_RA:15,
+  GRV_W:3, GRV_D:3, GRV_N:24, DENSITY:1.30e-6, HS:70,
+  // 弾性変形の許容範囲（内径φ480 基準）拡張 +6% / 縮小 -2%
+  EXP_MAX:0.060, CON_MAX:0.020 };
+R.D_MAX = R.ID*(1+R.EXP_MAX);    // 508.8
+R.D_MIN = R.ID*(1-R.CON_MAX);    // 470.4
+
+const RC = {
+  Z:{ thr0:-65, thr1:0, ob0:0, ob1:160, st0:160, st1:230,
+      seg0:230, seg1:1940, col0:1940, col1:2035, col2:2095,
+      sh0:2095, sh1:2255, hub0:2255, hub1:2620 },
+  OB_D:220, ST_D:250, COL_D:250, SH_D:350, HUB_D:420, THR_D:56,
+  SEG_L:1710, TOTAL:2295, ANG:13, COMB_P:34, COMB_W:30
+};
+const REELS = {
+  D508:{ label:'φ508', title:'φ508 リコイラードラム（4セグメント ウエッジ・グリップ有）',
+    dwg:'RD-1467-03SB', D_EXP:508, D_CON:478, ST_R:15, ST_Z:65,
+    DRUM_OD:160, WB_N:5, WB_L:210, COMB_H:15, BOLT_N:8, BOLT_R:160, BOLT_D:26,
+    BOLT_M:'高張力六角ボルト M16×P2', GRIP:true },
+  D300:{ label:'φ300', title:'φ300 リコイラードラム（4セグメント ウエッジ・グリップ無）',
+    dwg:'RD-1467-04S', D_EXP:300, D_CON:283.4, ST_R:8.31, ST_Z:36,
+    DRUM_OD:154, WB_N:5, WB_L:210, COMB_H:20.26, BOLT_N:16, BOLT_R:160, BOLT_D:33,
+    BOLT_M:'M22×P1.5（4ヶ所×4枚＝16ヶ所）', GRIP:false }
+};
+
+let mode='single', kind='steel';
+let sW=1400, pID=298, pT=10, pW=1400;
+let reelKey='D508', expT=1;
+let aSleeve=0, aSpool='none';
+let liftY=450;
+
+const DRUM_CZ=(RC.Z.seg0+RC.Z.seg1)/2;
+const JP={steel:'鉄スプール',paper:'紙管',bake:'ベークライト',rubber:'ゴムスリーブ',reel:'リール'};
+
+/* ============================================================
+   1. プロファイル
+   ============================================================ */
+function steelProfile(L){
+  const h=L/2, rE=S.Ri+S.EDGE, rF=S.Ro-S.B1_RA-S.B2_RA, rB=S.Ro-S.B1_RA;
+  return [[-h+S.EDGE,S.Ri],[h-S.EDGE,S.Ri],[h,rE],[h,rF],
+          [h-S.B2_AX,rB],[h-S.B2_AX-S.B1_AX,S.Ro],
+          [-h+S.B2_AX+S.B1_AX,S.Ro],[-h+S.B2_AX,rB],[-h,rF],[-h,rE],[-h+S.EDGE,S.Ri]];
+}
+function tubeProfile(L,ri,t){
+  const h=L/2, ro=ri+t, c=P.CH;
+  return { pts:[[-h+c,ri],[h-c,ri],[h,ri+c],[h,ro-c],[h-c,ro],
+                [-h+c,ro],[-h,ro-c],[-h,ri+c],[-h+c,ri]], grp:[0,1,1,1,2,1,1,1] };
+}
+function rubberProfile(riOverride){
+  const h=R.L/2, ri=riOverride ?? R.ID/2, ro=ri+(R.OD-R.ID)/2;
+  const riT=ri+R.T_IN_RA, roT=ro-R.T_OUT_RA;
+  return { pts:[[-h+R.T_IN_AX,ri],[h-R.T_IN_AX,ri],[h,riT],[h,roT],
+                [h-R.T_OUT_AX,ro],[-h+R.T_OUT_AX,ro],[-h,roT],[-h,riT],[-h+R.T_IN_AX,ri]],
+           grp:[0,1,1,1,2,1,1,1] };
+}
+function volumeOf(pts){
+  let A=0,cr=0;
+  for(let i=0;i<pts.length-1;i++){
+    const [z0,r0]=pts[i],[z1,r1]=pts[i+1];
+    const c=z0*r1-z1*r0; A+=c; cr+=(r0+r1)*c;
+  }
+  A/=2; cr/=(6*A);
+  return Math.abs(2*Math.PI*cr*A);
+}
+const closed=p=>[...p,p[0]];
+
+/* ============================================================
+   2. 適合判定エンジン
+   ============================================================ */
+/* 判定レベル: 'ok' | 'warn' | 'ng' */
+function judgeGrip(holeD, conD, expD, holeName, shaftName){
+  if(holeD < conD - 0.2){
+    return {level:'ng', kind:'干渉',
+      title:`${shaftName}に${holeName}が入りません`,
+      msg:`${holeName} φ${holeD.toFixed(1)} は、${shaftName}の最小径（閉）φ${conD.toFixed(1)} より小さいため、`
+        + `ドラムを縮めても挿入できません。表示は干渉したまま描画しています。`,
+      val:`不足 ${(conD-holeD).toFixed(1)} mm（直径差）`};
+  }
+  if(holeD > expD + 0.2){
+    return {level:'ng', kind:'保持不可',
+      title:`${shaftName}では${holeName}を保持できません`,
+      msg:`${holeName} φ${holeD.toFixed(1)} は、${shaftName}の最大径（開）φ${expD.toFixed(1)} を超えています。`
+        + `拡径しても届かず、空転・脱落します。`,
+      val:`不足 ${(holeD-expD).toFixed(1)} mm（直径差）`};
+  }
+  return {level:'ok', kind:'適合',
+    title:'', msg:'',
+    val:`挿入すきま ${(holeD-conD).toFixed(1)} / 把持代 ${(expD-holeD).toFixed(1)} mm`};
+}
+/* ゴムスリーブの弾性判定（リール外径に対して） */
+function judgeSleeve(conD, expD, shaftName){
+  // 挿入は閉径、把持は開径で評価
+  if(expD < R.D_MIN){
+    return {level:'ng', kind:'弾性範囲外',
+      title:`${shaftName}ではゴムスリーブが保持できません`,
+      msg:`スリーブ内径 φ${R.ID} に対し、${shaftName}の最大径（開）は φ${expD.toFixed(1)} です。`
+        + `縮小側の弾性限界 φ${R.D_MIN.toFixed(1)}（−${(R.CON_MAX*100).toFixed(0)}%）を下回るため、`
+        + `ゴムは自重で垂れ下がり同心を保てません。`,
+      val:`不足 ${(R.D_MIN-expD).toFixed(1)} mm（直径差）`};
+  }
+  if(conD > R.D_MAX){
+    return {level:'ng', kind:'弾性範囲外',
+      title:`ゴムスリーブの弾性変形領域を超えます`,
+      msg:`スリーブ内径 φ${R.ID} に対し、${shaftName}の最小径（閉）は φ${conD.toFixed(1)} です。`
+        + `拡張側の弾性限界 φ${R.D_MAX.toFixed(1)}（＋${(R.EXP_MAX*100).toFixed(0)}%）を超えるため、`
+        + `挿入できず、無理に押し込むとゴムが裂けます。`,
+      val:`超過 ${(conD-R.D_MAX).toFixed(1)} mm（直径差）`};
+  }
+  if(expD > R.D_MAX){
+    return {level:'warn', kind:'過大伸張',
+      title:'ゴムスリーブの伸びが限界に近づきます',
+      msg:`開径 φ${expD.toFixed(1)} は弾性限界 φ${R.D_MAX.toFixed(1)} を超えます。`
+        + `拡縮スライダーを絞って使用してください。`,
+      val:`超過 ${(expD-R.D_MAX).toFixed(1)} mm（直径差）`};
+  }
+  return {level:'ok', kind:'適合', title:'', msg:'',
+    val:`伸張 ${(expD-R.ID).toFixed(1)} mm（${((expD/R.ID-1)*100).toFixed(1)}%）`};
+}
+/* スリーブ装着後の外径（閉/開） */
+function sleeveOD(D){ return Math.max(R.ID, D) + (R.OD-R.ID); }
+
+/* 指定構成の判定一覧を返す */
+function evaluate(cfg){
+  const rk=REELS[cfg.reel];
+  const out=[];
+  let conD=rk.D_CON, expD=rk.D_EXP, shaftName=`${rk.label}リール`;
+  if(cfg.sleeve){
+    const j=judgeSleeve(conD, expD, shaftName);
+    out.push({step:'ゴムスリーブ', ...j});
+    conD=sleeveOD(conD); expD=sleeveOD(expD); shaftName='ゴムスリーブ外径';
+  }
+  if(cfg.spool!=='none'){
+    const holeD = cfg.spool==='steel' ? S.ID : pID;
+    const j=judgeGrip(holeD, conD, expD, `${JP[cfg.spool]}内径`, shaftName);
+    out.push({step:JP[cfg.spool], ...j});
+  }
+  return out;
+}
+const worst = list => list.some(j=>j.level==='ng') ? 'ng'
+                  : list.some(j=>j.level==='warn') ? 'warn' : 'ok';
+
+/* ============================================================
+   3. 回転体ジオメトリ
+   ============================================================ */
+function revolve(pts, seg=288, grp=null, uRef=null){
+  const pos=[],nor=[],uv=[],idx=[],groups=[];
+  const RR=uRef ?? Math.max(...pts.map(p=>p[1]));
+  let base=0, acc=0, start=0;
+  for(let s=0;s<pts.length-1;s++){
+    const [z0,r0]=pts[s],[z1,r1]=pts[s+1];
+    const dz=z1-z0, dr=r1-r0, len=Math.hypot(dz,dr);
+    if(len<1e-9) continue;
+    const nz=dr/len, nr=-dz/len;
+    for(let e=0;e<2;e++){
+      const z=e?z1:z0, r=e?r1:r0, v=acc+(e?len:0);
+      for(let j=0;j<=seg;j++){
+        const t=Math.PI*2*j/seg, c=Math.cos(t), si=Math.sin(t);
+        pos.push(z, r*c, r*si); nor.push(nz, nr*c, nr*si); uv.push(t*RR, v);
+      }
+    }
+    for(let j=0;j<seg;j++){
+      const a=base+j,b=a+1,c2=base+seg+1+j,d=c2+1;
+      idx.push(a,c2,b, b,c2,d);
+    }
+    base+=(seg+1)*2; acc+=len;
+    if(grp) groups.push({start, count:seg*6, mat:grp[s]});
+    start+=seg*6;
+  }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+  g.setAttribute('normal',new THREE.Float32BufferAttribute(nor,3));
+  g.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2));
+  g.setIndex(idx);
+  if(grp) groups.forEach(o=>g.addGroup(o.start,o.count,o.mat));
+  return g;
+}
+
+/* ============================================================
+   4. テクスチャ
+   ============================================================ */
+const cv=s=>{const c=document.createElement('canvas');c.width=c.height=s;return c;};
+function toTex(c,tile){
+  const t=new THREE.CanvasTexture(c);
+  t.wrapS=t.wrapT=THREE.RepeatWrapping; t.repeat.set(1/tile,1/tile);
+  t.anisotropy=8; t.colorSpace=THREE.NoColorSpace; return t;
+}
+function normalFromHeight(h,size,scale){
+  const c=cv(size),x=c.getContext('2d'),img=x.createImageData(size,size);
+  for(let y=0;y<size;y++)for(let X=0;X<size;X++){
+    const i=y*size+X;
+    const l=h[y*size+((X-1+size)%size)], r=h[y*size+((X+1)%size)];
+    const u=h[((y-1+size)%size)*size+X], d=h[((y+1)%size)*size+X];
+    let nx=(l-r)*scale, ny=(u-d)*scale, nz=1;
+    const inv=1/Math.hypot(nx,ny,nz);
+    img.data[i*4]=(nx*inv*.5+.5)*255; img.data[i*4+1]=(ny*inv*.5+.5)*255;
+    img.data[i*4+2]=(nz*inv*.5+.5)*255; img.data[i*4+3]=255;
+  }
+  x.putImageData(img,0,0); return c;
+}
+function grayCanvas(h,size,lo,hi){
+  const c=cv(size),x=c.getContext('2d'),img=x.createImageData(size,size);
+  for(let i=0;i<h.length;i++){
+    const g=(lo+(hi-lo)*h[i])*255;
+    img.data[i*4]=img.data[i*4+1]=img.data[i*4+2]=g; img.data[i*4+3]=255;
+  }
+  x.putImageData(img,0,0); return c;
+}
+function norm(h){
+  let mn=Infinity,mx=-Infinity;
+  for(const v of h){if(v<mn)mn=v;if(v>mx)mx=v;}
+  const inv=1/(mx-mn||1);
+  for(let i=0;i<h.length;i++) h[i]=(h[i]-mn)*inv;
+  return h;
+}
+function blastMaps(size=1024){
+  const h=new Float32Array(size*size);
+  for(let k=0;k<22000;k++){
+    const cx=Math.random()*size, cy=Math.random()*size;
+    const rad=1.4+Math.random()*4.2, dep=.35+Math.random()*.65, r0=Math.ceil(rad);
+    for(let y=-r0;y<=r0;y++)for(let x=-r0;x<=r0;x++){
+      const d=Math.hypot(x,y); if(d>rad)continue;
+      const px=((((cx+x)|0)%size)+size)%size, py=((((cy+y)|0)%size)+size)%size;
+      h[py*size+px]-=dep*(1-d/rad)**2;
+    }
+  }
+  for(let y=0;y<size;y++){
+    const b=Math.sin(y*Math.PI*2*18/size)*.16+Math.sin(y*Math.PI*2*47/size)*.07;
+    for(let x=0;x<size;x++) h[y*size+x]+=b;
+  }
+  norm(h);
+  return { rough:toTex(grayCanvas(h,size,.58,.92),60), normal:toTex(normalFromHeight(h,size,2.2),60) };
+}
+function paperHeight(size,fiber=1){
+  const h=new Float32Array(size*size);
+  for(let k=0;k<18000*fiber;k++){
+    const cx=Math.random()*size, cy=Math.random()*size;
+    const a=Math.random()*Math.PI, L=6+Math.random()*26, v=(Math.random()-.5)*.9;
+    for(let s=0;s<L;s++){
+      const px=((((cx+Math.cos(a)*s)|0)%size)+size)%size;
+      const py=((((cy+Math.sin(a)*s)|0)%size)+size)%size;
+      h[py*size+px]+=v;
+    }
+  }
+  return norm(h);
+}
+function paperColor(size,h,base,spiral,rings){
+  const c=cv(size),x=c.getContext('2d'),img=x.createImageData(size,size);
+  const [br,bg,bb]=base;
+  for(let i=0;i<h.length;i++){
+    const s=.80+h[i]*.34;
+    img.data[i*4]=Math.min(255,br*s); img.data[i*4+1]=Math.min(255,bg*s);
+    img.data[i*4+2]=Math.min(255,bb*s); img.data[i*4+3]=255;
+  }
+  x.putImageData(img,0,0);
+  if(spiral){
+    x.save(); x.globalAlpha=.5; x.strokeStyle='#8d5f2e'; x.lineWidth=2.5;
+    for(let i=-size;i<size*2;i+=size/4){x.beginPath();x.moveTo(i,0);x.lineTo(i+size,size);x.stroke();}
+    x.globalAlpha=.22; x.strokeStyle='#e8c99b'; x.lineWidth=1.2;
+    for(let i=-size;i<size*2;i+=size/4){x.beginPath();x.moveTo(i+6,0);x.lineTo(i+size+6,size);x.stroke();}
+    x.restore();
+  }
+  if(rings){
+    x.save(); const pitch=size*0.5/200;
+    for(let y=0;y<size;y+=pitch){
+      x.globalAlpha=.30+Math.random()*.25; x.fillStyle='#6b4520';
+      x.fillRect(0,y,size,pitch*0.45);
+    }
+    x.restore();
+  }
+  const t=new THREE.CanvasTexture(c);
+  t.wrapS=t.wrapT=THREE.RepeatWrapping; t.repeat.set(1/200,1/200);
+  t.anisotropy=8; t.colorSpace=THREE.SRGBColorSpace; return t;
+}
+function bakeColor(size,h,base,mode){
+  const c=cv(size),x=c.getContext('2d'),img=x.createImageData(size,size);
+  const [br,bg,bb]=base;
+  for(let i=0;i<h.length;i++){
+    const s=.90+h[i]*.16;
+    img.data[i*4]=Math.min(255,br*s); img.data[i*4+1]=Math.min(255,bg*s);
+    img.data[i*4+2]=Math.min(255,bb*s); img.data[i*4+3]=255;
+  }
+  x.putImageData(img,0,0);
+  if(mode==='outer'){
+    x.save(); x.globalAlpha=.10; x.strokeStyle='#2a1508'; x.lineWidth=1;
+    for(let y=0;y<size;y+=size*0.4/200){x.beginPath();x.moveTo(0,y);x.lineTo(size,y);x.stroke();}
+    x.globalAlpha=.07; x.fillStyle='#e8c9a8';
+    for(let k=0;k<160;k++){
+      x.beginPath(); x.ellipse(Math.random()*size,Math.random()*size,
+        8+Math.random()*26,3+Math.random()*9,Math.random()*Math.PI,0,Math.PI*2); x.fill();
+    }
+    x.restore();
+  }
+  if(mode==='end'){
+    x.save(); const pitch=size*0.3/200;
+    for(let y=0;y<size;y+=pitch){
+      x.globalAlpha=.30+Math.random()*.22; x.fillStyle='#2f1a0c'; x.fillRect(0,y,size,pitch*0.5);
+      x.globalAlpha=.14; x.fillStyle='#c79b6f'; x.fillRect(0,y+pitch*0.5,size,pitch*0.3);
+    }
+    x.restore();
+  }
+  const t=new THREE.CanvasTexture(c);
+  t.wrapS=t.wrapT=THREE.RepeatWrapping; t.repeat.set(1/200,1/200);
+  t.anisotropy=8; t.colorSpace=THREE.SRGBColorSpace; return t;
+}
+function rubberHeight(size){
+  const h=new Float32Array(size*size);
+  for(let k=0;k<36000;k++){
+    const x=(Math.random()*size)|0, y=(Math.random()*size)|0;
+    const rad=1+Math.random()*2.6, r0=Math.ceil(rad), v=(Math.random()-.5)*1.2;
+    for(let b=-r0;b<=r0;b++)for(let a=-r0;a<=r0;a++){
+      const d=Math.hypot(a,b); if(d>rad)continue;
+      h[((((y+b)%size)+size)%size)*size+((((x+a)%size)+size)%size)]+=v*(1-d/rad);
+    }
+  }
+  return norm(h);
+}
+function diamondMaps(size,pitchMM){
+  const base=rubberHeight(size), h=new Float32Array(size*size);
+  for(let y=0;y<size;y++)for(let x=0;x<size;x++){
+    const d1=Math.abs(((x+y)%size)-size/2)/(size/2);
+    const d2=Math.abs(((x-y+size)%size)-size/2)/(size/2);
+    let v=base[y*size+x]*0.10;
+    const m1=(1-d1)*(size/2)*(pitchMM/size), m2=(1-d2)*(size/2)*(pitchMM/size);
+    if(m1<R.GRV_W/2) v-=(1-m1/(R.GRV_W/2));
+    if(m2<R.GRV_W/2) v-=(1-m2/(R.GRV_W/2));
+    h[y*size+x]=v;
+  }
+  norm(h);
+  const n=new THREE.CanvasTexture(normalFromHeight(h,size,3.2));
+  const a=new THREE.CanvasTexture(grayCanvas(h,size,.35,1.0));
+  [n,a].forEach(t=>{t.wrapS=t.wrapT=THREE.RepeatWrapping;t.anisotropy=8;
+    t.colorSpace=THREE.NoColorSpace;t.repeat.set(1/pitchMM,1/pitchMM);});
+  return {normal:n, ao:a};
+}
+function markTexture(w){
+  const c=document.createElement('canvas'); c.width=1024; c.height=128;
+  const x=c.getContext('2d');
+  x.fillStyle='#808080'; x.fillRect(0,0,c.width,c.height);
+  x.save(); x.translate(c.width/2,c.height/2); x.rotate(Math.PI);
+  x.textAlign='center'; x.textBaseline='middle';
+  x.font='bold 52px "Yu Gothic UI",sans-serif';
+  const t=`SP-${w}   SNA32B   2026-09   ${(volumeOf(steelProfile(w))*S.DENSITY).toFixed(0)}kg`;
+  x.fillStyle='#4a4a4a'; x.fillText(t,0,2);
+  x.fillStyle='#b4b4b4'; x.fillText(t,0,-2);
+  x.restore();
+  const tex=new THREE.CanvasTexture(c);
+  tex.wrapS=THREE.RepeatWrapping; tex.wrapT=THREE.ClampToEdgeWrapping; tex.anisotropy=8;
+  return tex;
+}
+
+/* ============================================================
+   5. シーン
+   ============================================================ */
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth,innerHeight);
+renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1.05;
+renderer.localClippingEnabled=true;
+renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x11151a);
+scene.fog=new THREE.Fog(0x11151a,5500,20000);
+
+const camera=new THREE.PerspectiveCamera(36,innerWidth/innerHeight,1,80000);
+const controls=new OrbitControls(camera,renderer.domElement);
+controls.enableDamping=true; controls.dampingFactor=.06;
+controls.minDistance=200; controls.maxDistance=30000;
+controls.autoRotate=false; controls.autoRotateSpeed=.5;
+
+scene.environment=new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(),.04).texture;
+const key=new THREE.DirectionalLight(0xffffff,2.0); key.position.set(1600,2600,1600);
+key.castShadow=true; key.shadow.mapSize.set(2048,2048);
+Object.assign(key.shadow.camera,{left:-2600,right:2600,top:2600,bottom:-2600,far:12000});
+scene.add(key);
+const fill=new THREE.DirectionalLight(0x93b8e8,.55); fill.position.set(-1800,800,-1400); scene.add(fill);
+scene.add(new THREE.AmbientLight(0xffffff,.28));
+
+/* 基準平面（y=0 固定）— モデルはここから liftY だけ浮かせる */
+const floor=new THREE.Mesh(new THREE.CircleGeometry(9000,64),
+  new THREE.MeshStandardMaterial({color:0x1a1f26,roughness:.95,metalness:0}));
+floor.rotation.x=-Math.PI/2; floor.receiveShadow=true; scene.add(floor);
+const grid=new THREE.GridHelper(12000,120,0x2b333d,0x1e242c); scene.add(grid);
+/* 浮いていることが分かる中心軸マーカー */
+const axisLine=new THREE.Line(
+  new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0),new THREE.Vector3(0,1,0)]),
+  new THREE.LineBasicMaterial({color:0x33506e}));
+scene.add(axisLine);
+
+/* ============================================================
+   6. マテリアル
+   ============================================================ */
+const blast=blastMaps(1024);
+const steelMat=new THREE.MeshPhysicalMaterial({
+  color:0x9299a1, metalness:1, roughness:.72,
+  roughnessMap:blast.rough, normalMap:blast.normal,
+  normalScale:new THREE.Vector2(.85,.85),
+  clearcoat:.06, clearcoatRoughness:.85, side:THREE.DoubleSide, envMapIntensity:1.15});
+
+const ph=paperHeight(1024);
+const pn=toTex(normalFromHeight(ph,1024,1.5),200), prg=toTex(grayCanvas(ph,1024,.80,.98),200);
+const mkPaper=o=>new THREE.MeshPhysicalMaterial({...o, metalness:0, roughness:.92,
+  sheen:.35, sheenColor:new THREE.Color(0xd9b183),
+  normalScale:new THREE.Vector2(1,1), side:THREE.DoubleSide, envMapIntensity:.85});
+const paperMats=[
+  mkPaper({map:paperColor(1024,ph,[172,126,74],false,false),normalMap:pn,roughnessMap:prg}),
+  mkPaper({map:paperColor(1024,ph,[186,138,82],false,true ),normalMap:pn,roughnessMap:prg}),
+  mkPaper({map:paperColor(1024,ph,[196,146,86],true ,false),normalMap:pn,roughnessMap:prg})];
+
+const bh=paperHeight(1024,0.6);
+const bn=toTex(normalFromHeight(bh,1024,0.55),200), brg=toTex(grayCanvas(bh,1024,.26,.46),200);
+const mkBake=o=>new THREE.MeshPhysicalMaterial({...o, color:0xffffff, metalness:0, roughness:.36,
+  clearcoat:.55, clearcoatRoughness:.30, reflectivity:.55,
+  normalScale:new THREE.Vector2(.55,.55), side:THREE.DoubleSide, envMapIntensity:1.0});
+const bakeMats=[
+  mkBake({map:bakeColor(1024,bh,[78,40,22],'inner'),normalMap:bn,roughnessMap:brg}),
+  mkBake({map:bakeColor(1024,bh,[86,45,24],'end'  ),normalMap:bn,roughnessMap:brg}),
+  mkBake({map:bakeColor(1024,bh,[92,48,26],'outer'),normalMap:bn,roughnessMap:brg})];
+
+const rh=rubberHeight(1024);
+const GRV_PITCH=Math.PI*R.OD/R.GRV_N;
+const dia=diamondMaps(512,GRV_PITCH);
+const rubberPlain=new THREE.MeshPhysicalMaterial({
+  color:0x22262b, metalness:0, roughness:.95,
+  normalMap:toTex(normalFromHeight(rh,1024,1.1),40), roughnessMap:toTex(grayCanvas(rh,1024,.88,.99),40),
+  normalScale:new THREE.Vector2(.7,.7), sheen:.2, sheenColor:new THREE.Color(0x4a5158),
+  side:THREE.DoubleSide, envMapIntensity:.55});
+const rubberKnurl=new THREE.MeshPhysicalMaterial({
+  color:0x262a30, metalness:0, roughness:.93,
+  normalMap:dia.normal, aoMap:dia.ao, aoMapIntensity:1.0,
+  normalScale:new THREE.Vector2(1.5,1.5), sheen:.22, sheenColor:new THREE.Color(0x4a5158),
+  side:THREE.DoubleSide, envMapIntensity:.6});
+const rubberMats=[rubberPlain, rubberPlain, rubberKnurl];
+
+const RM = {
+  seg   : new THREE.MeshStandardMaterial({color:0xc6ced6, metalness:.80, roughness:.26}),
+  wedge : new THREE.MeshStandardMaterial({color:0xc2823a, metalness:.60, roughness:.38}),
+  spider: new THREE.MeshStandardMaterial({color:0x8d98a4, metalness:.62, roughness:.40}),
+  shaft : new THREE.MeshStandardMaterial({color:0x9aa6b2, metalness:.72, roughness:.30}),
+  oil   : new THREE.MeshStandardMaterial({color:0x2f6f4f, metalness:.30, roughness:.55}),
+  grip  : new THREE.MeshStandardMaterial({color:0x2b3540, metalness:.45, roughness:.55})
+};
+const reelMats=Object.values(RM);
+const ALLMATS=[steelMat,...paperMats,...bakeMats,rubberPlain,rubberKnurl,...reelMats];
+const OUTER_MATS=[steelMat,...paperMats,...bakeMats];
+
+/* 干渉時に重ねる警告シェル */
+const alertMat=new THREE.MeshBasicMaterial({color:0xff4d4d, transparent:true, opacity:.22,
+  side:THREE.DoubleSide, depthWrite:false});
+
+const clipPlanes=[new THREE.Plane(new THREE.Vector3(0,-1,0),0),
+                  new THREE.Plane(new THREE.Vector3(0,0,-1),0)];
+const wireMat=new THREE.LineBasicMaterial({color:0x4da3ff,transparent:true,opacity:.35});
+
+/* ============================================================
+   7. リール
+   ============================================================ */
+function arcBlock({rOut,rIn,a0,aLen,z0,z1,n=56,taper=null}){
+  const pos=[],idx=[];
+  const V=(r,a,z)=>{pos.push(r*Math.cos(a), r*Math.sin(a), z); return pos.length/3-1;};
+  const quad=(a,b,c,d)=>{idx.push(a,b,c,a,c,d);};
+  const ro=z=>taper?Math.max(rIn+1,taper(z)):rOut;
+  const O=[],I=[];
+  for(let k=0;k<=n;k++){
+    const a=a0+aLen*k/n;
+    O.push([V(ro(z0),a,z0), V(ro(z1),a,z1)]);
+    I.push([V(rIn,a,z0), V(rIn,a,z1)]);
+  }
+  for(let k=0;k<n;k++){
+    quad(O[k][0],O[k+1][0],O[k+1][1],O[k][1]);
+    quad(I[k][1],I[k+1][1],I[k+1][0],I[k][0]);
+    quad(I[k][0],I[k+1][0],O[k+1][0],O[k][0]);
+    quad(O[k][1],O[k+1][1],I[k+1][1],I[k][1]);
+  }
+  quad(I[0][0],O[0][0],O[0][1],I[0][1]);
+  quad(O[n][0],I[n][0],I[n][1],O[n][1]);
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+  g.setIndex(idx); g.computeVertexNormals(); return g;
+}
+function zTube(od,z0,z1,n=56){
+  const g=new THREE.CylinderGeometry(od/2,od/2,z1-z0,n,1,false);
+  g.rotateX(Math.PI/2); g.translate(0,0,(z0+z1)/2); return g;
+}
+function zTaper(d0,d1,z0,z1,n=56){
+  const g=new THREE.CylinderGeometry(d1/2,d0/2,z1-z0,n,1,false);
+  g.rotateX(Math.PI/2); g.translate(0,0,(z0+z1)/2); return g;
+}
+let reelSegs=[], reelWedges=null, RS=null;
+
+function buildReel(k){
+  RS=REELS[k]; const Z=RC.Z;
+  const R_EXP=RS.D_EXP/2, R_CON=RS.D_CON/2, TAN=Math.tan(RC.ANG*Math.PI/180);
+  const g=new THREE.Group(); reelSegs=[];
+  const base=new THREE.Group(); g.add(base);
+  const add=(geo,m)=>{const me=new THREE.Mesh(geo,m); me.castShadow=me.receiveShadow=true; base.add(me);};
+  add(zTube(RC.THR_D,Z.thr0,Z.thr1,32),RM.shaft);
+  add(zTube(RC.OB_D ,Z.ob0 ,Z.ob1 ),RM.shaft);
+  add(zTube(RC.ST_D ,Z.st0 ,Z.st1 ),RM.shaft);
+  add(zTube(RS.DRUM_OD,Z.st1,Z.col0),RM.spider);
+  add(zTaper(RS.DRUM_OD,RC.COL_D,Z.col0,Z.col1),RM.shaft);
+  add(zTube(RC.COL_D,Z.col1,Z.col2),RM.shaft);
+  add(zTaper(RC.COL_D,RC.SH_D,Z.col2,Z.sh0+1),RM.shaft);
+  add(zTube(RC.SH_D,Z.sh0,Z.hub0),RM.shaft);
+  add(zTaper(RC.SH_D,RC.HUB_D,Z.hub0-40,Z.hub0),RM.shaft);
+  add(zTube(RC.HUB_D,Z.hub0,Z.hub1),RM.shaft);
+  for(let i=0;i<RS.BOLT_N;i++){
+    const a=2*Math.PI*i/RS.BOLT_N;
+    const b=new THREE.Mesh(new THREE.CylinderGeometry(RS.BOLT_D/2,RS.BOLT_D/2,24,6),RM.grip);
+    b.rotateX(Math.PI/2);
+    b.position.set(RS.BOLT_R*Math.cos(a),RS.BOLT_R*Math.sin(a),Z.hub0+12);
+    base.add(b);
+  }
+  reelWedges=new THREE.Group(); g.add(reelWedges);
+  const rDrum=RS.DRUM_OD/2, WZ0=Z.seg0+30, WZ1=Z.seg1-30;
+  const pitch=(WZ1-WZ0-RS.WB_L)/(RS.WB_N-1), ARC=Math.PI/2;
+  for(let i=0;i<4;i++){
+    const a0=-ARC/2+ARC*i+0.05, aL=ARC-0.10;
+    reelWedges.add(new THREE.Mesh(arcBlock({rOut:rDrum+6,rIn:rDrum-1,a0,aLen:aL,z0:WZ0,z1:WZ1}),RM.spider));
+    for(let j=0;j<RS.WB_N;j++){
+      const z0=WZ0+j*pitch, z1=z0+RS.WB_L, hi=R_CON-3;
+      const tp=z=>hi-TAN*(z-z0);
+      reelWedges.add(new THREE.Mesh(arcBlock({rOut:hi,rIn:rDrum-1,a0,aLen:aL,z0,z1,taper:tp}),RM.wedge));
+      reelWedges.add(new THREE.Mesh(arcBlock({rOut:hi,rIn:rDrum,a0:a0+.05,aLen:aL-.10,
+        z0:z0+25,z1:z1-25,n:32,taper:z=>tp(z)+2}),RM.oil));
+    }
+  }
+  const segRoot=new THREE.Group(); g.add(segRoot);
+  const gapA=RS.ST_R/R_EXP, tDepth=Math.min(40,(R_EXP-rDrum)*0.55);
+  for(let i=0;i<4;i++){
+    const sg=new THREE.Group();
+    const a0=-ARC/2+ARC*i+gapA, aLen=ARC-2*gapA;
+    const m=new THREE.Mesh(arcBlock({rOut:R_EXP,rIn:R_CON-3,a0,aLen,z0:Z.seg0,z1:Z.seg1}),RM.seg);
+    m.castShadow=m.receiveShadow=true; sg.add(m);
+    for(let z=Z.seg0+12; z<=Z.seg1-RC.COMB_W-12; z+=RC.COMB_P){
+      const zz=z+(i%2?RC.COMB_P/2:0);
+      if(zz+RC.COMB_W>Z.seg1-12) break;
+      for(const side of [0,1]){
+        const a=side?a0+aLen:a0, dir=side?1:-1;
+        const t=new THREE.Mesh(new THREE.BoxGeometry(tDepth,RS.COMB_H,RC.COMB_W),RM.seg);
+        const rm=R_EXP-tDepth/2;
+        t.position.set(rm*Math.cos(a)-dir*(RS.COMB_H/2)*Math.sin(a),
+                       rm*Math.sin(a)+dir*(RS.COMB_H/2)*Math.cos(a), zz+RC.COMB_W/2);
+        t.rotation.z=a; sg.add(t);
+      }
+    }
+    if(RS.GRIP && i===0){
+      const sl=new THREE.Mesh(new THREE.BoxGeometry(24,12,1740),RM.grip);
+      const a=a0+aLen*0.5;
+      sl.position.set((R_EXP-12)*Math.cos(a),(R_EXP-12)*Math.sin(a),(Z.seg0+Z.seg1)/2);
+      sl.rotation.z=a; sg.add(sl);
+    }
+    sg.userData.dir=new THREE.Vector3(Math.cos(ARC*i),Math.sin(ARC*i),0);
+    segRoot.add(sg); reelSegs.push(sg);
+  }
+  return g;
+}
+const drumDia=()=> RS ? RS.D_CON + 2*RS.ST_R*expT : 0;
+function applyExpand(){
+  if(!RS) return;
+  const dr=RS.ST_R*expT;
+  reelSegs.forEach(s=>s.position.copy(s.userData.dir).multiplyScalar(dr-RS.ST_R));
+  reelWedges.position.z=-RS.ST_Z*(1-expT);
+}
+
+/* ============================================================
+   8. 寸法線
+   ============================================================ */
+function tag(text,size=46){
+  const c=document.createElement('canvas'),x=c.getContext('2d');
+  x.font=`bold ${size}px "Yu Gothic UI",sans-serif`;
+  c.width=Math.ceil(x.measureText(text).width)+34; c.height=size+26;
+  const g=c.getContext('2d');
+  g.fillStyle='rgba(16,20,26,.88)'; g.fillRect(0,0,c.width,c.height);
+  g.strokeStyle='#4da3ff'; g.lineWidth=2; g.strokeRect(1,1,c.width-2,c.height-2);
+  g.font=`bold ${size}px "Yu Gothic UI",sans-serif`; g.fillStyle='#dceaff';
+  g.textAlign='center'; g.textBaseline='middle'; g.fillText(text,c.width/2,c.height/2+1);
+  const s=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),
+    depthTest:false,transparent:true}));
+  s.scale.set(c.width*.42,c.height*.42,1); return s;
+}
+function buildDim(L,ro,ri,lab){
+  const g=new THREE.Group(), h=L/2, y=-ro-160, V=THREE.Vector3;
+  const mat=new THREE.LineBasicMaterial({color:0x4da3ff,depthTest:false});
+  const seg=(a,b)=>g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([a,b]),mat));
+  seg(new V(-h,y,0),new V(h,y,0));
+  seg(new V(-h,y-28,0),new V(-h,-ro+10,0));
+  seg(new V(h,y-28,0),new V(h,-ro+10,0));
+  const lw=tag(lab.w); lw.position.set(0,y-64,0); g.add(lw);
+  const xd=-h-200;
+  seg(new V(xd,-ro,0),new V(xd,ro,0));
+  if(ri>0) seg(new V(xd+50,-ri,0),new V(xd+50,ri,0));
+  const od=tag(lab.od); od.position.set(xd-150,0,0); g.add(od);
+  if(lab.id){ const id=tag(lab.id); id.position.set(xd+210,ri*.55,0); g.add(id); }
+  if(lab.t){ const wt=tag(lab.t); wt.position.set(h+180,ro-12,0); g.add(wt);
+    seg(new V(h,ro,0),new V(h+70,ro+30,0)); }
+  g.traverse(o=>o.renderOrder=10);
+  return g;
+}
+
+/* ============================================================
+   9. 部品ビルダー
+   ============================================================ */
+function makeSteel(L){
+  const pts=steelProfile(L), g=new THREE.Group();
+  const m=new THREE.Mesh(revolve(pts,300,null,S.Ro),steelMat);
+  m.castShadow=m.receiveShadow=true; g.add(m);
+  const h=L/2, rB=S.Ro-S.B1_RA, rF=S.Ro-S.B1_RA-S.B2_RA;
+  const mk=new THREE.Mesh(revolve([[h,rF+1.2],[h-S.B2_AX+1.2,rB-1.2]],96,null,S.Ro),
+    new THREE.MeshPhysicalMaterial({color:0x9299a1,metalness:1,roughness:.78,
+      normalMap:markTexture(L),normalScale:new THREE.Vector2(1.6,1.6),
+      side:THREE.DoubleSide,envMapIntensity:1.1,
+      polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2}));
+  mk.renderOrder=1; g.add(mk);
+  return {group:g, pts, ro:S.Ro, ri:S.Ri, L, dim:{w:`${L} ±1`,od:'φ557',id:'φ507',t:'肉厚 25'}};
+}
+function makeTube(which,L,ri,t){
+  const pr=tubeProfile(L,ri,t), ro=ri+t, g=new THREE.Group();
+  const m=new THREE.Mesh(revolve(pr.pts,240,pr.grp,ro), which==='bake'?bakeMats:paperMats);
+  m.castShadow=m.receiveShadow=true; g.add(m);
+  return {group:g, pts:pr.pts, ro, ri, L,
+    dim:{w:`${L}`,od:`φ${(ro*2).toFixed(0)}`,id:`φ${(ri*2).toFixed(0)}`,t:`肉厚 ${t}`}};
+}
+function makeRubber(riOverride){
+  const pr=rubberProfile(riOverride);
+  const ri=pr.pts[0][1], ro=ri+(R.OD-R.ID)/2;
+  const geo=revolve(pr.pts,264,pr.grp,ro);
+  geo.setAttribute('uv1',geo.getAttribute('uv'));
+  const g=new THREE.Group();
+  const m=new THREE.Mesh(geo,rubberMats); m.castShadow=m.receiveShadow=true; g.add(m);
+  return {group:g, pts:pr.pts, ro, ri, L:R.L,
+    dim:{w:`${R.L}`,od:`φ${(ro*2).toFixed(0)}`,id:`φ${(ri*2).toFixed(0)}`,
+         t:`肉厚 ${((R.OD-R.ID)/2).toFixed(1)}`}};
+}
+function makeReelPart(k){
+  const g=new THREE.Group();
+  const inner=buildReel(k);
+  inner.rotation.y=Math.PI/2; inner.position.x=-DRUM_CZ;
+  g.add(inner); applyExpand();
+  return {group:g, ro:REELS[k].D_EXP/2, ri:0, L:RC.SEG_L,
+    dim:{w:`ドラム長 ${RC.SEG_L}`,od:`φ${drumDia().toFixed(1)}`,id:null,t:null}};
+}
+
+/* ============================================================
+   10. シーン構築
+   ============================================================ */
+const root=new THREE.Group(); scene.add(root);
+let dimGroup=null, wireGroup=null, curParts=[], bound={ro:600,L:1800};
+let curJudge=[];
+const st={sec:false,xray:false,dim:false,wire:false};
+
+function clearRoot(){ root.clear(); curParts=[]; dimGroup=null; wireGroup=null; RS=null; }
+
+function build(){
+  clearRoot();
+  let ro=600, L=1800, dimSrc=null;
+
+  if(mode==='single'){
+    curJudge=[];
+    let part;
+    if(kind==='steel')       part=makeSteel(sW);
+    else if(kind==='paper')  part=makeTube('paper',pW,pID/2,pT);
+    else if(kind==='bake')   part=makeTube('bake', pW,pID/2,pT);
+    else if(kind==='rubber') part=makeRubber();
+    else                     part=makeReelPart(reelKey);
+    root.add(part.group); curParts.push({name:kind,...part});
+    ro=part.ro; L=part.L; dimSrc=part;
+    if(part.pts){
+      wireGroup=new THREE.LineSegments(
+        new THREE.WireframeGeometry(revolve(part.pts,40,null,part.ro)),wireMat);
+      root.add(wireGroup);
+    }
+  }else{
+    curJudge=evaluate({reel:reelKey, sleeve:aSleeve, spool:aSpool});
+    const rp=makeReelPart(reelKey); root.add(rp.group);
+    curParts.push({name:'reel',...rp});
+    ro=rp.ro; L=RC.TOTAL; dimSrc=rp;
+    const dR=drumDia()/2;
+    if(aSleeve){
+      const sp=makeRubber(Math.max(R.ID/2,dR)); root.add(sp.group);
+      curParts.push({name:'rubber',...sp});
+      ro=Math.max(ro,sp.ro); dimSrc=sp;
+    }
+    if(aSpool!=='none'){
+      const sp = aSpool==='steel' ? makeSteel(sW) : makeTube(aSpool,pW,pID/2,pT);
+      root.add(sp.group); curParts.push({name:aSpool,...sp});
+      ro=Math.max(ro,sp.ro); dimSrc=sp;
+      // 干渉時は赤いシェルを重ねて可視化
+      const bad=curJudge.find(j=>j.level==='ng' && j.kind==='干渉');
+      if(bad){
+        const shell=new THREE.Mesh(
+          new THREE.CylinderGeometry(sp.ri,sp.ri,sp.L*0.98,64,1,true), alertMat);
+        shell.rotation.z=Math.PI/2; shell.renderOrder=5; root.add(shell);
+      }
+    }
+  }
+
+  bound={ro, L:Math.max(L, ...curParts.map(p=>p.L||0))};
+  if(dimSrc){ dimGroup=buildDim(dimSrc.L,dimSrc.ro,dimSrc.ri,dimSrc.dim); root.add(dimGroup); }
+
+  applyLift(ro);
+  key.position.set(ro*3, root.position.y+ro*4.5, ro*3);
+  applyStates(); updateSpec(); refreshBadges(); fitView();
+}
+/* 基準平面から浮かせる */
+function applyLift(ro){
+  root.position.y = ro + liftY;
+  axisLine.scale.y = root.position.y;
+  axisLine.visible = liftY>20;
+}
+
+/* ============================================================
+   11. 諸元表示
+   ============================================================ */
+function partMass(p){
+  if(!p.pts) return null;
+  const V=volumeOf(p.name==='steel'?p.pts:closed(p.pts));
+  const d=p.name==='steel'?S.DENSITY : p.name==='rubber'?R.DENSITY : DENS[p.name];
+  return {V, m:V*d, d};
+}
+function updateSpec(){
+  const el=document.getElementById('spec');
+  let h='';
+  if(mode==='single'){
+    const p=curParts[0];
+    if(kind==='reel'){
+      h+=`<div class="row"><span>機種</span><b>${RS.label}（${RS.dwg}）</b></div>`
+       + `<div class="row"><span>ドラム外径</span><b class="big">φ${drumDia().toFixed(1)}</b></div>`
+       + `<div class="row"><span>閉 / 開</span><b>φ${RS.D_CON} / φ${RS.D_EXP}</b></div>`
+       + `<div class="row"><span>半径ストローク</span><b>${RS.ST_R} mm</b></div>`
+       + `<div class="row"><span>軸方向ストローク</span><b>${RS.ST_Z} mm</b></div>`
+       + `<div class="row"><span>ウエッジ傾斜</span><b>${RC.ANG}°</b></div>`
+       + `<div class="row"><span>ドラム長 / 全長</span><b>${RC.SEG_L} / ${RC.TOTAL}</b></div>`;
+    }else{
+      const mm=partMass(p);
+      h+=`<div class="row"><span>外径</span><b>${p.dim.od}</b></div>`
+       + `<div class="row"><span>内径</span><b>${p.dim.id}</b></div>`
+       + `<div class="row"><span>${kind==='rubber'?'長さ':'幅'}</span><b>${p.L}</b></div>`
+       + `<div class="row"><span>体積</span><b>${(mm.V/1e9).toFixed(5)} m³</b></div>`
+       + `<div class="row"><span>参考重量 (${(mm.d*1e6).toFixed(2)} g/cm³)</span>`
+       + `<b class="big">${mm.m.toFixed(1)} kg</b></div>`;
+      if(kind==='rubber')
+        h+=`<div class="row"><span>呼称</span><b>φ${R.NOM_ID} – φ${R.NOM_OD}</b></div>`
+         + `<div class="row"><span>弾性許容内径</span><b>φ${R.D_MIN.toFixed(1)} – φ${R.D_MAX.toFixed(1)}</b></div>`;
+    }
+  }else{
+    const dD=drumDia();
+    h+=`<div class="row"><span>構成</span><b>${curParts.map(p=>JP[p.name]).join(' → ')}</b></div>`
+     + `<div class="row"><span>ドラム外径</span><b class="big">φ${dD.toFixed(1)}</b></div>`
+     + `<div class="row"><span>ドラム 閉/開</span><b>φ${RS.D_CON} / φ${RS.D_EXP}</b></div>`;
+    let total=0; curParts.forEach(p=>{const mm=partMass(p); if(mm) total+=mm.m;});
+    if(total>0) h+=`<div class="row"><span>装着部品 合計重量</span><b>${total.toFixed(1)} kg</b></div>`;
+    const w=worst(curJudge);
+    let f=`<div class="fit ${w==='ok'?'':'alert'}"><div class="t ${w==='ok'?'ok':w}">`
+        + `${w==='ok'?'嵌合チェック：適合':'嵌合チェック：問題あり'}</div>`;
+    if(!curJudge.length) f+='<div class="row"><span>装着部品なし</span><b>—</b></div>';
+    curJudge.forEach(j=>{
+      f+=`<div class="row"><span>${j.step}</span><b class="${j.level}">${j.kind}</b></div>`
+       + `<div class="row"><span style="font-size:11px">　</span>`
+       + `<b style="font-weight:500;color:var(--sub);font-size:11px">${j.val}</b></div>`;
+    });
+    f+='</div>'; h+=f;
+  }
+  el.innerHTML=h;
+}
+
+/* ============================================================
+   12. 表示状態
+   ============================================================ */
+function applyStates(){
+  const cp=st.sec?clipPlanes:null;
+  ALLMATS.forEach(m=>{ m.clippingPlanes=cp; m.wireframe=st.wire; m.needsUpdate=true; });
+  const xr=st.xray && mode==='assy';
+  OUTER_MATS.forEach(m=>{ m.transparent=xr; m.opacity=xr?.34:1; m.depthWrite=!xr; m.needsUpdate=true; });
+  const sleeveOuter = xr && curParts.length && curParts[curParts.length-1].name!=='rubber';
+  [rubberPlain,rubberKnurl].forEach(m=>{
+    m.transparent=sleeveOuter?false:(xr&&curParts.some(p=>p.name==='rubber')&&curParts[curParts.length-1].name==='rubber');
+    m.opacity=m.transparent?.34:1; m.depthWrite=!m.transparent; m.needsUpdate=true;
+  });
+  if(dimGroup) dimGroup.visible=st.dim;
+  if(wireGroup) wireGroup.visible=false;
+}
+
+/* ============================================================
+   13. カメラ
+   ============================================================ */
+let userMoved=false;
+function fitView(force){
+  if(userMoved && !force) return;
+  const radius=Math.hypot(bound.L/2,bound.ro)*1.28;
+  const fov=THREE.MathUtils.degToRad(camera.fov);
+  const dV=radius/Math.sin(fov/2);
+  const dH=radius/Math.sin(Math.atan(Math.tan(fov/2)*camera.aspect));
+  const d=Math.max(dV,dH);
+  const c=new THREE.Vector3(0,root.position.y,0);
+  camera.position.copy(c).add(new THREE.Vector3(0.60,0.34,0.70).normalize().multiplyScalar(d));
+  camera.near=Math.max(1,d/800); camera.far=d*40; camera.updateProjectionMatrix();
+  controls.target.copy(c); controls.update();
+}
+controls.addEventListener('start',()=>{userMoved=true;});
+
+/* ============================================================
+   14. 警告トースト
+   ============================================================ */
+const $=id=>document.getElementById(id);
+let toastTimer=null;
+function showToast(j){
+  const t=$('toast');
+  t.innerHTML=`<div class="th"><span>⚠ ${j.kind}：${j.title}</span>`
+    + `<span class="cl" id="toastClose">×</span></div>`
+    + `<div class="tx">${j.msg}</div><div class="tv">${j.val}</div>`;
+  t.classList.add('show');
+  $('toastClose').onclick=()=>t.classList.remove('show');
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>t.classList.remove('show'), 9000);
+}
+function hideToast(){ $('toast').classList.remove('show'); }
+
+/* ============================================================
+   15. ボタンのグレーアウト（不適合の事前表示）
+   ============================================================ */
+function badgeFor(cfg){
+  const list=evaluate(cfg);
+  const bad=list.find(j=>j.level==='ng') || list.find(j=>j.level==='warn');
+  return bad||null;
+}
+function refreshBadges(){
+  if(mode!=='assy'){ return; }
+  // ② スリーブ
+  [...$('aSleeve').children].forEach(b=>{
+    const s=+b.dataset.s;
+    const j=badgeFor({reel:reelKey, sleeve:s, spool:aSpool});
+    b.classList.toggle('bad', !!j && j.level==='ng');
+    b._judge=j;
+  });
+  // ③ スプール
+  [...$('aSpool').children].forEach(b=>{
+    const p=b.dataset.p;
+    const j=badgeFor({reel:reelKey, sleeve:aSleeve, spool:p});
+    b.classList.toggle('bad', !!j && j.level==='ng');
+    b._judge=j;
+  });
+  // ① リール
+  [...$('aReel').children].forEach(b=>{
+    const j=badgeFor({reel:b.dataset.k, sleeve:aSleeve, spool:aSpool});
+    b.classList.toggle('bad', !!j && j.level==='ng');
+    b._judge=j;
+  });
+  // 紙管・ベークの内径ボタン
+  [...$('pids').children].forEach(b=>{
+    if(mode!=='assy' || (aSpool!=='paper'&&aSpool!=='bake')){ b.classList.remove('bad'); b._judge=null; return; }
+    const keep=pID; pID=+b.dataset.v;
+    const j=badgeFor({reel:reelKey, sleeve:aSleeve, spool:aSpool});
+    pID=keep;
+    b.classList.toggle('bad', !!j && j.level==='ng');
+    b._judge=j;
+  });
+}
+/* 押下時：不適合なら警告 */
+function guard(btn){
+  const j=btn._judge;
+  if(j && (j.level==='ng'||j.level==='warn')) showToast(j); else hideToast();
+}
+
+/* ============================================================
+   16. UI
+   ============================================================ */
+const NOTES={
+  steel:`<b>鉄スプール</b>（SNA32B・φ557×φ507）：A部は二段斜面（軸10×径3 ＋ 軸10×径10、端面フラット12）。
+    内外面25S 旋盤加工後ショットブラストを想定した微細梨地、片端斜面に刻印。`,
+  paper:`<b>紙管</b>：内径 φ298・φ398・φ505、肉厚 10/15/20、幅 10〜1800（1mm単位）。
+    外面はスパイラル巻き継ぎ目、端面は積層プライ。参考密度0.80 g/cm³。`,
+  bake:`<b>ベークライトスプール</b>（フェノール樹脂積層）：サイズ仕様は紙管と共通。
+    外面は旋削仕上げの半光沢、端面は基材クロスの積層縞。参考密度1.35 g/cm³。`,
+  rubber:`<b>ゴムスリーブ</b>（SH18-J06 / FS4.508-610POR）：呼称φ508×φ610、実寸 内径φ480×外径φ587×1623L。
+    外面ダイヤ溝 3W×3D・24等分×2方向、特殊耐油性ゴム Hs70°。`,
+  reel:`<b>リコイラードラム</b>（RD-1467-03SB / -04S）：4セグメント ウエッジタイプ。
+    スライダーでウエッジが軸方向に動き、セグメントが半径方向に拡縮します。`,
+  assy:`<b>組立モード</b>：リール →（ゴムスリーブ）→ スプール を同軸で重ねます。<br>
+    成立しない組合せのボタンは<span style="opacity:.55">グレーアウト＋「!」</span>で表示します。
+    選択は可能ですが、押すと画面上部に原因を警告します。<br>
+    判定基準：内径がドラム閉径未満＝<span class="ng">干渉</span>／ドラム開径超過＝<span class="ng">保持不可</span>／
+    スリーブは内径φ480に対し <b>φ${R.D_MIN.toFixed(1)}〜φ${R.D_MAX.toFixed(1)}</b> を弾性変形領域とします。`
+};
+function updateHeader(){
+  if(mode==='assy'){
+    $('title').textContent='組立ビューア（リール＋スリーブ＋スプール）';
+    $('subtitle').textContent=`${REELS[reelKey].label} リール / ドラムφ${drumDia().toFixed(1)}`;
+    $('note').innerHTML=NOTES.assy;
+  }else{
+    const T={steel:'鉄スプール',paper:'紙管（紙スプール）',bake:'ベークライトスプール',
+             rubber:'ゴムスリーブ（FS4）',reel:'リコイラードラム'};
+    $('title').textContent=T[kind];
+    const sub={steel:'SNA32B / φ557 × φ507 / 肉厚 25',
+      rubber:'特殊耐油性ゴム Hs70° / φ480 × φ587 × 1623L',
+      reel:REELS[reelKey].title};
+    $('subtitle').textContent = sub[kind] ??
+      `${kind==='bake'?'フェノール樹脂積層':'紙'} / 内径 φ${pID} / 肉厚 ${pT}`;
+    $('note').innerHTML=NOTES[kind];
+  }
+}
+function refreshPanels(){
+  const assy=mode==='assy';
+  $('singleUI').classList.toggle('hide',assy);
+  $('assyUI').classList.toggle('hide',!assy);
+  $('reelUI').classList.toggle('hide', !(assy || kind==='reel'));
+  $('steelUI').classList.toggle('hide', !(assy? aSpool==='steel' : kind==='steel'));
+  $('tubeUI').classList.toggle('hide',
+    !(assy? (aSpool==='paper'||aSpool==='bake') : (kind==='paper'||kind==='bake')));
+  $('t-xray').classList.toggle('hide',!assy);
+}
+function refresh(){ refreshPanels(); updateHeader(); build(); }
+
+$('mode').onclick=e=>{ const m=e.target.dataset.m; if(!m) return;
+  mode=m; [...$('mode').children].forEach(b=>b.classList.toggle('on',b.dataset.m===m));
+  hideToast(); userMoved=false; refresh(); };
+$('kind').onclick=e=>{ const k=e.target.dataset.k; if(!k) return;
+  kind=k; [...$('kind').children].forEach(b=>b.classList.toggle('on',b.dataset.k===k));
+  hideToast(); userMoved=false; refresh(); };
+$('aSleeve').onclick=e=>{ const b=e.target.closest('button'); if(!b||b.dataset.s===undefined) return;
+  aSleeve=+b.dataset.s;
+  [...$('aSleeve').children].forEach(c=>c.classList.toggle('on',c===b));
+  refresh(); guard(b); };
+$('aSpool').onclick=e=>{ const b=e.target.closest('button'); if(!b||!b.dataset.p) return;
+  aSpool=b.dataset.p;
+  [...$('aSpool').children].forEach(c=>c.classList.toggle('on',c===b));
+  refresh(); guard(b); };
+
+Object.keys(REELS).forEach(k=>{
+  const mk=(host,also)=>{
+    const b=document.createElement('button');
+    b.textContent=REELS[k].label; b.dataset.k=k;
+    if(k===reelKey) b.classList.add('on');
+    b.onclick=()=>{ reelKey=k;
+      [...$('reelModel').children].forEach(c=>c.classList.toggle('on',c.dataset.k===k));
+      [...$('aReel').children].forEach(c=>c.classList.toggle('on',c.dataset.k===k));
+      updateHeader(); build(); if(also) guard(b); };
+    host.appendChild(b);
+  };
+  mk($('reelModel'),false); mk($('aReel'),true);
+});
+
+$('exp').oninput=e=>{
+  expT=parseFloat(e.target.value);
+  if(mode==='assy') build();
+  else { applyExpand(); updateSpec(); updateHeader(); }
+};
+$('lift').oninput=e=>{ liftY=+e.target.value; applyLift(bound.ro);
+  key.position.set(bound.ro*3, root.position.y+bound.ro*4.5, bound.ro*3);
+  fitView(!userMoved); };
+
+S.WIDTHS.forEach(w=>{
+  const b=document.createElement('button');
+  b.textContent=w; b.dataset.w=w; if(w===sW) b.classList.add('on');
+  b.onclick=()=>{ sW=w; [...$('widths').children].forEach(c=>c.classList.toggle('on',+c.dataset.w===w));
+    build(); };
+  $('widths').appendChild(b);
+});
+P.IDS.forEach(v=>{
+  const b=document.createElement('button');
+  b.textContent='φ'+v; b.dataset.v=v; if(v===pID) b.classList.add('on');
+  b.onclick=()=>{ pID=v; [...$('pids').children].forEach(c=>c.classList.toggle('on',+c.dataset.v===v));
+    updateHeader(); build(); guard(b); };
+  $('pids').appendChild(b);
+});
+P.TS.forEach(v=>{
+  const b=document.createElement('button');
+  b.textContent=v+'mm'; b.dataset.v=v; if(v===pT) b.classList.add('on');
+  b.onclick=()=>{ pT=v; [...$('pts').children].forEach(c=>c.classList.toggle('on',+c.dataset.v===v));
+    updateHeader(); build(); };
+  $('pts').appendChild(b);
+});
+const rng=$('pwRange'), num=$('pwNum');
+function setPW(v){
+  v=Math.round(Math.min(P.W_MAX,Math.max(P.W_MIN,v||P.W_MIN)));
+  pW=v; rng.value=v; num.value=v; build();
+}
+rng.oninput=()=>setPW(+rng.value);
+num.onchange=()=>setPW(+num.value);
+$('pwFit').onclick=()=>setPW(1400);
+
+const bind=(id,fn)=>{ const b=$(id); b.onclick=()=>fn(b); };
+bind('t-sec', b=>{st.sec=!st.sec;b.classList.toggle('on',st.sec);applyStates();});
+bind('t-xray',b=>{st.xray=!st.xray;b.classList.toggle('on',st.xray);applyStates();});
+bind('t-dim', b=>{st.dim=!st.dim;b.classList.toggle('on',st.dim);applyStates();});
+bind('t-wire',b=>{st.wire=!st.wire;b.classList.toggle('on',st.wire);applyStates();});
+bind('t-spin',b=>{controls.autoRotate=!controls.autoRotate;b.classList.toggle('on',controls.autoRotate);});
+bind('t-fit', ()=>{userMoved=false;fitView(true);});
+
+addEventListener('resize',()=>{
+  camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+});
+
+refresh();
+$('loading').remove();
+renderer.setAnimationLoop(()=>{controls.update();renderer.render(scene,camera);});
+</script>
+</body>
+</html>

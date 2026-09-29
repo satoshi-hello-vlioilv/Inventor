@@ -1,35 +1,48 @@
-// アプリの入口: ファイルの読み込み（ボタン・ドラッグ＆ドロップ・Ctrl+O）、解析、表示、3D ⇄ パネルの連動。
+// アプリの入口: ファイルの読み込み（ボタン・ドラッグ＆ドロップ・Ctrl+O・サンプル）、解析、表示、3D ⇄ パネルの連動。
+//   .ipt  … ブラウザ内で解析して表示する
+//   .html … 隔離した iframe で動かし、three.js の形状を取り出して回転体・押し出しとして認識する
 
-import { CfbError, parseIpt } from "./ipt/index.js";
-import { renderPanel } from "./ui/panel.js";
 import { describeBody } from "./viewer/describe.js";
+import { buildDisplayMeshes, describeRecognition } from "./extract/describe.js";
+import { SourceFrame } from "./extract/frame.js";
+import { CfbError, parseIpt } from "./ipt/index.js";
+import { recognizeSnapshot } from "./recognize/index.js";
+import { renderHeader, renderHtmlPanel, renderIptPanel, setPanelMode } from "./ui/panel.js";
 import { VIEWS, Viewer } from "./viewer/viewer.js";
 
 const $ = (id) => document.getElementById(id);
 const readout = $("readout");
 const readoutChip = readout.querySelector(".chip");
 const IDLE_TEXT = readoutChip.textContent;
+const SETTLE_MS = 1200; // 元のページの最初の描画から取り込みまで待つ時間（初期化の完了待ち）
+const READY_TIMEOUT_MS = 15000;
 
-let current = null; // { describe, rows }
+let current = null; // { info: Map<id, {group, text}>, rows: Map<groupKey, element> }
 let thumbnailUrl = null;
+let source = null; // 表示中の元のページ（SourceFrame）
 
 // ---- 強調表示（3D ⇄ パネルの双方向） -----------------------------------------
-function highlight(faceIds, text, groupKey) {
-  viewer?.highlight(faceIds);
+function highlight(ids, text, groupKey) {
+  viewer?.highlight(ids);
   readoutChip.textContent = text ?? IDLE_TEXT;
   readout.classList.toggle("is-live", Boolean(text));
   for (const [key, row] of current?.rows ?? []) row.classList.toggle("is-active", key === groupKey);
 }
 
-function onFaceHover(faceId) {
-  const info = faceId === null ? null : current?.describe.faceInfo.get(faceId);
-  if (info) highlight([faceId], info.text, info.group);
+function onHover(id) {
+  const info = id === null ? null : current?.info.get(id);
+  if (info) highlight([id], info.text, info.group);
   else highlight([]);
 }
 
+const rowHandlers = (idsOf) => ({
+  onEnter: (g) => highlight(idsOf(g), g.text ?? `${g.label} ${g.main} × ${g.ids.length}`, g.key),
+  onLeave: () => highlight([]),
+});
+
 let viewer = null;
 try {
-  viewer = new Viewer({ stage: $("stage"), canvas: $("view"), gizmo: $("gizmo") }, { onHover: onFaceHover });
+  viewer = new Viewer({ stage: $("stage"), canvas: $("view"), gizmo: $("gizmo") }, { onHover });
 } catch {
   const note = document.createElement("p");
   note.className = "message";
@@ -37,27 +50,37 @@ try {
   $("stage").append(note);
 }
 
-// ---- 読み込み ------------------------------------------------------------------
 function showAlert(message) {
   const alert = $("alert");
   alert.textContent = message;
   alert.hidden = !message;
 }
 
-function explain(error) {
+function setMode(mode) {
+  $("app").classList.toggle("is-html", mode === "html");
+  $("source").hidden = mode !== "html";
+  setPanelMode(mode);
+  if (mode !== "html" && source) {
+    source.dispose();
+    source = null;
+  }
+}
+
+// ---- ipt -----------------------------------------------------------------------
+function explainIpt(error) {
   if (error instanceof CfbError) {
-    return "Inventor のファイル形式（OLE2）ではありません。拡張子 .ipt の部品ファイルを選んでください。";
+    return "Inventor のファイル形式（OLE2）ではありません。拡張子 .ipt の部品ファイルか、three.js を使った .html を選んでください。";
   }
   return `形状データを読み取れませんでした（${error.message}）。動作を確認しているのは Inventor 2026 で保存した部品ファイルです。`;
 }
 
-function load(bytes, name, isSample = false) {
+function loadIpt(bytes, name, isSample = false) {
   let result;
   try {
     result = parseIpt(bytes, name);
   } catch (error) {
     console.warn(error); // 想定内の入力エラー。利用者には alert で説明する
-    showAlert(`${name}: ${explain(error)}`);
+    showAlert(`${name}: ${explainIpt(error)}`);
     return;
   }
   if (!result.scene.bodies.length) {
@@ -65,16 +88,82 @@ function load(bytes, name, isSample = false) {
     return;
   }
   showAlert("");
+  setMode("ipt");
   if (thumbnailUrl) URL.revokeObjectURL(thumbnailUrl);
   thumbnailUrl = result.thumbnail ? URL.createObjectURL(new Blob([result.thumbnail], { type: "image/png" })) : null;
+  const kernel = result.scene.source;
+  renderHeader({ eyebrow: "部品ファイル（ipt）", name, meta: kernel ? `${kernel.kernel} · ${kernel.saved_at}` : "", isSample, thumbnailUrl });
   const describe = describeBody(result.scene.bodies[0], result.scene.labels);
-  const rows = renderPanel(
-    { report: result.report, scene: result.scene, describe, thumbnailUrl, isSample },
-    { onEnter: (g) => highlight(g.faceIds, g.text, g.key), onLeave: () => highlight([]) },
-  );
-  current = { describe, rows };
+  const rows = renderIptPanel({ report: result.report, scene: result.scene, describe }, rowHandlers((g) => g.faceIds));
+  current = { info: describe.faceInfo, rows };
   viewer?.show(result.scene);
   highlight([]);
+}
+
+// ---- HTML ----------------------------------------------------------------------
+function setSourceStatus(text) {
+  $("source-status").textContent = text;
+}
+
+async function capture() {
+  if (!source) return;
+  const button = $("capture");
+  button.disabled = true;
+  setSourceStatus("取り込み中…");
+  try {
+    const snapshot = await source.extract();
+    const recognition = recognizeSnapshot(snapshot);
+    const describe = describeRecognition(recognition);
+    const rows = renderHtmlPanel({ describe }, rowHandlers((g) => g.ids));
+    current = { info: describe.partInfo, rows };
+    viewer?.show({ meshes: buildDisplayMeshes(snapshot, recognition) });
+    highlight([]);
+    showAlert(recognition.parts.length ? "" : "取り込める形状がありませんでした。元のページで部品を表示してから、もう一度取り込んでください。");
+    const time = new Date().toLocaleTimeString("ja-JP");
+    setSourceStatus(`${time} に取り込み · three.js r${snapshot.revision ?? "?"}`);
+  } catch (error) {
+    console.warn(error);
+    showAlert(`取り込みに失敗しました（${error.message}）。元のページの表示が終わってから、もう一度お試しください。`);
+    setSourceStatus("取り込みに失敗しました");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function loadHtml(text, name, isSample = false) {
+  showAlert("");
+  setMode("html");
+  renderHeader({ eyebrow: "three.js の HTML", name, meta: "元のページで表示を選び「この状態を取り込む」を押すと、その形状を取り込みます", isSample });
+  current = null;
+  viewer?.clear();
+  renderHtmlPanel({ describe: { counts: { exact: 0, approx: 0, excluded: 0 }, groups: [], excluded: [] } }, rowHandlers(() => []));
+  setSourceStatus("読み込み中…");
+  source?.dispose();
+  let ready = false;
+  const frame = new SourceFrame($("source-frame"), text, {
+    onReady: () => {
+      if (ready) return;
+      ready = true;
+      setSourceStatus("描画を確認しました。取り込み中…");
+      setTimeout(() => source === frame && capture(), SETTLE_MS);
+    },
+  });
+  source = frame;
+  setTimeout(() => {
+    if (!ready && source === frame) {
+      setSourceStatus("three.js の描画が見つかりません");
+      showAlert(`${name}: three.js（WebGLRenderer）による描画が見つかりませんでした。three.js を使ったページか、必要なファイルがそろっているかを確かめてください。`);
+    }
+  }, READY_TIMEOUT_MS);
+}
+
+// ---- ファイルの受け付け --------------------------------------------------------
+const OLE2 = [0xd0, 0xcf, 0x11, 0xe0];
+const isHtml = (name, bytes) => /\.html?$/i.test(name) || (!OLE2.every((b, i) => bytes[i] === b) && /<html|<!doctype|<script/i.test(new TextDecoder().decode(bytes.subarray(0, 2048))));
+
+function load(bytes, name, isSample = false) {
+  if (isHtml(name, bytes)) loadHtml(new TextDecoder().decode(bytes), name, isSample);
+  else loadIpt(bytes, name, isSample);
 }
 
 async function openFile(file) {
@@ -86,7 +175,7 @@ async function openFile(file) {
     load(new Uint8Array(await file.arrayBuffer()), file.name);
   } finally {
     button.disabled = false;
-    button.textContent = "ipt ファイルを開く";
+    button.textContent = "ファイルを開く";
   }
 }
 
@@ -102,6 +191,7 @@ addEventListener("keydown", (event) => {
     input.click();
   }
 });
+$("capture").addEventListener("click", capture);
 
 // ドラッグ＆ドロップ（画面のどこでも受け付ける）
 const overlay = $("drop-overlay");
@@ -132,6 +222,19 @@ $("toggle-edges").addEventListener("click", (event) => {
   viewer?.setEdgesVisible(on);
 });
 
-// ---- 起動時はサンプルを表示 ------------------------------------------------------
-const sample = $("sample-ipt");
-if (sample) load(Uint8Array.from(atob(sample.textContent.trim()), (c) => c.charCodeAt(0)), sample.dataset.name, true);
+// ---- サンプル（ビルド時に埋め込まれたファイル）-----------------------------------
+const samples = [...document.querySelectorAll("script.sample")];
+const decodeSample = (node) => Uint8Array.from(atob(node.textContent.trim()), (c) => c.charCodeAt(0));
+$("samples").hidden = !samples.length;
+$("sample-list").replaceChildren(
+  ...samples.map((node) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "link";
+    button.textContent = node.dataset.label;
+    button.title = node.dataset.name;
+    button.addEventListener("click", () => load(decodeSample(node), node.dataset.name, true));
+    return button;
+  }),
+);
+if (samples[0]) load(decodeSample(samples[0]), samples[0].dataset.name, true);

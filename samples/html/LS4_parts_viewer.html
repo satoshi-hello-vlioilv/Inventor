@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LS-4 部品 3Dビューア</title>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#e8edf2;
+  font-family:"Segoe UI","Yu Gothic UI",sans-serif}
+canvas{display:block}
+#ui{position:absolute;left:14px;top:14px;display:flex;gap:14px;align-items:center;
+  flex-wrap:wrap;max-width:calc(100% - 28px);
+  padding:10px 14px;background:#ffffffd9;border:1px solid #c2cedb;border-radius:10px;
+  backdrop-filter:blur(6px);box-shadow:0 4px 16px #0b2a4a1f}
+#ui label{color:#5b6b7c;font-size:12px;margin-right:7px}
+#ui select{background:#f4f7fa;color:#16212c;border:1px solid #b3c2d1;border-radius:6px;
+  padding:6px 9px;font-size:13px;font-variant-numeric:tabular-nums}
+#ui select#part{font-weight:600}
+.grp{display:flex;align-items:center}
+.grp.hide{display:none}
+#spec{color:#5b6b7c;font-size:12px;font-variant-numeric:tabular-nums;
+  padding-left:14px;border-left:1px solid #c2cedb;line-height:1.6}
+#spec b{color:#16212c}
+#sw{width:18px;height:18px;border-radius:4px;border:1px solid #8fa2b4;
+  display:inline-block;vertical-align:-4px;margin-right:7px}
+#type{color:#1b8a52;font-size:12px;font-weight:600}
+</style>
+</head>
+<body>
+<div id="ui">
+  <div class="grp"><label for="part">部品</label>
+    <select id="part">
+      <option value="blade">丸刃</option>
+      <option value="spacer">スペーサーライナー</option>
+      <option value="rubber">ゴムリング</option>
+      <option value="finger">ベークライトフィンガー</option>
+    </select>
+  </div>
+
+  <!-- 丸刃 -->
+  <div class="grp" id="g-bladePat"><label for="bladePat">外径／内径</label>
+    <select id="bladePat">
+      <option value="B" selected>φ240 / φ200</option>
+      <option value="A">φ261.8 / φ160</option>
+    </select>
+  </div>
+  <div class="grp" id="g-bladeThk"><label for="bladeThk">厚み</label>
+    <select id="bladeThk">
+      <option value="5" selected>5 mm</option>
+      <option value="10">10 mm</option>
+      <option value="15">15 mm</option>
+      <option value="20">20 mm</option>
+    </select>
+  </div>
+
+  <!-- スペーサーライナー -->
+  <div class="grp" id="g-spacer"><label for="spacerThk">厚み T</label>
+    <select id="spacerThk">
+      <optgroup label="巾設定用（標準形）">
+        <option value="6">6.00 mm</option>
+        <option value="7">7.00 mm</option>
+        <option value="8">8.00 mm</option>
+        <option value="9">9.00 mm</option>
+        <option value="10" selected>10.00 mm</option>
+        <option value="11">11.00 mm</option>
+        <option value="12">12.00 mm</option>
+        <option value="13">13.00 mm</option>
+        <option value="14">14.00 mm</option>
+        <option value="15">15.00 mm</option>
+        <option value="20">20.00 mm</option>
+        <option value="30">30.00 mm</option>
+      </optgroup>
+      <optgroup label="軽量形">
+        <option value="50">50.00 mm</option>
+        <option value="100">100.00 mm</option>
+      </optgroup>
+      <optgroup label="基準・微調整（標準形）">
+        <option value="10.025">10.025 mm</option>
+        <option value="10.05">10.05 mm</option>
+        <option value="10.1">10.10 mm</option>
+        <option value="10.2">10.20 mm</option>
+        <option value="10.3">10.30 mm</option>
+        <option value="10.4">10.40 mm</option>
+        <option value="10.5">10.50 mm</option>
+        <option value="10.6">10.60 mm</option>
+        <option value="10.7">10.70 mm</option>
+        <option value="10.75">10.75 mm</option>
+        <option value="10.8">10.80 mm</option>
+        <option value="10.9">10.90 mm</option>
+      </optgroup>
+    </select>
+  </div>
+
+  <!-- ゴムリング -->
+  <div class="grp" id="g-rubCol"><label for="rubCol">色</label><select id="rubCol"></select></div>
+  <div class="grp" id="g-rubWid"><label for="rubWid">幅</label><select id="rubWid"></select></div>
+
+  <!-- フィンガー -->
+  <div class="grp" id="g-fingW"><label for="fingW">W寸法</label><select id="fingW"></select></div>
+  <div class="grp" id="g-fingRev"><label for="fingRev">仕様</label>
+    <select id="fingRev">
+      <option value="revised" selected>改造後（赤字）</option>
+      <option value="original">原図</option>
+    </select>
+  </div>
+
+  <div id="spec"></div>
+</div>
+
+<script type="importmap">
+{"imports":{
+ "three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+ "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+/* ============================================================
+   共通ユーティリティ
+   ============================================================ */
+/* 回転体：断面輪郭 {r,z,s}（s=true でシャープエッジ）を Z 軸まわりに回転 */
+function revolve(pts, N){
+  const n = pts.length;
+  const sn = [];
+  for(let i=0;i<n;i++){
+    const a = pts[i], b = pts[(i+1)%n];
+    const dr = b.r - a.r, dz = b.z - a.z, L = Math.hypot(dr, dz) || 1;
+    sn.push([dz/L, -dr/L]);                       // CCW 輪郭 → 外向き法線
+  }
+  const vn = [];
+  for(let i=0;i<n;i++){
+    if(pts[i].s){ vn.push(null); }
+    else{
+      const a = sn[(i-1+n)%n], b = sn[i];
+      const r = a[0]+b[0], z = a[1]+b[1], L = Math.hypot(r, z) || 1;
+      vn.push([r/L, z/L]);
+    }
+  }
+  const pos = [], nor = [], idx = [], cos = [], sin = [];
+  for(let k=0;k<N;k++){ const t = 2*Math.PI*k/N; cos.push(Math.cos(t)); sin.push(Math.sin(t)); }
+  for(let i=0;i<n;i++){
+    const j = (i+1)%n, A = pts[i], B = pts[j];
+    const nA = vn[i] || sn[i], nB = vn[j] || sn[i];
+    const base = pos.length/3;
+    for(const [P, nv] of [[A, nA],[B, nB]]){
+      for(let k=0;k<N;k++){
+        pos.push(P.r*cos[k], P.r*sin[k], P.z);
+        nor.push(nv[0]*cos[k], nv[0]*sin[k], nv[1]);
+      }
+    }
+    for(let k=0;k<N;k++){
+      const l = (k+1)%N;
+      const a = base+k, b = base+N+k, c = base+N+l, d = base+l;
+      idx.push(a, d, c,  a, c, b);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal',   new THREE.Float32BufferAttribute(nor, 3));
+  g.setIndex(idx);
+  return g;
+}
+
+/* ============================================================
+   1) 丸刃
+   ============================================================ */
+const BLADE = {
+  PATTERNS: { A:{outD:261.8, inD:160, depth:6}, B:{outD:240, inD:200, depth:6} },
+  KEY_W: 20, RF: 0.5, CH: 1, N: 1440
+};
+function bladeContour(P, o){
+  const IN_R = P.inD/2;
+  const R = IN_R + o, h = BLADE.KEY_W/2 + o, top = (IN_R + P.depth) + o, rf = BLADE.RF;
+  const cx = h + rf, cy = Math.sqrt((R+rf)*(R+rf) - cx*cx);
+  const a1 = Math.atan2(cy, cx), a2 = Math.atan2(cy, h);
+  const pts = [];
+  for(let i=0;i<BLADE.N;i++){
+    const th = 2*Math.PI*i/BLADE.N;
+    let ang = th > Math.PI ? th - 2*Math.PI : th;
+    if(ang > Math.PI/2) ang = Math.PI - ang;
+    let r;
+    if(ang < 0){ r = R; }
+    else if(ang >= a1 && ang <= a2){
+      const b = Math.cos(ang)*cx + Math.sin(ang)*cy;
+      const c = cx*cx + cy*cy - rf*rf;
+      r = b - Math.sqrt(Math.max(b*b - c, 0));
+    }
+    else if(ang > a2){
+      const s = Math.sin(ang), rt = s > 1e-12 ? top/s : 1e9;
+      r = Math.abs(rt*Math.cos(ang)) <= h + 1e-9 ? rt : h/Math.abs(Math.cos(ang));
+    }
+    else { r = R; }
+    pts.push([r*Math.cos(th), r*Math.sin(th)]);
+  }
+  return pts;
+}
+function buildBlade(P, T){
+  const N = BLADE.N, OUT_R = P.outD/2, pos = [], idx = [];
+  function strip(pA, zA, pB, zB){
+    const b = pos.length/3;
+    for(const p of pA) pos.push(p[0], p[1], zA);
+    for(const p of pB) pos.push(p[0], p[1], zB);
+    for(let i=0;i<N;i++){ const j=(i+1)%N; idx.push(b+i, b+N+i, b+N+j, b+i, b+N+j, b+j); }
+  }
+  const outer = [];
+  for(let i=0;i<N;i++){ const t=2*Math.PI*i/N; outer.push([OUT_R*Math.cos(t), OUT_R*Math.sin(t)]); }
+  const B1 = bladeContour(P, BLADE.CH), B0 = bladeContour(P, 0);
+  const z = T/2, zf = T/2 - BLADE.CH;
+  strip(B1, z, outer, z);      // 前面
+  strip(B0, zf, B1, z);        // 内径側 C1
+  strip(B0, -zf, B0, zf);      // 内径＋キー溝 壁面
+  strip(B1, -z, B0, -zf);      // 内径側 C1
+  strip(outer, -z, B1, -z);    // 後面
+  strip(outer, z, outer, -z);  // 外周面（刃先＝シャープ）
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx); g.computeVertexNormals();
+  return g;
+}
+
+/* ============================================================
+   2) スペーサーライナー
+   ============================================================ */
+const SP = { OD:240, ID:200, GD:228, C:1, LAND:10, RF:2, LIGHT_MIN:50, N:360 };
+function spacerProfile(T){
+  const RO = SP.OD/2, RI = SP.ID/2, RG = SP.GD/2, C = SP.C;
+  const z = T/2, light = T >= SP.LIGHT_MIN, p = [];
+  const add = (r, zz, s = true) => p.push({r, z: zz, s});
+  add(RI + C, -z); add(RO - C, -z); add(RO, -z + C); add(RO, z - C);
+  add(RO - C, z);  add(RI + C, z);  add(RI, z - C);
+  if(light){
+    const W = T - 2*SP.LAND, RF = SP.RF;
+    add(RI, W/2); add(RG - RF, W/2);
+    for(let i=0;i<=12;i++){ const a = Math.PI/2*(1 - i/12);
+      p.push({r: RG - RF + RF*Math.cos(a), z: W/2 - RF + RF*Math.sin(a), s:false}); }
+    add(RG, -W/2 + RF, false);
+    for(let i=0;i<=12;i++){ const a = -Math.PI/2*(i/12);
+      p.push({r: RG - RF + RF*Math.cos(a), z: -W/2 + RF + RF*Math.sin(a), s:false}); }
+    add(RI, -W/2);
+  }
+  add(RI, -z + C);
+  const out = [];
+  for(const q of p){ const l = out[out.length-1];
+    if(!l || Math.abs(q.r-l.r) > 1e-9 || Math.abs(q.z-l.z) > 1e-9) out.push(q); }
+  return out;
+}
+const buildSpacer = T => revolve(spacerProfile(T), SP.N);
+
+/* ============================================================
+   3) ゴムリング
+   ============================================================ */
+const RUB = {
+  INNER_D: 241, N: 480,
+  COLORS: [
+    {name:'赤',   t:40.5, od:322, hex:0xe8112d}, {name:'青',   t:40.0, od:321, hex:0x0b62c4},
+    {name:'黄',   t:39.5, od:320, hex:0xf2e500}, {name:'緑',   t:39.0, od:319, hex:0x1f9a3d},
+    {name:'茶',   t:38.5, od:318, hex:0x7b4a19}, {name:'灰',   t:38.0, od:317, hex:0x9b9b9b},
+    {name:'橙',   t:37.5, od:316, hex:0xf5a300}, {name:'黒',   t:37.0, od:315, hex:0x1a1a1a},
+    {name:'水',   t:36.5, od:314, hex:0x27b4e8}, {name:'ピンク',t:36.0, od:313, hex:0xefb08a}
+  ],
+  WIDTHS: [{w:50,qty:50},{w:30,qty:40},{w:20,qty:40},{w:15,qty:30},{w:10,qty:30}]
+};
+function buildRubber(od, W){
+  const RI = RUB.INNER_D/2, RO = od/2;
+  return revolve([
+    {r:RI, z:-W/2, s:true}, {r:RO, z:-W/2, s:true},
+    {r:RO, z: W/2, s:true}, {r:RI, z: W/2, s:true}
+  ], RUB.N);
+}
+
+/* ============================================================
+   4) ベークライトフィンガー
+   ============================================================ */
+const FG = {
+  L: 560, T: 20,
+  SPEC: { revised:{run:20, drop:6}, original:{run:10, drop:3} },
+  SIZES: [
+    {w:10.0,qty:60},{w:20.0,qty:60},{w:21.0,qty:60},{w:22.0,qty:60},{w:23.0,qty:60},
+    {w:24.0,qty:60},{w:25.0,qty:60},{w:26.0,qty:60},{w:27.0,qty:60},{w:28.0,qty:60},
+    {w:29.0,qty:60},{w:30.0,qty:50},{w:50.0,qty:50},{w:100.0,qty:30}
+  ]
+};
+function buildFinger(run, drop, W){
+  const L = FG.L, T = FG.T;
+  const x0 = -L/2, x1 = L/2, y0 = -T/2, y1 = T/2, d = drop, r = run;
+  const p = [[x0,y0+d],[x0+r,y0],[x1-r,y0],[x1,y0+d],
+             [x1,y1-d],[x1-r,y1],[x0+r,y1],[x0,y1-d]];
+  const n = p.length, z0 = -W/2, z1 = W/2, pos = [], nor = [], idx = [];
+  const push = (x,y,z,nx,ny,nz) => { pos.push(x,y,z); nor.push(nx,ny,nz); };
+  for(const [z, nz] of [[z0,-1],[z1,1]]){          // 端面（凸多角形→ファン分割）
+    const base = pos.length/3;
+    for(const [x,y] of p) push(x, y, z, 0, 0, nz);
+    for(let i=1;i<n-1;i++){
+      if(nz < 0) idx.push(base, base+i+1, base+i);
+      else       idx.push(base, base+i,   base+i+1);
+    }
+  }
+  for(let i=0;i<n;i++){                             // 側面
+    const a = p[i], b = p[(i+1)%n];
+    const dx = b[0]-a[0], dy = b[1]-a[1], len = Math.hypot(dx,dy);
+    const nx = dy/len, ny = -dx/len;
+    const base = pos.length/3;
+    push(a[0],a[1],z0,nx,ny,0); push(b[0],b[1],z0,nx,ny,0);
+    push(b[0],b[1],z1,nx,ny,0); push(a[0],a[1],z1,nx,ny,0);
+    idx.push(base, base+1, base+2, base, base+2, base+3);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal',   new THREE.Float32BufferAttribute(nor, 3));
+  g.setIndex(idx);
+  return g;
+}
+
+/* ============================================================
+   シーン
+   ============================================================ */
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xe8edf2);     // 明るい背景
+
+const camera = new THREE.PerspectiveCamera(35, innerWidth/innerHeight, 1, 20000);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0xb9c6d2, 2.2));
+const l1 = new THREE.DirectionalLight(0xffffff, 2.2); l1.position.set(300, 380, 430); scene.add(l1);
+const l2 = new THREE.DirectionalLight(0xffffff, 1.0); l2.position.set(-340,-160,-280); scene.add(l2);
+const l3 = new THREE.DirectionalLight(0xffffff, 0.6); l3.position.set(-200, 300,-320); scene.add(l3);
+
+const MAT = {
+  metal : new THREE.MeshStandardMaterial({ color:0xb9c1c9, metalness:0.62, roughness:0.34 }),
+  rubber: new THREE.MeshStandardMaterial({ metalness:0.0,  roughness:0.62 }),
+  resin : new THREE.MeshStandardMaterial({ color:0x6b4526, metalness:0.0, roughness:0.45 })
+};
+
+let mesh = null;
+/* バウンディング球から距離を決め、少し引いた初期位置に置く */
+const PULL_BACK = 1.5;    // 1.0 = ぴったり収まる距離
+function frame(){
+  mesh.geometry.computeBoundingSphere();
+  const s = mesh.geometry.boundingSphere;
+  const fovV = THREE.MathUtils.degToRad(camera.fov);
+  const fovH = 2*Math.atan(Math.tan(fovV/2)*camera.aspect);
+  const dist = s.radius / Math.sin(Math.min(fovV, fovH)/2) * PULL_BACK;
+  const dir = new THREE.Vector3(0.62, 0.50, 0.86).normalize();
+  controls.target.copy(s.center);
+  camera.position.copy(s.center).addScaledVector(dir, dist);
+  camera.near = Math.max(dist/1000, 0.1);
+  camera.far  = dist*10;
+  camera.updateProjectionMatrix();
+  controls.update();
+}
+
+/* ---- UI ---- */
+const $ = id => document.getElementById(id);
+const selPart = $('part');
+RUB.COLORS.forEach((c,i) => $('rubCol').add(new Option(`${c.name}（肉厚 ${c.t.toFixed(1)} / 外径 φ${c.od}）`, i)));
+RUB.WIDTHS.forEach((w,i) => $('rubWid').add(new Option(`${w.w} mm`, i)));
+FG.SIZES.forEach((s,i) => $('fingW').add(new Option(`${s.w.toFixed(1)} mm （${s.qty}本）`, i)));
+
+const GROUPS = {
+  blade : ['g-bladePat','g-bladeThk'],
+  spacer: ['g-spacer'],
+  rubber: ['g-rubCol','g-rubWid'],
+  finger: ['g-fingW','g-fingRev']
+};
+function syncUI(){
+  const p = selPart.value;
+  for(const k in GROUPS)
+    for(const id of GROUPS[k]) $(id).classList.toggle('hide', k !== p);
+}
+
+function rebuild(refit){
+  const part = selPart.value;
+  let geo, mat, html;
+
+  if(part === 'blade'){
+    const P = BLADE.PATTERNS[$('bladePat').value], T = parseFloat($('bladeThk').value);
+    geo = buildBlade(P, T); mat = MAT.metal;
+    html = `丸刃　外径 <b>φ${P.outD}</b>　内径 <b>φ${P.inD}</b>　厚み <b>${T}</b> mm<br>` +
+           `キー溝 幅${BLADE.KEY_W} × 深さ${P.depth}　隅R${BLADE.RF}　内径側C${BLADE.CH}（外周刃先は面取りなし）`;
+  }
+  else if(part === 'spacer'){
+    const T = parseFloat($('spacerThk').value), light = T >= SP.LIGHT_MIN;
+    geo = buildSpacer(T); mat = MAT.metal;
+    html = `<span id="type">${light ? '軽量形' : '標準形'}</span>　` +
+           `外径 <b>φ${SP.OD}</b>　内径 <b>φ${SP.ID}</b>　厚み <b>${T}</b> mm<br>` +
+           (light ? `逃がし溝 底φ${SP.GD} × 溝幅 <b>${T - 2*SP.LAND}</b>（ランド${SP.LAND}×2）　C${SP.C}×4`
+                  : `矩形断面（逃がし溝なし）　C${SP.C}×4`);
+  }
+  else if(part === 'rubber'){
+    const c = RUB.COLORS[+$('rubCol').value], w = RUB.WIDTHS[+$('rubWid').value];
+    MAT.rubber.color.setHex(c.hex);
+    geo = buildRubber(c.od, w.w); mat = MAT.rubber;
+    html = `<span id="sw" style="background:#${c.hex.toString(16).padStart(6,'0')}"></span>` +
+           `<b>${c.name}</b> ／ 幅 <b>${w.w}</b> mm<br>` +
+           `内径 φ${RUB.INNER_D}　外径 φ${c.od}　肉厚 ${c.t.toFixed(1)}　NBR Hs-80　基準数量 ${w.qty} 個`;
+  }
+  else{
+    const s = FG.SIZES[+$('fingW').value], sp = FG.SPEC[$('fingRev').value];
+    geo = buildFinger(sp.run, sp.drop, s.w); mat = MAT.resin;
+    const half = (Math.atan(sp.drop / sp.run) * 180 / Math.PI).toFixed(1);
+    html = `全長 <b>${FG.L}</b>　板厚 <b>${FG.T}</b>±0.3　W <b>${s.w.toFixed(1)}</b> ` +
+           `<span style="font-size:11px">−0.3〜−0.5</span>　製作数 ${s.qty} 本<br>` +
+           `研削 ${sp.run}×${sp.drop}（片側 ${half}°／挟角 ${(half*2).toFixed(1)}°）　` +
+           `先端ランド <b>${FG.T - 2*sp.drop}</b>　平行部 <b>${FG.L - 2*sp.run}</b>　布入ベークライト板`;
+  }
+
+  if(mesh){ scene.remove(mesh); mesh.geometry.dispose(); }
+  mesh = new THREE.Mesh(geo, mat);
+  scene.add(mesh);
+  $('spec').innerHTML = html;
+  if(refit) frame();
+}
+
+selPart.onchange = () => { syncUI(); rebuild(true); };
+for(const id of ['bladePat','bladeThk','spacerThk','rubCol','rubWid','fingW','fingRev'])
+  $(id).onchange = () => rebuild(true);
+
+syncUI();
+rebuild(true);
+
+addEventListener('resize', () => {
+  renderer.setSize(innerWidth, innerHeight);
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+});
+renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
+</script>
+</body>
+</html>
