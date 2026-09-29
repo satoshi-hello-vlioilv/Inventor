@@ -8,9 +8,15 @@ const require = createRequire(import.meta.url);
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 export const SAMPLES_IPT = path.join(ROOT, "samples/ipt");
 export const SAMPLE_NAME = "E_Plate_改_Φ54.5.ipt";
+/** samples/<dir> に置いた、pattern に合うファイルの名前（名前順）。 */
+const listSamples = (dir, pattern) => fs.readdirSync(path.join(ROOT, "samples", dir)).filter((n) => pattern.test(n)).sort((a, b) => a.localeCompare(b, "ja"));
 /** samples/ipt に置いた全ての .ipt の名前（名前順）。 */
-export const sampleIpts = () => fs.readdirSync(SAMPLES_IPT).filter((n) => /\.ipt$/i.test(n)).sort((a, b) => a.localeCompare(b, "ja"));
+export const sampleIpts = () => listSamples("ipt", /\.ipt$/i);
+export const sampleIams = () => listSamples("iam", /\.iam$/i);
+export const sampleSteps = () => listSamples("stp", /\.(stp|step)$/i);
 export const readSample = (name = SAMPLE_NAME) => new Uint8Array(fs.readFileSync(path.join(SAMPLES_IPT, name)));
+/** samples/<dir>/<name> の中身。 */
+export const readSampleFile = (dir, name) => new Uint8Array(fs.readFileSync(path.join(ROOT, "samples", dir, name)));
 /** Python 版の解析結果（正解データ）。python -m tests.golden が作る。無ければ null。 */
 export function readGolden(name = SAMPLE_NAME) {
   const file = path.join(ROOT, "tests/fixtures/ipt", `${name.replace(/\.ipt$/i, "")}.expected.json`);

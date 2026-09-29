@@ -983,7 +983,8 @@
    "surfaces": {
     "plane": "平面",
     "cylinder": "円筒",
-    "cone": "円錐"
+    "cone": "円錐",
+    "torus": "トーラス"
    },
    "cylinders": {
     "hole": {

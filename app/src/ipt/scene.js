@@ -14,7 +14,7 @@ export const BREP_SEGMENT = "PmBRepSegment";
 const DIGITS = 5;
 const SLOPE_DIGITS = 9;
 
-const mm = (v, scale) => v.map((c) => round(c * scale, DIGITS));
+export const mm = (v, scale) => v.map((c) => round(c * scale, DIGITS));
 const loopsOf = (face, scale) => face.loops.map((loop) => loop.map((p) => mm(p, scale)));
 
 function plane(face, scale) {
@@ -38,9 +38,26 @@ function revolved(face, scale) {
   };
 }
 
-const FACE_EXPORTERS = { plane, cylinder: revolved, cone: revolved };
+/** トーラス: 点 = origin + (radius + minor・cos φ)・(cos θ・ref + sin θ・(axis × ref)) + minor・sin φ・axis（STEP から） */
+function torus(face, scale) {
+  const s = face.surface;
+  const axis = unit(s.direction);
+  return {
+    type: "torus",
+    origin: mm(s.origin, scale),
+    axis: mm(axis, 1),
+    ref: mm(unit(reject(s.major, axis)), 1),
+    radius: round(s.radius * scale, DIGITS),
+    minor: round(s.minor * scale, DIGITS),
+    outward: !face.concave, // 面の法線が管の中心から外へ向くか
+    loops: loopsOf(face, scale),
+  };
+}
 
-function exportFace(face, scale) {
+const FACE_EXPORTERS = { plane, cylinder: revolved, cone: revolved, torus };
+
+/** 中立な面（ipt・STEP 共通）→ シーン JSON の面 */
+export function exportFace(face, scale) {
   const exporter = FACE_EXPORTERS[face.surface.kind];
   // 未対応の曲面は種類だけを渡す（ビューアは稜線のみ描く）
   return { id: face.index, ...(exporter ? exporter(face, scale) : { type: face.surface.kind }) };

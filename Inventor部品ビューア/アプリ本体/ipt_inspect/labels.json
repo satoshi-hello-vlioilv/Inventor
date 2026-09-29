@@ -1,5 +1,5 @@
 {
-  "surfaces": { "plane": "平面", "cylinder": "円筒", "cone": "円錐" },
+  "surfaces": { "plane": "平面", "cylinder": "円筒", "cone": "円錐", "torus": "トーラス" },
   "cylinders": {
     "hole": { "name": "穴", "symbol": "Φ", "field": "diameter" },
     "boss": { "name": "外径", "symbol": "Φ", "field": "diameter" },

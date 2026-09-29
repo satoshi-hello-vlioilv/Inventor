@@ -1,22 +1,29 @@
 // アプリの入口: ファイルの読み込み（起動画面・ボタン・ドラッグ＆ドロップ・Ctrl+O・サンプル・起動ファイル）、解析、表示、
 // 3D ⇄ パネルの連動。
-//   .ipt  … ブラウザ内で解析して表示する
-//   .html … 隔離した iframe で動かし、three.js の形状を取り出して回転体・押し出しとして認識する
+//   .ipt       … 部品。ブラウザ内で解析して表示する
+//   .iam       … 組立。部品の配置を読み、参照先の .ipt（一緒に受け取ったもの・サンプル）を組み立てて表示する
+//   .stp/.step … STEP。部品の形状と組立の配置を全て含むので、単独で表示できる（部品 1 つなら部品として表示）
+//   .html      … 隔離した iframe で動かし、three.js の形状を取り出して回転体・押し出しとして認識する
 // 起動ファイルにドロップされたファイルは、起動.bat がページの複製の末尾に埋め込んで届ける（window.IPT_VIEWER_LAUNCH）。
 
-import { describeBody } from "./viewer/describe.js";
+import { describeAssembly, describeBody } from "./viewer/describe.js";
 import { buildInventorSpec, formatSpec } from "./export/inventor.js";
 import { buildDisplayMeshes, describeRecognition } from "./extract/describe.js";
 import { SourceFrame } from "./extract/frame.js";
+import { buildIamScene, parseIam } from "./iam/index.js";
 import { CfbError, parseIpt } from "./ipt/index.js";
 import { recognizeSnapshot } from "./recognize/index.js";
-import { renderHeader, renderHtmlPanel, renderIptPanel, setPanelMode } from "./ui/panel.js";
+import { StepError, parseStepFile } from "./step/index.js";
+import { renderAsmPanel, renderHeader, renderHtmlPanel, renderIptPanel, setPanelMode } from "./ui/panel.js";
 import { VIEWS, Viewer } from "./viewer/viewer.js";
 
 const $ = (id) => document.getElementById(id);
 const readout = $("readout");
 const readoutChip = readout.querySelector(".chip");
-const IDLE_TEXT = readoutChip.textContent;
+// 何も指していないときの案内。指す単位（部品は面、組立・HTML は部品）に合わせる
+const IDLE_TEXT = { ipt: readoutChip.textContent, asm: "部品にカーソルを合わせると、名前と寸法を表示します" };
+IDLE_TEXT.html = IDLE_TEXT.asm;
+let idleText = IDLE_TEXT.ipt;
 const SETTLE_MS = 1200; // 元のページの最初の描画から取り込みまで待つ時間（初期化の完了待ち）
 const READY_TIMEOUT_MS = 15000;
 
@@ -29,7 +36,7 @@ let spec = null; // 最後に取り込んだ形状の変換データ
 // ---- 強調表示（3D ⇄ パネルの双方向） -----------------------------------------
 function highlight(ids, text, groupKey) {
   viewer?.highlight(ids);
-  readoutChip.textContent = text ?? IDLE_TEXT;
+  readoutChip.textContent = text ?? idleText;
   readout.classList.toggle("is-live", Boolean(text));
   for (const [key, row] of current?.rows ?? []) row.classList.toggle("is-active", key === groupKey);
 }
@@ -68,25 +75,81 @@ function showNotice(message) {
   notice.hidden = !message;
 }
 
-/** 表示モード: empty（何も開いていない）・ipt・html。 */
+/** 表示モード: empty（何も開いていない）・ipt（部品）・asm（組立）・html。 */
 function setMode(mode) {
   $("app").classList.toggle("is-html", mode === "html");
   $("app").classList.toggle("is-empty", mode === "empty");
   $("stage-empty").hidden = mode !== "empty";
   $("source").hidden = mode !== "html";
   setPanelMode(mode);
+  idleText = IDLE_TEXT[mode] ?? IDLE_TEXT.ipt;
   if (mode !== "html" && source) {
     source.dispose();
     source = null;
   }
 }
 
-// ---- ipt -----------------------------------------------------------------------
+// ---- 部品・組立 ------------------------------------------------------------------
 function explainIpt(error) {
   if (error instanceof CfbError) {
-    return "Inventor のファイル形式（OLE2）ではありません。拡張子 .ipt の部品ファイルか、three.js を使った .html を選んでください。";
+    return "Inventor のファイル形式（OLE2）ではありません。.ipt・.iam・.stp・.html のいずれかを選んでください。";
   }
-  return `形状データを読み取れませんでした（${error.message}）。動作を確認しているのは Inventor 2026 で保存した部品ファイルです。`;
+  if (error instanceof StepError) return `STEP として読めませんでした（${error.message}）。`;
+  return `形状データを読み取れませんでした（${error.message}）。動作を確認しているのは Inventor 2026 で保存したファイルです。`;
+}
+
+function setThumbnail(png) {
+  if (thumbnailUrl) URL.revokeObjectURL(thumbnailUrl);
+  thumbnailUrl = png ? URL.createObjectURL(new Blob([png], { type: "image/png" })) : null;
+  return thumbnailUrl;
+}
+
+let assembly = null; // 表示中（または部品を開く前）の組立 { scene, header, doc }
+
+/**
+ * 部品を表示する（.ipt・STEP の部品・組立の中の部品で共通）。
+ * @param {{ bodies, labels }} scene
+ * @param {{ header: object, report?: object, properties?: object, fromAssembly?: boolean }} options
+ */
+function showPart(scene, { header, report = null, properties = {}, fromAssembly = false }) {
+  setMode("ipt");
+  renderHeader(header);
+  $("back-to-assembly").hidden = !fromAssembly;
+  const describe = describeBody(scene.bodies[0], scene.labels);
+  const { volume = 0 } = viewer?.show(scene) ?? {};
+  const rows = renderIptPanel({ report, scene, describe, properties, volume }, rowHandlers((g) => g.faceIds));
+  current = { info: describe.faceInfo, rows };
+  highlight([]);
+}
+
+/** 組立を表示する（.iam・STEP で共通） */
+function showAssembly(scene, header) {
+  setMode("asm");
+  renderHeader(header);
+  $("back-to-assembly").hidden = true;
+  const { volumes = [] } = viewer?.show(scene) ?? {};
+  const describe = describeAssembly(scene, volumes);
+  const rows = renderAsmPanel({ describe, scene }, {
+    ...rowHandlers((g) => g.ids),
+    onClick: (g) => (g.missing ? input.click() : openAssemblyPart(g.index)),
+    onMissing: () => input.click(),
+  });
+  current = { info: describe.info, rows };
+  assembly = { ...(assembly ?? {}), scene, header };
+  highlight([]);
+}
+
+/** 組立の中の部品を 1 つだけ開く（部品と同じ表示。「組立に戻る」で戻る） */
+function openAssemblyPart(index) {
+  const part = assembly.scene.parts[index];
+  if (!part?.bodies?.length) return;
+  const density = part.density_g_per_mm3 ? part.density_g_per_mm3 * 1000 : null;
+  showPart({ bodies: part.bodies, labels: assembly.scene.labels }, {
+    // 見出しはファイル名（組立に記録された保存先の完全なパスは長く、利用者のフォルダ名も含むので出さない）
+    header: { eyebrow: `組立の部品（${assembly.header.name}）`, name: part.name, meta: part.file ?? part.number ?? "", isSample: assembly.header.isSample, thumbnailUrl: null },
+    properties: { material: part.material, density_g_per_cm3: density },
+    fromAssembly: true,
+  });
 }
 
 function loadIpt(bytes, name, isSample = false) {
@@ -99,21 +162,83 @@ function loadIpt(bytes, name, isSample = false) {
     return;
   }
   if (!result.scene.bodies.length) {
-    showAlert(`${name}: 表示できる形状（B-rep）が見つかりませんでした。アセンブリ（.iam）や図面（.idw）には対応していません。`);
+    showAlert(`${name}: 表示できる形状（B-rep）が見つかりませんでした。図面（.idw）やプレゼンテーション（.ipn）には対応していません。`);
     return;
   }
   showAlert("");
-  setMode("ipt");
-  if (thumbnailUrl) URL.revokeObjectURL(thumbnailUrl);
-  thumbnailUrl = result.thumbnail ? URL.createObjectURL(new Blob([result.thumbnail], { type: "image/png" })) : null;
+  assembly = null;
   const kernel = result.scene.source;
-  renderHeader({ eyebrow: "部品ファイル（ipt）", name, meta: kernel ? `${kernel.kernel} · ${kernel.saved_at}` : "", isSample, thumbnailUrl });
-  const describe = describeBody(result.scene.bodies[0], result.scene.labels);
-  const rows = renderIptPanel({ report: result.report, scene: result.scene, describe }, rowHandlers((g) => g.faceIds));
-  current = { info: describe.faceInfo, rows };
-  viewer?.show(result.scene);
-  highlight([]);
+  showPart(result.scene, {
+    header: { eyebrow: "部品ファイル（ipt）", name, meta: kernel ? `${kernel.kernel} · ${kernel.saved_at}` : "", isSample, thumbnailUrl: setThumbnail(result.thumbnail) },
+    report: result.report,
+    properties: result.properties,
+  });
 }
+
+function loadStep(bytes, name, isSample = false) {
+  let result;
+  try {
+    result = parseStepFile(new TextDecoder().decode(bytes), name);
+  } catch (error) {
+    console.warn(error);
+    showAlert(`${name}: ${explainIpt(error)}`);
+    return;
+  }
+  const { scene } = result;
+  if (!scene.parts.length) {
+    showAlert(`${name}: 表示できる形状（ソリッド）が見つかりませんでした。`);
+    return;
+  }
+  showAlert("");
+  setThumbnail(null);
+  const src = scene.source;
+  const meta = [src.system, src.time?.slice(0, 10)].filter(Boolean).join(" · ");
+  const single = scene.instances.length <= 1 && scene.parts.length === 1;
+  if (single) {
+    assembly = null;
+    const part = scene.parts[0];
+    showPart({ bodies: part.bodies, labels: scene.labels }, {
+      header: { eyebrow: "STEP（部品）", name, meta, isSample, thumbnailUrl: null },
+      properties: { material: part.material, density_g_per_cm3: part.density_g_per_mm3 ? part.density_g_per_mm3 * 1000 : null },
+    });
+    return;
+  }
+  assembly = { doc: null };
+  showAssembly(scene, { eyebrow: "STEP（組立）", name, meta, isSample, thumbnailUrl: null });
+}
+
+/** 組立の参照先の .ipt を、受け取ったファイルとサンプルから探す（ファイル名で照合） */
+async function resolveParts(iam) {
+  const found = new Map();
+  for (const ref of iam.references) {
+    const item = library.get(ref.file.toLowerCase());
+    if (item) found.set(ref.path, { name: item.name, bytes: await item.read() });
+  }
+  return (ref) => found.get(ref.path) ?? null;
+}
+
+async function loadIam(bytes, name, isSample = false) {
+  let iam;
+  try {
+    iam = parseIam(bytes, name);
+  } catch (error) {
+    console.warn(error);
+    showAlert(`${name}: ${explainIpt(error)}`);
+    return;
+  }
+  const scene = buildIamScene(iam, name, await resolveParts(iam));
+  showAlert(iam.report.paired ? "" : `${name}: 部品の配置を読み取れませんでした（出現 ${iam.occurrences.length} に対し配置 ${iam.report.placements}）。部品は原点に置いて表示します。`);
+  const header = { eyebrow: "組立ファイル（iam）", name, meta: `部品の参照 ${iam.references.length} 件`, isSample, thumbnailUrl: setThumbnail(iam.thumbnail) };
+  assembly = { doc: { bytes, name, isSample } };
+  showAssembly(scene, header);
+}
+
+/** 表示中の組立が参照していて、まだ見つかっていない部品のファイル名（小文字） */
+function missingFiles() {
+  return new Set((assembly?.scene?.parts ?? []).filter((p) => p.missing && p.file).map((p) => p.file.toLowerCase()));
+}
+
+$("back-to-assembly").addEventListener("click", () => assembly && showAssembly(assembly.scene, assembly.header));
 
 // ---- HTML ----------------------------------------------------------------------
 function setSourceStatus(text) {
@@ -189,6 +314,7 @@ $("copy-spec").addEventListener("click", async () => {
 
 function loadHtml(text, name, isSample = false) {
   showAlert("");
+  assembly = null;
   setMode("html");
   sourceName = name;
   setSpec(null);
@@ -218,16 +344,32 @@ function loadHtml(text, name, isSample = false) {
 
 // ---- ファイルの受け付け --------------------------------------------------------
 const OLE2 = [0xd0, 0xcf, 0x11, 0xe0];
-const isHtml = (name, bytes) => /\.html?$/i.test(name) || (!OLE2.every((b, i) => bytes[i] === b) && /<html|<!doctype|<script/i.test(new TextDecoder().decode(bytes.subarray(0, 2048))));
+const head = (bytes) => new TextDecoder().decode(bytes.subarray(0, 2048));
+const isOle2 = (bytes) => OLE2.every((b, i) => bytes[i] === b);
+const isHtml = (name, bytes) => /\.html?$/i.test(name) || (!isOle2(bytes) && /<html|<!doctype|<script/i.test(head(bytes)));
+const isStep = (name, bytes) => /\.(stp|step)$/i.test(name) || (!isOle2(bytes) && /^\s*ISO-10303-21\s*;/.test(head(bytes)));
 
-function load(bytes, name, isSample = false) {
+async function load(bytes, name, isSample = false) {
   closeStart();
   showNotice("");
   if (isHtml(name, bytes)) loadHtml(new TextDecoder().decode(bytes), name, isSample);
+  else if (isStep(name, bytes)) loadStep(bytes, name, isSample);
+  else if (/\.iam$/i.test(name)) await loadIam(bytes, name, isSample);
   else loadIpt(bytes, name, isSample);
 }
 
-const VIEWABLE = /\.(ipt|html?)$/i;
+// 組立が参照する部品を探す場所: 受け取ったファイル（ドロップ・選択・起動ファイル）とサンプル。ファイル名（小文字）→ 読み出し
+const library = new Map();
+const addToLibrary = (item) => /\.ipt$/i.test(item.name) && library.set(item.name.toLowerCase(), item);
+
+const VIEWABLE = /\.(ipt|iam|stp|step|html?)$/i;
+// 2 つ以上受け取ったとき最初に開く順（組立 → STEP → そのほか）
+const OPEN_FIRST = [/\.iam$/i, /\.(stp|step)$/i];
+const openOrder = (items) => [...items].sort((a, b) => rank(a) - rank(b));
+const rank = (item) => {
+  const i = OPEN_FIRST.findIndex((re) => re.test(item.name));
+  return i < 0 ? OPEN_FIRST.length : i;
+};
 const SPEC = /\.json$/i;
 const nameList = (items) => items.map((i) => i.name).join("、");
 
@@ -242,7 +384,7 @@ async function openItem(item) {
   button.disabled = true;
   button.textContent = "読み込み中…";
   try {
-    load(await item.read(), item.name);
+    await load(await item.read(), item.name);
     shown = item;
   } finally {
     button.disabled = false;
@@ -253,6 +395,17 @@ async function openItem(item) {
 
 async function receive(items) {
   if (!items.length) return;
+  items = [...new Map(items.map((i) => [i.name.toLowerCase(), i])).values()]; // 同じ名前は 1 つにする（組立と同じフォルダの部品など）
+  items.forEach(addToLibrary);
+  // 組立を表示中に、見つからなかった部品だけを受け取ったら、組立に加える（開き直さない）
+  const missing = missingFiles();
+  if (assembly?.doc && items.length && items.every((i) => missing.has(i.name.toLowerCase()))) {
+    const { bytes, name, isSample } = assembly.doc;
+    await loadIam(bytes, name, isSample);
+    showNotice(`${items.map((i) => i.name).join("、")} を組立に加えました。`);
+    return;
+  }
+  items = openOrder(items);
   const usable = items.filter((i) => VIEWABLE.test(i.name));
   const specs = items.filter((i) => SPEC.test(i.name));
   const others = items.filter((i) => !VIEWABLE.test(i.name) && !SPEC.test(i.name));
@@ -361,10 +514,11 @@ function renderReceived() {
 }
 
 const samples = [...document.querySelectorAll("script.sample")];
+for (const node of samples) addToLibrary({ name: node.dataset.name, size: Number(node.dataset.size), read: async () => decodeBase64(node.textContent) });
 $("start-samples").hidden = !samples.length;
 $("sample-rows").replaceChildren(
-  ...samples.map((node) => fileRow({ name: node.dataset.name, size: Number(node.dataset.size) }, () => {
-    load(decodeBase64(node.textContent), node.dataset.name, true);
+  ...samples.map((node) => fileRow({ name: node.dataset.name, size: Number(node.dataset.size) }, async () => {
+    await load(decodeBase64(node.textContent), node.dataset.name, true);
     shown = null;
     renderReceived();
   })),

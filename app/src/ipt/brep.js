@@ -115,7 +115,7 @@ function splinePoint(c, t) {
   return [x / w, y / w, z / w];
 }
 
-function curvePoint(c, t) {
+export function curvePoint(c, t) {
   if (c.kind === "line") return add(c.origin, mul(c.direction, t));
   if (c.kind === "spline") return splinePoint(c, c.reversed ? -t : t);
   const minor = mul(cross(unit(c.direction), c.major), c.ratio);
@@ -125,7 +125,7 @@ function curvePoint(c, t) {
 /** 等分点 a → b（両端を含む n + 1 点）。 */
 const divide = (a, b, n) => Array.from({ length: n + 1 }, (_, i) => a + ((b - a) * i) / n);
 
-function sampleCurve(c, t0, t1) {
+export function sampleCurve(c, t0, t1) {
   if (c.kind === "line") return [curvePoint(c, t0), curvePoint(c, t1)];
   if (c.kind === "ellipse") return divide(t0, t1, Math.max(2, Math.ceil(Math.abs(t1 - t0) / ARC_STEP))).map((t) => curvePoint(c, t));
   if (c.kind === "spline") {
@@ -164,8 +164,23 @@ export function surfaceOf(e) {
 }
 
 const sweepDeg = (edge) => (edge.curve.kind === "ellipse" ? (Math.abs(edge.t1 - edge.t0) * 180) / Math.PI : 0);
+
+/**
+ * 面の円弧が囲む角度。同じ円（中心・向き・半径）の上の円弧は足し合わせ（STEP は 1 周の円を頂点で分けて持つことがある）、
+ * 円ごとの最大を 360° で頭打ちにする。角の R の上下の縁のように別の円の円弧は足さない。
+ */
+function faceSweepDeg(face) {
+  const circles = new Map();
+  for (const edge of face.edges) {
+    if (edge.curve.kind !== "ellipse") continue;
+    const c = edge.curve;
+    const key = [round(c.origin, 5), round(canonicalDirection(c.direction)), round(length(c.major), 5)].join("|");
+    circles.set(key, (circles.get(key) ?? 0) + sweepDeg(edge));
+  }
+  return Math.min(FULL_TURN_DEG, Math.max(0, ...circles.values()));
+}
 /** 円筒・円錐面が凹（面の法線が軸を向く）か。穴と軸・角R と隅R の判別に使う。 */
-const isConcave = (face) => (face.surface.normalOutward === undefined ? null : face.surface.normalOutward === face.reversed);
+export const isConcave = (face) => (face.surface.normalOutward === undefined ? null : face.surface.normalOutward === face.reversed);
 
 // ---- 属性（Inventor が面に付ける情報）------------------------------------------
 /**
@@ -280,12 +295,32 @@ function summarizeBody(topo, body, scale) {
       if (v) vertexIds.add(v.index);
     }
   }
-  const shells = topo.shells(body).length;
-  const loops = faceEntities.reduce((n, f) => n + topo.loops(f).length, 0);
-  const closed = topo.isClosed(body);
-  // V - E + F - (L - F) = 2(S - G)  →  G = S - (V - E + 2F - L) / 2
-  const euler = vertexIds.size - edgeIds.size + 2 * faces.length - loops;
-  const genus = closed && euler % 2 === 0 ? shells - euler / 2 : null;
+  const counts = {
+    shells: topo.shells(body).length,
+    faces: faces.length,
+    loops: faceEntities.reduce((n, f) => n + topo.loops(f).length, 0),
+    edges: edgeIds.size,
+    vertices: vertexIds.size,
+  };
+  return { index: body.index, ...topologySummary(counts, topo.isClosed(body)), ...summarizeFaces(faces, scale) };
+}
+
+/**
+ * 位相の数と種数。V - E + F - (L - F) = 2(S - G)  →  G = S - (V - E + 2F - L) / 2
+ * @param {{shells, faces, loops, edges, vertices}} counts
+ */
+export function topologySummary(counts, closed) {
+  const euler = counts.vertices - counts.edges + 2 * counts.faces - counts.loops;
+  const genus = closed && euler % 2 === 0 ? counts.shells - euler / 2 : null;
+  return { closed, ...counts, genus };
+}
+
+/**
+ * 面（形式によらない中立な形）から、外接箱・曲面の種類ごとの数・円筒と円錐の形状要素をまとめる。
+ * Inventor の B-rep（SAB）と STEP で共用する。
+ * 面: { index, surface: {kind, origin, direction, major, radius, slope, normalOutward}, reversed, concave, edges, loops, threads }
+ */
+export function summarizeFaces(faces, scale) {
   const points = faces.flatMap((f) => f.edges.flatMap((e) => e.points));
   const ranges = [0, 1, 2].map((k) => (points.length ? extent(points.map((p) => p[k] * scale)) : [0, 0]));
   const lo = ranges.map((r) => r[0]);
@@ -293,14 +328,6 @@ function summarizeBody(topo, body, scale) {
   const surfaces = {};
   for (const f of faces) surfaces[f.surface.kind] = (surfaces[f.surface.kind] ?? 0) + 1;
   return {
-    index: body.index,
-    closed,
-    shells,
-    faces: faces.length,
-    loops,
-    edges: edgeIds.size,
-    vertices: vertexIds.size,
-    genus,
     surfaces,
     bbox_min: round(lo),
     bbox_max: round(hi),
@@ -373,7 +400,7 @@ function cylinderFeatures(faces, scale) {
   };
   return connectedGroups(faces, keyOf).map((members) => {
     const surface = members[0].surface;
-    const sweep = Math.min(FULL_TURN_DEG, members.reduce((sum, f) => sum + Math.max(0, ...f.edges.map(sweepDeg)), 0));
+    const sweep = Math.min(FULL_TURN_DEG, members.reduce((sum, f) => sum + faceSweepDeg(f), 0));
     const { axis, center, length: len } = revolvedExtent(members, scale);
     const threads = members.flatMap((f) => f.threads);
     return {

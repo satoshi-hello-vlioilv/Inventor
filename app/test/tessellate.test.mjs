@@ -6,6 +6,7 @@ import { parseIpt } from "../src/ipt/index.js";
 import { describeBody } from "../src/viewer/describe.js";
 import { faceGeometry } from "../src/viewer/tessellate.js";
 import { SAMPLE_NAME, readSample } from "./helpers.mjs";
+import { bodyMesh, edgeDefects } from "./mesh-check.mjs";
 
 const { scene } = parseIpt(readSample(), SAMPLE_NAME);
 const body = scene.bodies[0];
@@ -58,4 +59,59 @@ test("穴と角 R の側面積", () => {
 
 test("全表面積", () => {
   near(faces.reduce((s, f) => s + f.area, 0), EXPECTED.total, "total");
+});
+
+// ---- 形式によらない分割の性質（合成した面で確かめる）------------------------------------------
+// 境界の点が抜けると隣の面との間に隙間ができ、面積 0 の三角形は細分が終わらなくなる。どちらも実際の STEP（ボルトの六角穴）で起きた。
+// earcut が一直線に並ぶ点を省くのは内部の点（円錐の先端）を加えたときで、六角穴の底の試験がそれを確かめる
+const TAU = 2 * Math.PI;
+const circle = (n, at) => Array.from({ length: n }, (_, i) => at((TAU * i) / n));
+/** 1 つの面の分割の境界: 開いた辺（= 境界の区間）と、重なった辺の数 */
+const boundaryOf = (face) => edgeDefects(bodyMesh([{ faces: [face] }]).triangles);
+
+test("平面: 一直線に並ぶ境界の点も全て三角形に使う", () => {
+  // 外周の下辺・上辺・左辺に途中の点、中央に穴
+  const outer = [[0, 0, 0], [1, 0, 0], [2, 0, 0], [3, 0, 0], [3, 3, 0], [1.5, 3, 0], [0, 3, 0], [0, 1.5, 0]];
+  const hole = [[1, 1, 0], [1, 2, 0], [2, 2, 0], [2, 1, 0]];
+  const face = { id: 1, type: "plane", normal: [0, 0, 1], loops: [outer, hole] };
+  const g = faceGeometry(face);
+  assert.equal(new Set(g.index.array).size, outer.length + hole.length);
+  near(measure(g).area, 9 - 1, "area");
+  assert.deepEqual(boundaryOf(face), { open: outer.length + hole.length, duplicated: 0 });
+});
+
+// 円錐 ρ(h) = 2 − h（先端は h = 2）。縁は h = 0 の半径 2 の円。側面積 = π・r・母線の長さ
+const cone = (loops) => ({ id: 2, type: "cone", origin: [0, 0, 0], axis: [0, 0, 1], ref: [1, 0, 0], radius: 2, slope: -1, outward: true, loops });
+const rim = circle(64, (t) => [2 * Math.cos(t), 2 * Math.sin(t), 0]);
+const APEX = [0, 0, 2];
+
+for (const [form, loops] of [
+  ["縁の円だけ（.ipt の形）", [rim]],
+  ["先端 → 継ぎ目の母線 → 縁 → 継ぎ目の母線 → 先端（STEP の形）", [[APEX, ...rim, rim[0]]]],
+]) {
+  test(`円錐の先端を含む面: ${form}`, () => {
+    const face = cone(loops);
+    const m = measure(faceGeometry(face));
+    assert.equal(m.misoriented, 0);
+    near(m.area, Math.PI * 2 * Math.hypot(2, 2), "側面積");
+    assert.deepEqual(boundaryOf(face), { open: rim.length, duplicated: 0 }, "境界は縁だけ（先端のまわりに隙間・重なりがない）");
+  });
+}
+
+test("六角穴の底（円錐と、軸に平行な 6 平面の交線が境界）: 境界の点を全て使い、細分が自然に終わる", () => {
+  // 軸に平行な平面との交線は、軸に垂直な平面に写すと直線（一直線に並ぶ境界の点）になる
+  const [radius, slope, apothem, per] = [0.866, 1.732, 1.5, 4];
+  const corners = circle(6, (t) => [(apothem / Math.cos(Math.PI / 6)) * Math.cos(t + Math.PI / 6), (apothem / Math.cos(Math.PI / 6)) * Math.sin(t + Math.PI / 6)]);
+  const loop = corners.flatMap((a, i) => {
+    const b = corners[(i + 1) % 6];
+    return Array.from({ length: per }, (_, k) => {
+      const [x, y] = [a[0] + ((b[0] - a[0]) * k) / per, a[1] + ((b[1] - a[1]) * k) / per];
+      return [x, y, (Math.hypot(x, y) - radius) / slope];
+    });
+  });
+  const face = { id: 3, type: "cone", origin: [0, 0, 0], axis: [0, 0, 1], ref: [1, 0, 0], radius, slope, outward: false, loops: [loop] };
+  const g = faceGeometry(face);
+  assert.equal(measure(g).misoriented, 0);
+  assert.ok(g.index.count / 3 < 2000, `${g.index.count / 3} triangles`);
+  assert.deepEqual(boundaryOf(face), { open: loop.length, duplicated: 0 });
 });

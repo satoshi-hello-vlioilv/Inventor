@@ -92,3 +92,65 @@ export function describeBody(body, labels) {
   }
   return { faceInfo, groups: ordered, unsupported };
 }
+
+// ---- 組立 ---------------------------------------------------------------------
+const multiplyPoint = (m, p) => [0, 1, 2].map((r) => m[r * 4] * p[0] + m[r * 4 + 1] * p[1] + m[r * 4 + 2] * p[2] + m[r * 4 + 3]);
+/** 質量の表記（g、1 kg 以上は kg） */
+export const fmtMass = (g) => (g >= 1000 ? `${(g / 1000).toFixed(3)} kg` : `${g.toFixed(1)} g`);
+/** 外形の表記（54.5 × 54.5 × 77） */
+export const fmtSize = (size) => size.map((v) => String(Number(v.toFixed(3)))).join(" × ");
+
+/**
+ * 組立（iam・STEP）の説明: 部品表（部品ごとの行）、配置ごとの説明文、外形寸法、質量の合計。
+ * @param {object} scene   組立のシーン（parts・instances）
+ * @param {Array<number|null>} volumes  部品ごとの体積（mm³、表示用の三角形から求めたもの）
+ */
+export function describeAssembly(scene, volumes = []) {
+  const byPart = new Map();
+  for (const inst of scene.instances) {
+    if (!byPart.has(inst.part)) byPart.set(inst.part, []);
+    byPart.get(inst.part).push(inst);
+  }
+  // 部品表は、組立の中で最初に現れた順（組立のブラウザーの並び）
+  const order = [...new Set([...scene.instances.map((i) => i.part), ...scene.parts.keys()])];
+  const info = new Map();
+  const groups = order.map((index, n) => {
+    const part = scene.parts[index];
+    const instances = byPart.get(index) ?? [];
+    const size = part.bodies?.[0]?.summary.size ?? null;
+    const volume = volumes[index] ?? null;
+    const mass = volume !== null && part.density_g_per_mm3 ? volume * part.density_g_per_mm3 : null;
+    const key = `part:${index}`;
+    for (const inst of instances) {
+      info.set(inst.id, { group: key, text: `${inst.name}${size ? ` · ${fmtSize(size)}` : ""}${part.missing ? " · 部品ファイルなし" : ""}` });
+    }
+    return {
+      key, index, number: n + 1, name: part.name, ids: instances.map((i) => i.id), count: instances.length,
+      size, material: part.material, volume, mass, missing: Boolean(part.missing), file: part.file ?? null, path: part.path ?? null,
+      text: `${part.name} × ${instances.length}`,
+    };
+  });
+  // 外形寸法: 全ての配置の稜線の点を組立の座標にして囲む
+  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  for (const inst of scene.instances) {
+    for (const body of scene.parts[inst.part].bodies ?? []) {
+      for (const line of body.edges) {
+        for (const p of line) {
+          const q = multiplyPoint(inst.matrix, p);
+          for (let k = 0; k < 3; k++) {
+            if (q[k] < lo[k]) lo[k] = q[k];
+            if (q[k] > hi[k]) hi[k] = q[k];
+          }
+        }
+      }
+    }
+  }
+  const size = lo[0] <= hi[0] ? hi.map((v, k) => v - lo[k]) : null;
+  const massKnown = groups.filter((g) => g.count && g.mass === null).length === 0;
+  const totalMass = groups.reduce((s, g) => s + (g.mass ?? 0) * g.count, 0);
+  return {
+    info, groups, size,
+    missing: groups.filter((g) => g.missing),
+    totals: { parts: groups.length, instances: scene.instances.length, mass: totalMass, massComplete: massKnown },
+  };
+}

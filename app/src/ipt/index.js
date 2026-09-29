@@ -1,10 +1,11 @@
 // .ipt 解析の入口。対応する Python 実装: ipt_inspect/report.py（build）
-//   parseIpt(bytes, name) → { report, scene }
+//   parseIpt(bytes, name) → { report, scene, thumbnail, properties }
 //   report … ファイル構造と形状要約（Python 版 --json と同じ構造）
 //   scene  … three.js ビューアに渡す形状データ
 
 import { summarize } from "./brep.js";
 import { openIpt } from "./container.js";
+import { materialOf } from "./properties.js";
 import { findBlocks, parseSab } from "./sab.js";
 import { buildScene } from "./scene.js";
 
@@ -49,5 +50,6 @@ export function parseIpt(bytes, name) {
       bodies: summarize(doc),
     })),
   };
-  return { report, scene: buildScene(name, found), thumbnail: ipt.thumbnail };
+  // 材質・密度（iProperties）は表示用の追加情報。Python 版との照合（report・scene）には含めない
+  return { report, scene: buildScene(name, found), thumbnail: ipt.thumbnail, properties: materialOf(ipt.streamData) };
 }
