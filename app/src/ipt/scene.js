@@ -1,55 +1,44 @@
 // 表示層: 最終形状を three.js で描ける中立な JSON（mm 単位）に変換する。
 // 対応する Python 実装: ipt_inspect/scene.py
-//   faces   … 面ごとの曲面パラメータ（平面: 法線と境界ループ / 円筒: 軸・半径・角度と高さの範囲）
+//   faces   … 面ごとの曲面パラメータと境界ループ
+//               平面: 法線 / 円筒・円錐（回転面）: 軸上の原点・軸・角度の基準方向・半径・半径の傾き
+//             三角形分割はビューアが境界ループに沿って行う（ループは隣の面と同じ点列なので、面どうしが隙間なくつながる）
 //   edges   … 稜線の折れ線
-//   summary … 外形・穴・R の要約
+//   summary … 外形・穴・R・ねじ・円錐の要約
 
 import labels from "../../../Inventor部品ビューア/アプリ本体/ipt_inspect/labels.json" with { type: "json" }; // Python 版と共用
 import { Topology, round, summarize } from "./brep.js";
-import { cross, dot, mul, reject, sub, unit } from "./vec.js";
+import { mul, reject, unit } from "./vec.js";
 
 export const BREP_SEGMENT = "PmBRepSegment";
 const DIGITS = 5;
-const ANGLE_DIGITS = 9;
+const SLOPE_DIGITS = 9;
 
 const mm = (v, scale) => v.map((c) => round(c * scale, DIGITS));
+const loopsOf = (face, scale) => face.loops.map((loop) => loop.map((p) => mm(p, scale)));
 
 function plane(face, scale) {
   const normal = unit(face.surface.direction);
-  return {
-    type: "plane",
-    normal: mm(mul(normal, face.reversed ? -1 : 1), 1),
-    loops: face.loops.map((loop) => loop.map((p) => mm(p, scale))),
-  };
+  return { type: "plane", normal: mm(mul(normal, face.reversed ? -1 : 1), 1), loops: loopsOf(face, scale) };
 }
 
-function cylinder(face, scale) {
+/** 円筒・円錐: 点 = origin + h・axis + ρ(h)・(cos θ・ref + sin θ・(axis × ref))、ρ(h) = radius + slope・h */
+function revolved(face, scale) {
   const s = face.surface;
   const axis = unit(s.direction);
-  const points = face.loops.flat();
-  const radials = points.map((p) => reject(sub(p, s.origin), axis));
-  const full = face.edges.some((e) => e.curve.kind === "ellipse" && (Math.abs(e.t1 - e.t0) * 180) / Math.PI >= 360 - 1e-3);
-  // 部分円筒は点群の平均方向（円弧の中央）を角度の基準にすると、角度が ±π を跨がない
-  const mean = [0, 1, 2].map((k) => radials.reduce((sum, r) => sum + r[k], 0) / radials.length);
-  const ref = unit(full ? radials[0] : mean);
-  const side = cross(axis, ref);
-  const angles = radials.map((r) => Math.atan2(dot(r, side), dot(r, ref)));
-  const heights = points.map((p) => dot(sub(p, s.origin), axis));
-  const min = (a) => a.reduce((m, v) => Math.min(m, v), Infinity);
-  const max = (a) => a.reduce((m, v) => Math.max(m, v), -Infinity);
   return {
-    type: "cylinder",
+    type: s.kind,
     origin: mm(s.origin, scale),
     axis: mm(axis, 1),
-    ref: mm(ref, 1),
+    ref: mm(unit(reject(s.major, axis)), 1),
     radius: round(s.radius * scale, DIGITS),
-    theta: full ? [0, round(2 * Math.PI, ANGLE_DIGITS)] : [round(min(angles), ANGLE_DIGITS), round(max(angles), ANGLE_DIGITS)],
-    height: [round(min(heights) * scale, DIGITS), round(max(heights) * scale, DIGITS)],
+    slope: round(s.slope, SLOPE_DIGITS),
     outward: !face.concave, // 面の法線が軸から外へ向くか（凸面なら true）
+    loops: loopsOf(face, scale),
   };
 }
 
-const FACE_EXPORTERS = { plane, cylinder };
+const FACE_EXPORTERS = { plane, cylinder: revolved, cone: revolved };
 
 function exportFace(face, scale) {
   const exporter = FACE_EXPORTERS[face.surface.kind];

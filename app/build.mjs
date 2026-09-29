@@ -48,10 +48,11 @@ export async function buildPage() {
     const bytes = fs.readFileSync(file);
     return `<script type="application/octet-stream" class="sample" data-name="${escapeAttr(name)}" data-size="${bytes.length}">${bytes.toString("base64")}</script>`;
   }).join("\n");
+  // 差し込みは関数で渡す（文字列で渡すと、中の "$&" などが置換の記号として解釈され、コードが壊れる）
   const page = fs
     .readFileSync(path.join(ROOT, "app/index.html"), "utf8")
-    .replace("<!-- @samples -->", samples)
-    .replace("<!-- @bundle -->", `<script type="module">\n${bundle}</script>`);
+    .replace("<!-- @samples -->", () => samples)
+    .replace("<!-- @bundle -->", () => `<script type="module">\n${bundle}</script>`);
   return { page, html: HEAD + page };
 }
 

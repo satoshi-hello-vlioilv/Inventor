@@ -113,8 +113,8 @@ class SamplePlateTest(unittest.TestCase):
         self.assertEqual(unverified, [])
 
     def test_edge_polylines_follow_topology(self):
-        """稜線の点列は始点→終点の順で頂点に一致し、ループ内でコエッジが途切れず閉じること。"""
-        for _, doc in shapes(IptFile(SAMPLE)):
+        """稜線の点列は始点→終点の順で頂点に一致し、ループ内でコエッジが途切れず閉じること（全サンプル）。"""
+        for _, doc in (s for sample in sample_ipts() for s in shapes(IptFile(sample))):
             topo = Topology(doc)
             for body in topo.bodies():
                 for face in topo.faces(body):
@@ -150,17 +150,70 @@ class SceneExportTest(unittest.TestCase):
             p = f["loops"][0][0]
             self.assertGreater(sum(n * (a - c) for n, a, c in zip(f["normal"], p, center)), 0, f["id"])
 
-    def test_cylinder_ranges(self):
+    def test_cylinder_loops_lie_on_surface(self):
+        """円筒の境界ループは曲面の上にあり、穴は軸を 1 周するループ 2 本、角 R は 90° 分の 1 本で囲まれること。"""
         cylinders = [f for f in self.body["faces"] if f["type"] == "cylinder"]
         holes = [f for f in cylinders if not f["outward"]]
         rounds = [f for f in cylinders if f["outward"]]
         self.assertEqual((len(holes), len(rounds)), (2, 4))
-        for f in holes:
-            self.assertAlmostEqual(f["theta"][1] - f["theta"][0], 2 * math.pi, delta=1e-6)
-        for f in rounds:
-            self.assertAlmostEqual(f["theta"][1] - f["theta"][0], math.pi / 2, delta=1e-6)
         for f in cylinders:
-            self.assertAlmostEqual(f["height"][1] - f["height"][0], 2.0, delta=TOL)
+            self.assertEqual(f["slope"], 0.0)
+            for p in (p for loop in f["loops"] for p in loop):
+                d = [a - o for a, o in zip(p, f["origin"])]
+                h = sum(a * b for a, b in zip(d, f["axis"]))
+                rho = math.dist(d, [h * a for a in f["axis"]])
+                self.assertAlmostEqual(rho, f["radius"], delta=1e-4)
+        self.assertEqual({len(f["loops"]) for f in holes}, {2})
+        self.assertEqual({len(f["loops"]) for f in rounds}, {1})
+
+
+class NewSamplesTest(unittest.TestCase):
+    """円筒・円板のサンプル（ねじ・円錐・交線の B スプラインを含む）の評価。期待値はファイル名とサムネイルから読み取れること。"""
+
+    def body(self, prefix: str) -> dict:
+        sample = next(s for s in sample_ipts() if s.name.startswith(prefix))
+        shape = next(s for s in build(sample)["shapes"] if s["segment"] == "PmBRepSegment")
+        return shape["bodies"][0]
+
+    def test_threads_from_face_attributes(self):
+        expected = {"A1_": {"M4x0.7": 4, "M6x1": 2, "M8x1.25": 2}, "A3_": {"M4x0.7": 6, "M8x1.25": 2}, "B_": {"M4x0.7": 4, "M6x1": 2}}
+        for prefix, counts in expected.items():
+            with self.subTest(sample=prefix):
+                threads = [c["thread"] for c in self.body(prefix)["cylinders"] if c["thread"]]
+                tally = {}
+                for t in threads:
+                    tally[t["designation"]] = tally.get(t["designation"], 0) + 1
+                    self.assertEqual((t["class"], t["type"]), ("6H", "ISO Metric profile"))
+                self.assertEqual(tally, counts)
+        both_ends = [c["thread"]["lengths"] for c in self.body("B_")["cylinders"] if c["thread"] and c["thread"]["designation"] == "M6x1"]
+        self.assertEqual(both_ends, [[12.0, 12.0], [12.0, 12.0]])  # 両ネジ: 1 つの穴の両端に 12 mm ずつ
+
+    def test_notched_outer_surface_is_one_diameter(self):
+        """切り欠きで分断された外周 Φ54.5 は、角 R ではなく 1 つの外径（半周超）として示す。"""
+        outer = [c for c in self.body("A1_")["cylinders"] if c["diameter"] == 54.5]
+        self.assertEqual([(c["kind"], len(c["face_ids"])) for c in outer], [("boss", 2)])
+        self.assertAlmostEqual(outer[0]["sweep_deg"], 269.889083, delta=1e-6)
+
+    def test_drill_point_cones(self):
+        cones = self.body("A1_")["cones"]
+        self.assertEqual([round(c["angle_deg"]) for c in cones], [118, 118])
+        self.assertTrue(all(c["concave"] for c in cones))
+
+    def test_spline_edges_keep_the_outline(self):
+        """交線（B スプライン）を折れ線にしても、外形は Φ54.5 × 77 の円筒に収まる（端点だけで表すと寸法が崩れる）。"""
+        self.assertVec(self.body("A1_")["size"], (54.5, 54.5, 77.0))
+
+    def test_text_report_shows_threads_and_cones(self):
+        from ipt_inspect.report import format_text
+
+        sample = next(s for s in sample_ipts() if s.name.startswith("A1_"))
+        text = format_text(build(sample))
+        self.assertIn("ねじ穴 M6x1 6H  ねじ長さ 12", text)
+        self.assertIn("円錐    頂角 118°", text)
+
+    def assertVec(self, actual, expected):
+        for a, e in zip(actual, expected, strict=True):
+            self.assertAlmostEqual(a, e, delta=TOL)
 
 class GoldenFixtureTest(unittest.TestCase):
     def test_every_sample_has_a_fixture_matching_current_output(self):
