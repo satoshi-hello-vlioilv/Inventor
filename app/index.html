@@ -183,6 +183,75 @@ kbd { font: 500 11px var(--font-ui); padding: 0 4px; border: 1px solid var(--rul
 .structure .num { text-align: end; font-family: var(--font-num); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .hint { margin: 0; margin-block-start: auto; font-size: 12px; color: var(--muted); }
 
+.notice {
+  margin: 0; padding: 8px 12px; font-size: 13px; color: var(--ink);
+  background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 8px;
+}
+
+/* ---- 何も開いていないとき ---- */
+.stage-empty {
+  position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 8px;
+  padding: 24px; text-align: center; color: var(--muted);
+}
+.stage-empty svg { width: 44px; height: 44px; margin-bottom: 4px; opacity: 0.7; }
+.stage-empty p { margin: 0; }
+.stage-empty .title { font-size: 15px; font-weight: 600; color: var(--ink); }
+.app.is-empty .toolbar, .app.is-empty .readout, .app.is-empty .gizmo { visibility: hidden; }
+
+/* ---- 起動画面（モーダル）: 開く → サンプル → 変換の流れ の順に目を運ぶ ---- */
+.start {
+  width: min(820px, calc(100vw - 32px)); max-height: calc(100vh - 32px); box-sizing: border-box;
+  padding: 0; border: 1px solid var(--rule); border-radius: 14px;
+  background: var(--panel); color: var(--ink); box-shadow: 0 24px 64px rgba(10, 20, 30, 0.28);
+}
+.start::backdrop { background: rgba(16, 24, 32, 0.45); backdrop-filter: blur(3px); }
+.start-body {
+  position: relative; display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 22px 24px;
+  padding: 28px 28px 24px;
+}
+.start-head { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 4px; padding-inline-end: 44px; }
+.start-head h1 { margin: 0; font-size: 20px; font-weight: 600; }
+.start-head p { margin: 0; font-size: 13.5px; color: var(--muted); }
+.start-close {
+  position: absolute; top: 18px; right: 18px; width: 34px; height: 34px; display: grid; place-items: center;
+  border: 0; border-radius: 8px; background: transparent; color: var(--muted); cursor: pointer;
+}
+.start-close svg { width: 18px; height: 18px; }
+.start-close:hover { background: var(--accent-soft); color: var(--ink); }
+.start h2 { margin: 0 0 8px; font-size: 11.5px; font-weight: 600; letter-spacing: 0.06em; color: var(--muted); }
+.dropzone {
+  min-height: 248px; box-sizing: border-box; padding: 24px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 6px; text-align: center; cursor: pointer;
+  border: 2px dashed var(--rule); border-radius: 12px; background: var(--bg); transition: border-color 0.15s, background 0.15s;
+}
+.dropzone:hover, .dropzone.is-over { border-color: var(--accent); background: var(--accent-soft); }
+.dropzone svg { width: 40px; height: 40px; color: var(--accent); margin-bottom: 4px; }
+.dropzone-title { margin: 0; font-size: 16px; font-weight: 600; }
+.dropzone-sub { margin: 0; font-size: 12.5px; color: var(--muted); }
+.dropzone-actions { margin-top: 12px; display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); }
+.sample-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 248px; overflow: auto; }
+.sample-row {
+  width: 100%; display: grid; grid-template-columns: 3.4em minmax(0, 1fr) auto; align-items: center; gap: 10px;
+  padding: 9px 12px; text-align: start; cursor: pointer; color: var(--ink);
+  border: 1px solid var(--rule); border-radius: 8px; background: var(--panel);
+}
+.sample-row:hover { border-color: var(--accent); background: var(--accent-soft); }
+.sample-kind { justify-self: start; padding: 2px 6px; border: 1px solid var(--rule); border-radius: 4px; font: 500 11px/1.3 var(--font-num); color: var(--muted); }
+.sample-name { font: 500 13px/1.4 var(--font-num); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sample-size { font: 12px var(--font-num); color: var(--muted); font-variant-numeric: tabular-nums; }
+.start-flow { grid-column: 1 / -1; }
+.flow { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; counter-reset: step; }
+.flow li {
+  counter-increment: step; position: relative; display: flex; flex-direction: column; gap: 2px;
+  padding: 10px 12px 10px 44px; border-radius: 8px; background: var(--bg);
+}
+.flow li::before {
+  content: counter(step); position: absolute; left: 12px; top: 11px; width: 22px; height: 22px; border-radius: 50%;
+  display: grid; place-items: center; font: 600 12px var(--font-num); color: var(--accent-ink); background: var(--accent);
+}
+.flow b { font-size: 13px; }
+.flow span { font-size: 12px; line-height: 1.5; color: var(--muted); }
+
 .drop-overlay {
   position: fixed; inset: 12px; z-index: 10; display: grid; place-items: center;
   border: 2px dashed var(--accent); border-radius: 14px; background: var(--accent-soft);
@@ -190,6 +259,10 @@ kbd { font: 500 11px var(--font-ui); padding: 0 4px; border: 1px solid var(--rul
 }
 .drop-overlay p { margin: 0; padding: 12px 20px; border-radius: 10px; background: var(--panel); color: var(--ink); font-weight: 600; }
 
+@media (max-width: 720px) {
+  .start-body { grid-template-columns: minmax(0, 1fr); }
+  .flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 @media (max-width: 1100px) {
   .app.is-html { height: auto; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .app.is-html .sheet { grid-column: 1 / -1; }
@@ -203,7 +276,7 @@ kbd { font: 500 11px var(--font-ui); padding: 0 4px; border: 1px solid var(--rul
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 
-<div class="app" id="app">
+<div class="app is-empty" id="app">
   <section class="source" id="source" aria-label="元のページ" hidden>
     <header class="source-bar">
       <div class="source-text">
@@ -217,6 +290,11 @@ kbd { font: 500 11px var(--font-ui); padding: 0 4px; border: 1px solid var(--rul
 
   <main class="stage" id="stage" aria-label="3D ビュー">
     <canvas class="view" id="view"></canvas>
+    <div class="stage-empty" id="stage-empty">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/></svg>
+      <p class="title">ファイルが開かれていません</p>
+      <p>ここにドラッグ＆ドロップするか、<kbd>Ctrl</kbd>+<kbd>O</kbd> で開きます</p>
+    </div>
     <div class="toolbar">
       <div class="tool-group" role="group" aria-label="視点">
         <button type="button" data-view="iso" title="等角ビュー（ホーム）">等角</button>
@@ -238,16 +316,17 @@ kbd { font: 500 11px var(--font-ui); padding: 0 4px; border: 1px solid var(--rul
       <div class="file-row">
         <img class="thumb" id="thumb" alt="Inventor が保存したサムネイル" title="Inventor が保存したサムネイル（表示の見比べ用）" hidden>
         <div class="file-text">
-          <p class="eyebrow"><span id="file-kind">部品ファイル</span><span class="badge" id="sample-badge" hidden>サンプル</span></p>
-          <h1 id="file-name">—</h1>
+          <p class="eyebrow"><span id="file-kind">ファイル</span><span class="badge" id="sample-badge" hidden>サンプル</span></p>
+          <h1 id="file-name">開いていません</h1>
           <p class="meta" id="file-source"></p>
         </div>
       </div>
       <button type="button" class="primary" id="open">ファイルを開く</button>
       <p class="drop-hint">Inventor の部品（.ipt）、または three.js を使った HTML（.html）。画面へのドラッグ＆ドロップ、<kbd>Ctrl</kbd>+<kbd>O</kbd> でも開けます</p>
-      <p class="samples" id="samples" hidden><span>サンプル</span><span class="sample-list" id="sample-list"></span></p>
-      <input type="file" id="file-input" accept=".ipt,.html,.htm" hidden>
+      <p class="samples"><button type="button" class="link" id="show-start">サンプル・使い方</button></p>
+      <input type="file" id="file-input" accept=".ipt,.html,.htm" multiple hidden>
       <p class="alert" id="alert" role="alert" hidden></p>
+      <p class="notice" id="notice" role="status" hidden></p>
     </header>
     <section data-mode="html" hidden>
       <h2>取り込み結果</h2>
@@ -260,7 +339,7 @@ kbd { font: 500 11px var(--font-ui); padding: 0 4px; border: 1px solid var(--rul
         <button type="button" class="secondary" id="save-spec" disabled>変換データを保存</button>
         <button type="button" class="secondary" id="copy-spec" disabled>コピー</button>
       </div>
-      <p class="convert-hint">保存した JSON を、Inventor のある PC で次のコマンドに渡すと、部品（.ipt）と組立（.iam）を作り、体積・表面積を照合します。<code id="build-command">python -m ipt_build 変換データ.json</code></p>
+      <p class="convert-hint">保存した JSON を、Inventor のある PC で起動ファイル（Inventor部品ビューア.vbs）にドラッグ＆ドロップすると、部品（.ipt）と組立（.iam）を作り、体積・表面積を照合します。コマンドで実行する場合（アプリ本体フォルダで）:<code id="build-command">python -m ipt_build 変換データ.json</code></p>
     </section>
     <section data-mode="html" hidden>
       <h2>部品<span class="unit">mm</span></h2>
@@ -270,19 +349,19 @@ kbd { font: 500 11px var(--font-ui); padding: 0 4px; border: 1px solid var(--rul
       <summary id="excluded-summary">除外したもの</summary>
       <dl class="topology" id="excluded"></dl>
     </details>
-    <section data-mode="ipt">
+    <section data-mode="ipt" hidden>
       <h2>外形寸法<span class="unit">mm</span></h2>
       <dl class="dims" id="dims"></dl>
     </section>
-    <section data-mode="ipt">
+    <section data-mode="ipt" hidden>
       <h2>形状要素</h2>
       <ul class="features" id="features"></ul>
     </section>
-    <section data-mode="ipt">
+    <section data-mode="ipt" hidden>
       <h2>位相</h2>
       <dl class="topology" id="topology"></dl>
     </section>
-    <details class="structure" data-mode="ipt">
+    <details class="structure" data-mode="ipt" hidden>
       <summary>ファイル構造</summary>
       <p id="structure-summary"></p>
       <div class="table-wrap">
@@ -297,6 +376,41 @@ kbd { font: 500 11px var(--font-ui); padding: 0 4px; border: 1px solid var(--rul
 </div>
 <div class="drop-overlay" id="drop-overlay" hidden><p>ドロップして開く（.ipt / .html）</p></div>
 
+<dialog class="start" id="start" aria-labelledby="start-title">
+  <div class="start-body">
+    <header class="start-head">
+      <h1 id="start-title">Inventor 部品ビューア</h1>
+      <p>Inventor の部品（.ipt）を表示し、three.js で作った 3D モデル（.html）を Inventor の部品に変換します。</p>
+    </header>
+    <button type="button" class="start-close" id="start-close" aria-label="閉じる" title="閉じる（Esc）">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+    </button>
+    <section>
+      <h2>ファイルを開く</h2>
+      <div class="dropzone" id="dropzone">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v11m-5-5 5 5 5-5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+        <p class="dropzone-title">ここにファイルをドラッグ＆ドロップ</p>
+        <p class="dropzone-sub">.ipt（Inventor の部品）・.html（three.js を使ったページ）</p>
+        <p class="dropzone-actions"><button type="button" class="primary" id="start-open" autofocus>ファイルを選ぶ</button><span><kbd>Ctrl</kbd>+<kbd>O</kbd></span></p>
+      </div>
+    </section>
+    <section id="start-samples" hidden>
+      <h2>サンプルで試す</h2>
+      <ul class="sample-rows" id="sample-rows"></ul>
+    </section>
+    <section class="start-flow">
+      <h2>Inventor の部品にするまでの流れ</h2>
+      <ol class="flow">
+        <li><b>開く</b><span>.html（three.js）をドロップ</span></li>
+        <li><b>確かめる</b><span>形状・寸法と、変換できる部品の数</span></li>
+        <li><b>保存する</b><span>変換データ（.inventor.json）を保存</span></li>
+        <li><b>Inventor で作る</b><span>保存したファイルを起動ファイルにドロップ</span></li>
+      </ol>
+    </section>
+  </div>
+</dialog>
+
+<!-- @launch -->
 <!-- @samples -->
 <script type="importmap">
 { "imports": {

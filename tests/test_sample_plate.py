@@ -1,4 +1,4 @@
-"""サンプル E_Plate_改_Φ54.5.ipt を使った解析器の評価。
+"""サンプル samples/ipt/E_Plate_改_Φ54.5.ipt を使った解析器の評価。
 
 期待値は Inventor 上のモデル（押し出し1 → 穴1 → フィレット1）と画面キャプチャから読み取れる寸法。
 実行:  python -m unittest discover -s tests
@@ -6,15 +6,15 @@
 import json
 import math
 import unittest
-from pathlib import Path
 
+from tests import PLATE, golden_path, sample_ipts
 from ipt_inspect import build
 from ipt_inspect.brep import SLOTS, Topology
 from ipt_inspect.container import IptFile
 from ipt_inspect.report import shapes
 from ipt_inspect import scene
 
-SAMPLE = Path(__file__).resolve().parents[1] / "E_Plate_改_Φ54.5.ipt"
+SAMPLE = PLATE
 TOL = 1e-6
 
 # 参照スロット名 → 参照先として正しい型の判定
@@ -163,12 +163,18 @@ class SceneExportTest(unittest.TestCase):
             self.assertAlmostEqual(f["height"][1] - f["height"][0], 2.0, delta=TOL)
 
 class GoldenFixtureTest(unittest.TestCase):
-    def test_fixture_matches_current_output(self):
-        """JS 版の照合に使う正解データが、現在の Python 版の出力と一致していること。"""
+    def test_every_sample_has_a_fixture_matching_current_output(self):
+        """samples/ipt の全ての .ipt について、JS 版の照合に使う正解データがあり、現在の Python 版の出力と一致すること。"""
         from tests import golden
 
-        stored = json.loads(golden.FIXTURE.read_text(encoding="utf-8"))
-        self.assertEqual(stored, golden.expected(), "python -m tests.golden で更新してください")
+        samples = sample_ipts()
+        self.assertIn(PLATE, samples)
+        for sample in samples:
+            with self.subTest(sample=sample.name):
+                path = golden_path(sample)
+                self.assertTrue(path.exists(), f"{path.name} がありません。python -m tests.golden で作ってください")
+                stored = json.loads(path.read_text(encoding="utf-8"))
+                self.assertEqual(stored, golden.expected(sample), "python -m tests.golden で更新してください")
 
 
 if __name__ == "__main__":

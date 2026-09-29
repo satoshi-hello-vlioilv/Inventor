@@ -1,5 +1,8 @@
 """使い方（Windows、Inventor をインストールした PC）:
 
+    起動ファイル（Inventor部品ビューア.vbs）に変換データをドラッグ＆ドロップする（確認のうえ、下のコマンドを実行する）か、
+    「アプリ本体」フォルダで:
+
     python -m ipt_build 変換データ.inventor.json              部品（と組立）を作る
     python -m ipt_build 変換データ.inventor.json --dry-run    Inventor を使わずに作成計画と期待値を確かめる
 

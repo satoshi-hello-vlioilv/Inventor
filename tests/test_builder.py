@@ -13,6 +13,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
+from tests import PLATE
 from ipt_build import SpecError, load_spec
 from ipt_build import inventor as inventor_module
 from ipt_build.__main__ import main
@@ -192,7 +193,7 @@ class FileCheckTest(unittest.TestCase):
     def test_reads_the_sample_ipt_in_mm_from_the_units_written_in_the_file(self):
         from ipt_build.verify import file_bbox
 
-        lo, hi = file_bbox(Path(__file__).resolve().parents[1] / "E_Plate_改_Φ54.5.ipt")
+        lo, hi = file_bbox(PLATE)
         self.assertEqual((lo, hi), ((0.0, 0.0, -7.5), (21.0, 2.0, 0.0)))
 
     def test_expected_bbox_matches_a_brute_force_sampling_of_the_solid(self):

@@ -6,9 +6,16 @@ import { fileURLToPath } from "node:url";
 const require = createRequire(import.meta.url);
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+export const SAMPLES_IPT = path.join(ROOT, "samples/ipt");
 export const SAMPLE_NAME = "E_Plate_改_Φ54.5.ipt";
-export const readSample = () => new Uint8Array(fs.readFileSync(path.join(ROOT, SAMPLE_NAME)));
-export const readGolden = () => JSON.parse(fs.readFileSync(path.join(ROOT, "tests/fixtures/E_Plate.expected.json"), "utf8"));
+/** samples/ipt に置いた全ての .ipt の名前（名前順）。 */
+export const sampleIpts = () => fs.readdirSync(SAMPLES_IPT).filter((n) => /\.ipt$/i.test(n)).sort((a, b) => a.localeCompare(b, "ja"));
+export const readSample = (name = SAMPLE_NAME) => new Uint8Array(fs.readFileSync(path.join(SAMPLES_IPT, name)));
+/** Python 版の解析結果（正解データ）。python -m tests.golden が作る。無ければ null。 */
+export function readGolden(name = SAMPLE_NAME) {
+  const file = path.join(ROOT, "tests/fixtures/ipt", `${name.replace(/\.ipt$/i, "")}.expected.json`);
+  return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : null;
+}
 
 /** 2 つの JSON 値の差分を列挙する（数値は許容誤差内なら一致とみなす）。 */
 export function diff(actual, expected, tolerance = 1e-6, at = "$", out = []) {

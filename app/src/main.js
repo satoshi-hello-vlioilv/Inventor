@@ -1,6 +1,8 @@
-// アプリの入口: ファイルの読み込み（ボタン・ドラッグ＆ドロップ・Ctrl+O・サンプル）、解析、表示、3D ⇄ パネルの連動。
+// アプリの入口: ファイルの読み込み（起動画面・ボタン・ドラッグ＆ドロップ・Ctrl+O・サンプル・起動ファイル）、解析、表示、
+// 3D ⇄ パネルの連動。
 //   .ipt  … ブラウザ内で解析して表示する
 //   .html … 隔離した iframe で動かし、three.js の形状を取り出して回転体・押し出しとして認識する
+// 起動ファイル（.vbs）にドロップされたファイルは、ページの複製に埋め込まれて届く（window.IPT_VIEWER_LAUNCH）。
 
 import { describeBody } from "./viewer/describe.js";
 import { buildInventorSpec, formatSpec } from "./export/inventor.js";
@@ -59,8 +61,18 @@ function showAlert(message) {
   alert.hidden = !message;
 }
 
+/** 誤りではない知らせ（開かなかったファイルなど）。 */
+function showNotice(message) {
+  const notice = $("notice");
+  notice.textContent = message;
+  notice.hidden = !message;
+}
+
+/** 表示モード: empty（何も開いていない）・ipt・html。 */
 function setMode(mode) {
   $("app").classList.toggle("is-html", mode === "html");
+  $("app").classList.toggle("is-empty", mode === "empty");
+  $("stage-empty").hidden = mode !== "empty";
   $("source").hidden = mode !== "html";
   setPanelMode(mode);
   if (mode !== "html" && source) {
@@ -209,12 +221,25 @@ const OLE2 = [0xd0, 0xcf, 0x11, 0xe0];
 const isHtml = (name, bytes) => /\.html?$/i.test(name) || (!OLE2.every((b, i) => bytes[i] === b) && /<html|<!doctype|<script/i.test(new TextDecoder().decode(bytes.subarray(0, 2048))));
 
 function load(bytes, name, isSample = false) {
+  closeStart();
+  showNotice("");
   if (isHtml(name, bytes)) loadHtml(new TextDecoder().decode(bytes), name, isSample);
   else loadIpt(bytes, name, isSample);
 }
 
-async function openFile(file) {
-  if (!file) return;
+const VIEWABLE = /\.(ipt|html?)$/i;
+const SPEC = /\.json$/i;
+
+/** 複数のファイルから開くものを選ぶ（.ipt・.html を優先。1 つずつ開く）。開かなかったものは知らせる。 */
+async function openFiles(fileList) {
+  const files = [...(fileList ?? [])];
+  if (!files.length) return;
+  const file = files.find((f) => VIEWABLE.test(f.name)) ?? files[0];
+  if (SPEC.test(file.name)) {
+    closeStart();
+    showAlert(`${file.name}: 変換データ（.json）はビューアでは開きません。Inventor のある PC で、起動ファイル（Inventor部品ビューア.vbs）にドラッグ＆ドロップすると部品を作ります。`);
+    return;
+  }
   const button = $("open");
   button.disabled = true;
   button.textContent = "読み込み中…";
@@ -224,12 +249,14 @@ async function openFile(file) {
     button.disabled = false;
     button.textContent = "ファイルを開く";
   }
+  const rest = files.filter((f) => f !== file);
+  if (rest.length) showNotice(`${file.name} を開きました。ほかの ${rest.length} 件（${rest.map((f) => f.name).join("、")}）は開いていません。1 つずつ開けます。`);
 }
 
 const input = $("file-input");
 $("open").addEventListener("click", () => input.click());
 input.addEventListener("change", () => {
-  openFile(input.files[0]);
+  openFiles(input.files);
   input.value = ""; // 同じファイルを続けて選んでも change が発生するように
 });
 addEventListener("keydown", (event) => {
@@ -240,22 +267,40 @@ addEventListener("keydown", (event) => {
 });
 $("capture").addEventListener("click", capture);
 
-// ドラッグ＆ドロップ（画面のどこでも受け付ける）
+// ---- 起動画面（ファイルを開く・サンプル・変換の流れ）---------------------------
+const start = $("start");
+const dropzone = $("dropzone");
+function openStart() {
+  if (!start.open) start.showModal();
+}
+function closeStart() {
+  if (start.open) start.close();
+}
+$("show-start").addEventListener("click", openStart);
+$("start-close").addEventListener("click", closeStart);
+start.addEventListener("click", (event) => event.target === start && closeStart()); // 背景（枠の外）のクリック
+dropzone.addEventListener("click", () => input.click()); // 中の「ファイルを選ぶ」ボタンのクリックもここに届く
+
+// ドラッグ＆ドロップ（画面のどこでも受け付ける。起動画面が開いていれば、その受け口を強調する）
 const overlay = $("drop-overlay");
 const hasFiles = (event) => [...(event.dataTransfer?.types ?? [])].includes("Files");
+const showDropTarget = (on) => {
+  dropzone.classList.toggle("is-over", on && start.open);
+  overlay.hidden = !on || start.open;
+};
 addEventListener("dragover", (event) => {
   if (!hasFiles(event)) return;
   event.preventDefault();
-  overlay.hidden = false;
+  showDropTarget(true);
 });
 addEventListener("dragleave", (event) => {
-  if (!event.relatedTarget) overlay.hidden = true;
+  if (!event.relatedTarget) showDropTarget(false);
 });
 addEventListener("drop", (event) => {
   if (!hasFiles(event)) return;
   event.preventDefault();
-  overlay.hidden = true;
-  openFile(event.dataTransfer.files[0]);
+  showDropTarget(false);
+  openFiles(event.dataTransfer.files);
 });
 
 // ---- ツールバー ----------------------------------------------------------------
@@ -270,18 +315,28 @@ $("toggle-edges").addEventListener("click", (event) => {
 });
 
 // ---- サンプル（ビルド時に埋め込まれたファイル）-----------------------------------
+const decodeBase64 = (text) => Uint8Array.from(atob(text.trim()), (c) => c.charCodeAt(0));
 const samples = [...document.querySelectorAll("script.sample")];
-const decodeSample = (node) => Uint8Array.from(atob(node.textContent.trim()), (c) => c.charCodeAt(0));
-$("samples").hidden = !samples.length;
-$("sample-list").replaceChildren(
+const sizeText = (bytes) => (bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`);
+const span = (className, text) => Object.assign(document.createElement("span"), { className, textContent: text });
+$("start-samples").hidden = !samples.length;
+$("sample-rows").replaceChildren(
   ...samples.map((node) => {
+    const { name, kind, size } = node.dataset;
     const button = document.createElement("button");
     button.type = "button";
-    button.className = "link";
-    button.textContent = node.dataset.label;
-    button.title = node.dataset.name;
-    button.addEventListener("click", () => load(decodeSample(node), node.dataset.name, true));
-    return button;
+    button.className = "sample-row";
+    button.title = name;
+    button.append(span("sample-kind", kind), span("sample-name", name.replace(/\.[^.]+$/, "")), span("sample-size", sizeText(Number(size))));
+    button.addEventListener("click", () => load(decodeBase64(node.textContent), name, true));
+    const item = document.createElement("li");
+    item.append(button);
+    return item;
   }),
 );
-if (samples[0]) load(decodeSample(samples[0]), samples[0].dataset.name, true);
+
+// ---- 起動 ----------------------------------------------------------------------
+setMode("empty");
+const launched = window.IPT_VIEWER_LAUNCH?.[0];
+if (launched) load(decodeBase64(launched.data), launched.name);
+else openStart();
