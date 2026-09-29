@@ -114,6 +114,18 @@ button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); 
 .primary:hover { filter: brightness(1.08); }
 .primary:disabled { cursor: progress; opacity: 0.7; }
 .drop-hint { margin: -4px 0 0; font-size: 12px; color: var(--muted); }
+.secondary {
+  padding: 8px 12px; border: 1px solid var(--accent); border-radius: 8px; cursor: pointer;
+  font-weight: 600; font-size: 13px; color: var(--accent); background: var(--panel);
+}
+.secondary:hover:not(:disabled) { background: var(--accent-soft); }
+.secondary:disabled { cursor: default; opacity: 0.45; }
+.convert-summary { margin: 0; font-size: 13px; }
+.convert-summary.is-done { color: var(--accent); }
+.convert-actions { display: flex; gap: 8px; }
+.convert-actions .secondary:first-child { flex: 1; }
+.convert-hint { margin: 0; font-size: 12px; color: var(--muted); }
+.convert-hint code { display: block; margin-block: 4px; font: 11.5px/1.5 var(--font-num); padding: 4px 8px; border: 1px solid var(--rule); border-radius: 6px; background: var(--panel); overflow-wrap: anywhere; }
 kbd { font: 500 11px var(--font-ui); padding: 0 4px; border: 1px solid var(--rule); border-radius: 4px; }
 .alert {
   margin: 0; padding: 8px 12px; font-size: 13px; color: var(--critical);
@@ -237,6 +249,15 @@ kbd { font: 500 11px var(--font-ui); padding: 0 4px; border: 1px solid var(--rul
     <section data-mode="html" hidden>
       <h2>取り込み結果</h2>
       <div class="tally" id="tally"></div>
+    </section>
+    <section data-mode="html" hidden>
+      <h2>Inventor へ変換</h2>
+      <p class="convert-summary" id="convert-summary">取り込むと、変換できる部品の数を表示します</p>
+      <div class="convert-actions">
+        <button type="button" class="secondary" id="save-spec" disabled>変換データを保存</button>
+        <button type="button" class="secondary" id="copy-spec" disabled>コピー</button>
+      </div>
+      <p class="convert-hint">保存した JSON を、Inventor のある PC で次のコマンドに渡すと、部品（.ipt）と組立（.iam）を作り、体積・表面積を照合します。<code id="build-command">python -m ipt_build 変換データ.json</code></p>
     </section>
     <section data-mode="html" hidden>
       <h2>部品<span class="unit">mm</span></h2>

@@ -3,6 +3,7 @@
 //   .html … 隔離した iframe で動かし、three.js の形状を取り出して回転体・押し出しとして認識する
 
 import { describeBody } from "./viewer/describe.js";
+import { buildInventorSpec, formatSpec } from "./export/inventor.js";
 import { buildDisplayMeshes, describeRecognition } from "./extract/describe.js";
 import { SourceFrame } from "./extract/frame.js";
 import { CfbError, parseIpt } from "./ipt/index.js";
@@ -20,6 +21,8 @@ const READY_TIMEOUT_MS = 15000;
 let current = null; // { info: Map<id, {group, text}>, rows: Map<groupKey, element> }
 let thumbnailUrl = null;
 let source = null; // 表示中の元のページ（SourceFrame）
+let sourceName = ""; // 表示中の HTML のファイル名
+let spec = null; // 最後に取り込んだ形状の変換データ
 
 // ---- 強調表示（3D ⇄ パネルの双方向） -----------------------------------------
 function highlight(ids, text, groupKey) {
@@ -119,8 +122,9 @@ async function capture() {
     viewer?.show({ meshes: buildDisplayMeshes(snapshot, recognition) });
     highlight([]);
     showAlert(recognition.parts.length ? "" : "取り込める形状がありませんでした。元のページで部品を表示してから、もう一度取り込んでください。");
-    const time = new Date().toLocaleTimeString("ja-JP");
-    setSourceStatus(`${time} に取り込み · three.js r${snapshot.revision ?? "?"}`);
+    const now = new Date();
+    setSourceStatus(`${now.toLocaleTimeString("ja-JP")} に取り込み · three.js r${snapshot.revision ?? "?"}`);
+    setSpec(buildInventorSpec({ file: sourceName, revision: snapshot.revision, capturedAt: now.toISOString() }, recognition));
   } catch (error) {
     console.warn(error);
     showAlert(`取り込みに失敗しました（${error.message}）。元のページの表示が終わってから、もう一度お試しください。`);
@@ -130,9 +134,52 @@ async function capture() {
   }
 }
 
+// ---- Inventor 用の変換データ -----------------------------------------------------
+const specFileName = () => `${sourceName.replace(/\.[^.]+$/, "")}.inventor.json`;
+
+function setSpec(next) {
+  spec = next;
+  const kinds = spec?.parts.length ?? 0;
+  const placed = spec?.parts.reduce((n, p) => n + p.instances.length, 0) ?? 0;
+  const skipped = spec?.skipped.reduce((n, s) => n + s.count, 0) ?? 0;
+  const summary = $("convert-summary");
+  summary.classList.remove("is-done");
+  summary.textContent = !spec ? "取り込むと、変換できる部品の数を表示します"
+    : kinds ? `部品 ${kinds} 種類・配置 ${placed} か所を変換します${skipped ? `（近似の ${skipped} 個は変換しません）` : ""}`
+      : "正確に認識できた部品がないため、変換できません";
+  $("save-spec").disabled = $("copy-spec").disabled = !kinds;
+  $("build-command").textContent = `python -m ipt_build ${spec ? specFileName() : "変換データ.json"}`;
+}
+
+function reportDone(text) {
+  const summary = $("convert-summary");
+  summary.textContent = text;
+  summary.classList.add("is-done");
+}
+
+$("save-spec").addEventListener("click", () => {
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(new Blob([formatSpec(spec)], { type: "application/json" }));
+  link.download = specFileName();
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  reportDone(`${specFileName()} を保存しました（ダウンロードに現れない場合は「コピー」を使ってください）`);
+});
+
+$("copy-spec").addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(formatSpec(spec));
+    reportDone(`変換データをコピーしました。テキストエディタに貼り付けて ${specFileName()} として保存してください`);
+  } catch {
+    reportDone("コピーできませんでした。このブラウザではクリップボードが使えません");
+  }
+});
+
 function loadHtml(text, name, isSample = false) {
   showAlert("");
   setMode("html");
+  sourceName = name;
+  setSpec(null);
   renderHeader({ eyebrow: "three.js の HTML", name, meta: "元のページで表示を選び「この状態を取り込む」を押すと、その形状を取り込みます", isSample });
   current = null;
   viewer?.clear();

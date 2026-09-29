@@ -1,0 +1,115 @@
+{
+ "format": "inventor-builder",
+ "version": 1,
+ "units": "mm",
+ "source": {
+  "file": "LS4_parts_viewer.html",
+  "three": "180",
+  "captured_at": "fixture"
+ },
+ "parts": [
+  {
+   "key": "p01",
+   "name": "LS4_parts_viewer_01_回転体_φ240x50",
+   "kind": "revolve",
+   "sketch": {
+    "plane": "XY",
+    "loops": [
+     [
+      {
+       "type": "line",
+       "a": [101, -25],
+       "b": [119, -25]
+      },
+      {
+       "type": "line",
+       "a": [119, -25],
+       "b": [120, -24]
+      },
+      {
+       "type": "line",
+       "a": [120, -24],
+       "b": [120, 24]
+      },
+      {
+       "type": "line",
+       "a": [120, 24],
+       "b": [119, 25]
+      },
+      {
+       "type": "line",
+       "a": [119, 25],
+       "b": [101, 25]
+      },
+      {
+       "type": "line",
+       "a": [101, 25],
+       "b": [100, 24]
+      },
+      {
+       "type": "line",
+       "a": [100, 24],
+       "b": [100, 15]
+      },
+      {
+       "type": "line",
+       "a": [100, 15],
+       "b": [112, 15]
+      },
+      {
+       "type": "arc",
+       "a": [112, 15],
+       "b": [114, 13],
+       "center": [112, 13],
+       "ccw": false
+      },
+      {
+       "type": "line",
+       "a": [114, 13],
+       "b": [114, -13]
+      },
+      {
+       "type": "arc",
+       "a": [114, -13],
+       "b": [112, -15],
+       "center": [112, -13],
+       "ccw": false
+      },
+      {
+       "type": "line",
+       "a": [112, -15],
+       "b": [100, -15]
+      },
+      {
+       "type": "line",
+       "a": [100, -15],
+       "b": [100, -24]
+      },
+      {
+       "type": "line",
+       "a": [100, -24],
+       "b": [101, -25]
+      }
+     ]
+    ]
+   },
+   "revolve": {
+    "axis": "Y",
+    "angle_deg": 360
+   },
+   "expect": {
+    "volume": 408626.641742,
+    "area": 115371.66465
+   },
+   "instances": [
+    {
+     "origin": [0, 0, 0],
+     "x": [0, -1, 0],
+     "y": [0, 0, 1],
+     "z": [-1, 0, 0]
+    }
+   ]
+  }
+ ],
+ "skipped": []
+}

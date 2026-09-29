@@ -1,0 +1,81 @@
+{
+ "format": "inventor-builder",
+ "version": 1,
+ "units": "mm",
+ "source": {
+  "file": "LS4_parts_viewer.html",
+  "three": "180",
+  "captured_at": "fixture"
+ },
+ "parts": [
+  {
+   "key": "p01",
+   "name": "LS4_parts_viewer_01_押し出し_8角形_20x560x10",
+   "kind": "extrude",
+   "sketch": {
+    "plane": "XY",
+    "loops": [
+     [
+      {
+       "type": "line",
+       "a": [280, -4],
+       "b": [280, 4]
+      },
+      {
+       "type": "line",
+       "a": [280, 4],
+       "b": [260, 10]
+      },
+      {
+       "type": "line",
+       "a": [260, 10],
+       "b": [-260, 10]
+      },
+      {
+       "type": "line",
+       "a": [-260, 10],
+       "b": [-280, 4]
+      },
+      {
+       "type": "line",
+       "a": [-280, 4],
+       "b": [-280, -4]
+      },
+      {
+       "type": "line",
+       "a": [-280, -4],
+       "b": [-260, -10]
+      },
+      {
+       "type": "line",
+       "a": [-260, -10],
+       "b": [260, -10]
+      },
+      {
+       "type": "line",
+       "a": [260, -10],
+       "b": [280, -4]
+      }
+     ]
+    ]
+   },
+   "extrude": {
+    "direction": "Z",
+    "distance": 10
+   },
+   "expect": {
+    "volume": 109600,
+    "area": 33315.224521
+   },
+   "instances": [
+    {
+     "origin": [0, 0, 0],
+     "x": [1, 0, 0],
+     "y": [0, 1, 0],
+     "z": [0, 0, 1]
+    }
+   ]
+  }
+ ],
+ "skipped": []
+}

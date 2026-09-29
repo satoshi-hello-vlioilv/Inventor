@@ -11,8 +11,11 @@ export const TOL = 1e-3; // mm。float32 の丸め誤差（約 1e-4 mm）より�
 
 const WORLD_AXES = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
 
+/** メッシュ自身の座標軸（ワールド座標での向き）。 */
+const localAxes = (matrix) => [0, 4, 8].map((k) => unit([matrix[k], matrix[k + 1], matrix[k + 2]]));
+
 function candidateAxes(matrix) {
-  const local = [0, 4, 8].map((k) => unit([matrix[k], matrix[k + 1], matrix[k + 2]]));
+  const local = localAxes(matrix);
   const axes = [];
   for (const a of [...local, ...WORLD_AXES]) if (!axes.some((b) => Math.abs(dot(a, b)) > 1 - 1e-9)) axes.push(a);
   return axes;
@@ -99,6 +102,7 @@ export function recognizeMesh(mesh) {
       triangles: component.tris.length / 3,
       sourceTriangles: component.sourceTriangles,
       bbox: bbox(points, component.tris),
+      localAxes: localAxes(mesh.matrix),
       points,
       tris: component.tris,
     };
