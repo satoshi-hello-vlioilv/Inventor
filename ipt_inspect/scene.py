@@ -1,31 +1,22 @@
-"""表示層: 最終形状を three.js で描ける中立な JSON（mm 単位）に変換し、ビューア HTML に埋め込む。
+"""表示層: 最終形状を three.js で描ける中立な JSON（mm 単位）に変換する。
 
-三角形分割はビューア側で行う。ここで渡すのは次の 3 つだけにして、形状の意味は Python 側に一元化する。
+ブラウザアプリ（app/）の JS 版 scene.js と同じ出力を作り、tests/golden.py で正解データとして保存する。
+三角形分割はビューア側で行う。ここで渡すのは次の 3 つだけ。
     faces    … 面ごとの曲面パラメータ（平面: 法線と境界ループ / 円筒: 軸・半径・角度と高さの範囲）
     edges    … 稜線の折れ線
     summary  … 外形・穴・R の要約（テキスト出力と同じ値）
 """
 from __future__ import annotations
 
-import html
-import json
 import math
 from dataclasses import asdict
-from pathlib import Path
 
 from . import brep, report
 from .container import IptFile
 from .vec import Vec, cross, dot, mul, reject, sub, unit
 
 BREP_SEGMENT = "PmBRepSegment"
-_TEMPLATE = Path(__file__).with_name("viewer.html")
-_PLACEHOLDER = "__SCENE_JSON__"
-_TITLE = "__TITLE__"
 _DIGITS = 5
-_STANDALONE_HEAD = (
-    '<!doctype html>\n<html lang="ja">\n<meta charset="utf-8">\n'
-    '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n'
-)
 
 
 def _mm(v: Vec, scale: float) -> list[float]:
@@ -95,14 +86,7 @@ def build(ipt: IptFile) -> dict:
         "file": ipt.path.name,
         "units": "mm",
         "source": source,
-        "labels": {"surfaces": report.SURFACE_LABELS, "cylinders": report.CYLINDER_LABELS},
+        "labels": report.LABELS,
         "bodies": bodies,
     }
 
-
-def render_viewer(scene: dict, standalone: bool = True) -> str:
-    """ビューア HTML にシーンを埋め込む。standalone=False は外側の骨格を持たない断片（埋め込み用）。"""
-    payload = json.dumps(scene, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
-    title = html.escape(f"{Path(scene['file']).stem} ビューア")
-    page = _TEMPLATE.read_text(encoding="utf-8").replace(_TITLE, title).replace(_PLACEHOLDER, payload)
-    return _STANDALONE_HEAD + page if standalone else page

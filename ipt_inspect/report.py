@@ -1,6 +1,7 @@
 """解析結果を 1 つの辞書（JSON 互換）にまとめ、テキスト表示もそこから生成する。"""
 from __future__ import annotations
 
+import json
 from dataclasses import asdict
 from pathlib import Path
 
@@ -8,13 +9,10 @@ from . import brep, sab
 from .container import IptFile
 
 _AXES = {(1.0, 0.0, 0.0): "X", (0.0, 1.0, 0.0): "Y", (0.0, 0.0, 1.0): "Z"}
-SURFACE_LABELS = {"plane": "平面", "cylinder": "円筒", "cone": "円錐"}
-CYLINDER_LABELS = {  # kind → 表示名・寸法記号・寸法に使う値（テキスト出力とビューアで共用）
-    "hole": {"name": "穴", "symbol": "Φ", "field": "diameter"},
-    "boss": {"name": "軸", "symbol": "Φ", "field": "diameter"},
-    "round": {"name": "角R", "symbol": "R", "field": "radius"},
-    "inner_round": {"name": "隅R", "symbol": "R", "field": "radius"},
-}
+# 表示名は Python 版と JS 版（app/）で共用する
+LABELS = json.loads((Path(__file__).resolve().parents[1] / "spec" / "labels.json").read_text(encoding="utf-8"))
+SURFACE_LABELS = LABELS["surfaces"]
+CYLINDER_LABELS = LABELS["cylinders"]  # kind → 表示名・寸法記号・寸法に使う値
 
 
 def shapes(ipt: IptFile):

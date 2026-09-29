@@ -3,6 +3,7 @@
 期待値は Inventor 上のモデル（押し出し1 → 穴1 → フィレット1）と画面キャプチャから読み取れる寸法。
 実行:  python -m unittest discover -s tests
 """
+import json
 import math
 import unittest
 from pathlib import Path
@@ -161,12 +162,13 @@ class SceneExportTest(unittest.TestCase):
         for f in cylinders:
             self.assertAlmostEqual(f["height"][1] - f["height"][0], 2.0, delta=TOL)
 
-    def test_viewer_embeds_scene_safely(self):
-        page = scene.render_viewer({**self.scene, "file": "</script><b>x.ipt"})
-        self.assertNotIn("__SCENE_JSON__", page)
-        self.assertNotIn("</script><b>", page)  # 埋め込み JSON がスクリプトを閉じないこと
-        self.assertTrue(page.startswith("<!doctype html>"))
-        self.assertFalse(scene.render_viewer(self.scene, standalone=False).startswith("<!doctype"))
+class GoldenFixtureTest(unittest.TestCase):
+    def test_fixture_matches_current_output(self):
+        """JS 版の照合に使う正解データが、現在の Python 版の出力と一致していること。"""
+        from tests import golden
+
+        stored = json.loads(golden.FIXTURE.read_text(encoding="utf-8"))
+        self.assertEqual(stored, golden.expected(), "python -m tests.golden で更新してください")
 
 
 if __name__ == "__main__":
