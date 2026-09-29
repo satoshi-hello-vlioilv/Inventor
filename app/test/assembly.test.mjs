@@ -4,10 +4,10 @@
 //   .iam … 参照・出現・配置が、同じ組立を書き出した STEP と一致すること。参照先の部品を samples/ipt から解決できること
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { buildIamScene, parseIam } from "../src/iam/index.js";
-import { parseIpt } from "../src/ipt/index.js";
-import { decodeString, parseStep } from "../src/step/p21.js";
-import { parseStepFile } from "../src/step/index.js";
+import { buildIamScene, parseIam } from "../src/formats/iam/index.js";
+import { parseIpt } from "../src/formats/ipt/index.js";
+import { decodeString, parseStep } from "../src/formats/step/p21.js";
+import { parseStepFile } from "../src/formats/step/index.js";
 import { describeAssembly } from "../src/viewer/describe.js";
 import { partGeometry } from "../src/viewer/tessellate.js";
 import { readSample, readSampleFile, sampleIams, sampleIpts, sampleSteps } from "./helpers.mjs";

@@ -1,7 +1,7 @@
 // 断面の幾何量の評価: 材料側へのずらし（面取り後の輪郭）と、面取りで削られる体積・面積を、手計算の式と照合する。
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { chamferIntegrals, insideSection, loopIntegrals, offsetIntoMaterial, reverseLoop } from "../src/recognize/geometry2d.js";
+import { chamferIntegrals, insideSection, loopIntegrals, offsetIntoMaterial, reverseLoop } from "../src/convert/recognize/geometry2d.js";
 
 const near = (a, b, tol, label) => assert.ok(Math.abs(a - b) <= tol, `${label}: ${a} ≠ ${b}（差 ${a - b}）`);
 const area = (loop) => Math.abs(loopIntegrals(loop).area);

@@ -4,7 +4,7 @@
 //   仕様 … ファイル名と Inventor のサムネイルから読み取れる寸法・ねじが、要約（パネルに出す値）に現れる
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { parseIpt } from "../src/ipt/index.js";
+import { parseIpt } from "../src/formats/ipt/index.js";
 import { describeBody } from "../src/viewer/describe.js";
 import { readSample, sampleIpts } from "./helpers.mjs";
 import { bodyMesh, DEVIATION_LIMIT, edgeDefects, FACE_TRIANGLE_LIMIT, signedVolume, surfaceDeviation, triangleArea } from "./mesh-check.mjs";

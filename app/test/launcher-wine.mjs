@@ -1,4 +1,4 @@
-// 起動ファイル（Inventor部品ビューア.vbs → アプリ本体\起動.bat）の評価。Windows の代わりに Wine で動かす（手動で実行する検証）。
+// 起動ファイル（Inventor3Dツール.vbs → アプリ本体\起動.bat）の評価。Windows の代わりに Wine で動かす（手動で実行する検証）。
 //   node app/test/launcher-wine.mjs      … 要 wine・Playwright（Chromium）
 //
 // Wine（9.0）で動かない部分だけを差し替えた「検証用のコピー」を動かす。差し替えは次のとおりで、それ以外は元のまま:
@@ -8,7 +8,7 @@
 //         （certutil と同じ形式の Base64）を検証側で用意して写す。ブラウザーの起動（start）は記録する。
 //         Python（py・python）は、終了コードを返して呼ばれ方を記録する代わりのコマンド（.cmd）にする。
 //         本物は .exe なので、代わりの .cmd を呼んでも元の bat に戻るよう、呼び出しに call を付ける
-// 作ったページは Chromium で開き、ビューアがドロップされたファイル・知らせを受け取れることを確かめる。
+// 作ったページは Chromium で開き、アプリがドロップされたファイル・知らせを受け取れることを確かめる。
 // Windows でしか確かめられないこと: UTF-16 の VBS の読み込み、certutil・cmd /u の実際の出力、Edge の --app での表示。
 
 import assert from "node:assert/strict";
@@ -32,13 +32,13 @@ const lines = (file) => (fs.existsSync(file) ? fs.readFileSync(file, "latin1").s
 if (!fs.existsSync(path.join(PREFIX, "system.reg"))) execFileSync("wineboot", ["-i"], { env, stdio: "ignore", timeout: 300000 });
 
 // ---- 検証用のコピーを置く場所（URL・コマンドで特別な意味を持つ文字と日本語を含む）----------------
-const dist = path.join(WORK, "配布 #1 (試)", "Inventor部品ビューア");
+const dist = path.join(WORK, "配布 #1 (試)", "Inventor3Dツール");
 const app = path.join(dist, "アプリ本体");
 fs.mkdirSync(app, { recursive: true });
-fs.copyFileSync(path.join(APP_DIR, "ipt-viewer.html"), path.join(app, "ipt-viewer.html"));
+fs.copyFileSync(path.join(APP_DIR, "app.html"), path.join(app, "app.html"));
 
 // ---- VBS ---------------------------------------------------------------------------
-const vbsBytes = fs.readFileSync(path.join(DIST, "Inventor部品ビューア.vbs"));
+const vbsBytes = fs.readFileSync(path.join(DIST, "Inventor3Dツール.vbs"));
 check("VBS は UTF-16LE（BOM 付き）・CRLF", vbsBytes[0] === 0xff && vbsBytes[1] === 0xfe && !/[^\r]\n/.test(vbsBytes.subarray(2).toString("utf16le")));
 const STRINGS = path.join(WORK, "strings.txt");
 function vbsForWine(source) {
@@ -88,9 +88,7 @@ const replaced = (text, from, to) => {
 let batForWine = batText;
 batForWine = replaced(batForWine, 'cmd /u /c dir /b /a-d "%~1" > "%WORK%\\name.txt" 2>nul\r\ncertutil -f -encode "%WORK%\\name.txt" "%WORK%\\name.b64" >nul',
   'copy /y "%~1.name.cert" "%WORK%\\name.b64" >nul');
-for (const ext of ["ipt", "html", "htm"]) {
-  batForWine = replaced(batForWine, `if /i "%~x1"==".${ext}" certutil -f -encode "%~1" "%WORK%\\data.b64" >nul`, `if /i "%~x1"==".${ext}" copy /y "%~1.cert" "%WORK%\\data.b64" >nul`);
-}
+batForWine = replaced(batForWine, 'do if /i "%~x1"=="%%E" certutil -f -encode "%~1" "%WORK%\\data.b64" >nul', 'do if /i "%~x1"=="%%E" copy /y "%~1.cert" "%WORK%\\data.b64" >nul');
 batForWine = batForWine.replace(/start "" /g, 'call "%TEST_START%" ')
   .replace(/^(py -3 -c|python -c|%PY% -m)/gm, "call $1");
 fs.writeFileSync(path.join(app, "起動.bat"), batForWine);
@@ -114,12 +112,12 @@ const certutil = (bytes) => {
 const dropped = (file) => {
   const name = path.basename(file);
   fs.writeFileSync(`${file}.name.cert`, certutil(Buffer.from(`${name}\r\n`, "utf16le"))); // cmd /u /c dir /b の出力と同じ
-  if (/\.(ipt|html?)$/i.test(name)) fs.writeFileSync(`${file}.cert`, certutil(fs.readFileSync(file)));
+  if (/\.(ipt|iam|stp|step|html?)$/i.test(name)) fs.writeFileSync(`${file}.cert`, certutil(fs.readFileSync(file)));
   return file;
 };
 function runBat(args, { python = 0, edge = true, temp = temps.edge } = {}) {
   for (const f of ["start.log", "py.log", "python.log"]) fs.rmSync(path.join(WORK, f), { force: true });
-  fs.rmSync(path.join(temp, "ipt-viewer"), { recursive: true, force: true });
+  fs.rmSync(path.join(temp, "inventor-3d-tool"), { recursive: true, force: true });
   execFileSync("wine", ["reg", edge ? "add" : "delete", "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\msedge.exe", ...(edge ? ["/ve", "/d", "C:\\edge\\msedge.exe"] : []), "/f"], { env, stdio: "ignore" });
   const entry = path.join(WORK, "entry.cmd");
   fs.writeFileSync(entry, '@echo off\r\nset "TEMP=%TEST_TEMP%"\r\nset "PATH=%TEST_STUBS%;%PATH%"\r\ncall "%TEST_BAT%" %TEST_ARGS%\r\n');
@@ -130,7 +128,7 @@ function runBat(args, { python = 0, edge = true, temp = temps.edge } = {}) {
     },
     stdio: "pipe", timeout: 120000,
   });
-  const pages = fs.existsSync(path.join(temp, "ipt-viewer")) ? fs.readdirSync(path.join(temp, "ipt-viewer")).map((d) => path.join(temp, "ipt-viewer", d, "ipt-viewer.html")) : [];
+  const pages = fs.existsSync(path.join(temp, "inventor-3d-tool")) ? fs.readdirSync(path.join(temp, "inventor-3d-tool")).map((d) => path.join(temp, "inventor-3d-tool", d, "app.html")) : [];
   return { start: lines(path.join(WORK, "start.log")), py: lines(path.join(WORK, "py.log")), python: lines(path.join(WORK, "python.log")), pages };
 }
 
@@ -171,6 +169,8 @@ async function openPage(file) {
     receivedVisible: !document.getElementById("start-received").hidden,
     notice: document.getElementById("notice").hidden ? "" : document.getElementById("notice").textContent,
     pythonHelp: !document.getElementById("python-help").hidden,
+    bom: document.querySelectorAll("#bom li").length,
+    missing: document.querySelectorAll("#missing li").length,
   }));
   await tab.close();
   return { ...state, errors };
@@ -180,7 +180,7 @@ const appUrl = (page) => `file:///${win(page).replace(/\\/g, "/")}`; // 空白�
 let r = runBat([]);
 check("bat: 引数なし → 一時フォルダの複製を Edge のアプリ画面で 1 つ開く", r.pages.length === 1 && r.start.length === 1
   && r.start[0].endsWith(`|msedge --app="${appUrl(r.pages[0])}" --start-maximized`), `${r.pages.length} / ${r.start.join(" ⏎ ")}`);
-check("bat: 複製はビューアそのもの（付け足しなし）", r.pages.length === 1 && fs.readFileSync(r.pages[0]).equals(fs.readFileSync(path.join(app, "ipt-viewer.html"))));
+check("bat: 複製はアプリそのもの（付け足しなし）", r.pages.length === 1 && fs.readFileSync(r.pages[0]).equals(fs.readFileSync(path.join(app, "app.html"))));
 let state = r.pages[0] ? await openPage(appUrl(r.pages[0]).replace("file:///Z:", "file://")) : {};
 check("bat: 引数なし → 起動画面が出る（空白を含む URL のまま開ける）", state.startOpen === true && !state.errors.length, JSON.stringify(state));
 
@@ -196,36 +196,50 @@ const folder = path.join(WORK, "フォルダ");
 fs.mkdirSync(folder, { recursive: true });
 r = runBat([dropped(plate), dropped(odd), dropped(memo), folder]);
 check("bat: .ipt・.html・対応外・フォルダをドロップ → ページ 1 つ・ブラウザー 1 回", r.pages.length === 1 && r.start.length === 1 && !r.py.length, `${r.pages.length} / ${r.start.length}`);
-const payload = r.pages[0] ? fs.readFileSync(r.pages[0], "latin1").slice(fs.statSync(path.join(app, "ipt-viewer.html")).size) : "";
-check("bat: ビューアの末尾に 3 つ（フォルダは除く）を付け足す。対応外は中身を送らない", (payload.match(/\.push\(\{name:`/g) ?? []).length === 3
+const payload = r.pages[0] ? fs.readFileSync(r.pages[0], "latin1").slice(fs.statSync(path.join(app, "app.html")).size) : "";
+check("bat: アプリの末尾に 3 つ（フォルダは除く）を付け足す。対応外は中身を送らない", (payload.match(/\.push\(\{name:`/g) ?? []).length === 3
   && /-----END CERTIFICATE-----\r\n`,data:`\r\n`\}\);<\/script>\r\n$/.test(payload), payload.slice(-120));
 state = r.pages[0] ? await openPage(r.pages[0]) : {};
-check("ビューア: 最初の .ipt を開き、起動画面は出さない", state.name === "E_Plate_改_Φ54.5.ipt" && state.startOpen === false && !state.errors.length, JSON.stringify(state));
-check("ビューア: 2 つを「受け取ったファイル」に並べる（名前は特別な文字もそのまま）", state.receivedVisible && JSON.stringify(state.received) === JSON.stringify(["E_Plate_改_Φ54.5", "a#b&c 'd' (1)"]), JSON.stringify(state.received));
-check("ビューア: 対応外を知らせる", /2 件を受け取り/.test(state.notice) && /memo\.txt は開けません/.test(state.notice), state.notice);
+check("アプリ: 最初の .ipt を開き、起動画面は出さない", state.name === "E_Plate_改_Φ54.5.ipt" && state.startOpen === false && !state.errors.length, JSON.stringify(state));
+check("アプリ: 2 つを「受け取ったファイル」に並べる（名前は特別な文字もそのまま）", state.receivedVisible && JSON.stringify(state.received) === JSON.stringify(["E_Plate_改_Φ54.5", "a#b&c 'd' (1)"]), JSON.stringify(state.received));
+check("アプリ: 対応外を知らせる", /2 件を受け取り/.test(state.notice) && /memo\.txt は開けません/.test(state.notice), state.notice);
 
 // 読めないファイル（certutil が失敗した場合）: 検証側の Base64 を用意しないことで再現する。前のファイルの結果が混ざらないこと
 const locked = path.join(WORK, "locked.ipt");
 fs.copyFileSync(plate, locked);
 r = runBat([dropped(plate), locked]);
 state = r.pages[0] ? await openPage(r.pages[0]) : {};
-check("読めなかったファイル → 前のファイルの内容を混ぜず、ビューアが「受け取れなかった」と知らせる",
+check("読めなかったファイル → 前のファイルの内容を混ぜず、アプリが「受け取れなかった」と知らせる",
   JSON.stringify(state.received) === '["E_Plate_改_Φ54.5"]' && !state.receivedVisible && state.name === "E_Plate_改_Φ54.5.ipt"
   && /受け取れなかったファイルがあります/.test(state.notice), JSON.stringify(state));
+
+// 組立: .iam だけをドロップすると、同じフォルダの .ipt も送り、アプリが参照先と照合して組み立てる
+const asmDir = path.join(WORK, "組立");
+fs.mkdirSync(asmDir);
+const iam = path.join(asmDir, "Assembly_全体_Φ54.5.iam");
+fs.copyFileSync(path.join(ROOT, "samples/iam/Assembly_全体_Φ54.5.iam"), iam);
+const partNames = ["A1_円筒_両切欠き＋片ネジ_Φ54.5.ipt", "E_Plate_改_Φ54.5.ipt"];
+for (const n of partNames) dropped(fs.copyFileSync(path.join(ROOT, "samples/ipt", n), path.join(asmDir, n)) ?? path.join(asmDir, n));
+r = runBat([dropped(iam)]);
+const asmPayload = r.pages[0] ? fs.readFileSync(r.pages[0], "latin1").slice(fs.statSync(path.join(app, "app.html")).size) : "";
+check("bat: .iam → 同じフォルダの .ipt（2 つ）も付け足す", r.pages.length === 1 && (asmPayload.match(/\.push\(\{name:`/g) ?? []).length === 3, `${(asmPayload.match(/\.push\(\{name:`/g) ?? []).length}`);
+state = r.pages[0] ? await openPage(r.pages[0]) : {};
+check("アプリ: 組立を開き（部品表 10 種類）、一緒に届いた部品 2 つを受け取っている", state.name === "Assembly_全体_Φ54.5.iam" && state.bom === 10 && state.missing === 2
+  && partNames.every((n) => state.received.includes(n.replace(/\.ipt$/, ""))) && !state.errors.length, JSON.stringify(state));
 
 const spec = path.join(WORK, "reel (2).inventor.json");
 fs.copyFileSync(path.join(ROOT, "tests/fixtures/builder/finger.inventor.json"), spec);
 r = runBat([spec], { python: 0 });
-check("bat: 変換データ → アプリ本体で py -3 -m ipt_build --gui を実行（ビューアは開かない）", r.py.length === 2 && r.py[1] === `APP|-3 -m ipt_build --gui "${win(spec)}"` && !r.start.length && !r.pages.length, r.py.join(" ⏎ "));
+check("bat: 変換データ → アプリ本体で py -3 -m ipt_build --gui を実行（アプリは開かない）", r.py.length === 2 && r.py[1] === `APP|-3 -m ipt_build --gui "${win(spec)}"` && !r.start.length && !r.pages.length, r.py.join(" ⏎ "));
 check("bat: Python の確認は 3.10 以上", r.py[0]?.endsWith(`|-3 -c "import sys; sys.exit(sys.version_info < (3, 10))"`), r.py[0]);
 
 r = runBat([spec], { python: 1 });
-check("bat: Python が無い → ビューアで案内（py・python の順に探す）", r.py.length === 1 && r.python.length === 1 && r.pages.length === 1 && r.start.length === 1, `${r.py.length}/${r.python.length}/${r.pages.length}`);
+check("bat: Python が無い → アプリで案内（py・python の順に探す）", r.py.length === 1 && r.python.length === 1 && r.pages.length === 1 && r.start.length === 1, `${r.py.length}/${r.python.length}/${r.pages.length}`);
 state = r.pages[0] ? await openPage(r.pages[0]) : {};
-check("ビューア: 「Python が必要です」を起動画面に出す", state.pythonHelp && state.startOpen && !state.errors.length, JSON.stringify(state));
+check("アプリ: 「Python が必要です」を起動画面に出す", state.pythonHelp && state.startOpen && !state.errors.length, JSON.stringify(state));
 
 r = runBat([spec, dropped(plate)], { python: 0 });
-check("bat: 変換データと .ipt を一緒に → 部品を作り、ビューアでも開く", r.py.length === 2 && r.pages.length === 1 && r.start.length === 1);
+check("bat: 変換データと .ipt を一緒に → 部品を作り、アプリでも開く", r.py.length === 2 && r.pages.length === 1 && r.start.length === 1);
 await browser.close();
 
 console.log(results.join("\n"));
