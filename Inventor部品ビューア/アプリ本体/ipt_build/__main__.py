@@ -1,5 +1,8 @@
 """使い方（Windows、Inventor をインストールした PC）:
 
+    起動ファイル（Inventor部品ビューア.vbs）に変換データをドラッグ＆ドロップする（起動.bat が --gui で実行する）か、
+    「アプリ本体」フォルダで:
+
     python -m ipt_build 変換データ.inventor.json              部品（と組立）を作る
     python -m ipt_build 変換データ.inventor.json --dry-run    Inventor を使わずに作成計画と期待値を確かめる
 
@@ -8,21 +11,17 @@
     --only KEY ...   指定した部品だけ作る（例: --only p01 p03）
     --no-assembly    組立（.iam）を作らない
     --template FILE  部品のテンプレート（.ipt）
+    --gui            画面つきで実行する（起動ファイルが使う）: 作る前にダイアログで確かめ、進み具合と結果を HTML のページで示す
 """
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 
+from . import runner
+from .runner import REPORT
 from .spec import SpecError, load_spec, part_properties
-
-REPORT = "build-report.json"
-
-
-def _pct(value: float | None) -> str:
-    return "—" if value is None else f"{value * 100:+.4f}%"
 
 
 def dry_run(spec) -> int:
@@ -42,52 +41,24 @@ def dry_run(spec) -> int:
 
 
 def build(spec, out_dir: Path, only: set[str], assembly: bool, template: str | None) -> int:
-    from .inventor import Builder, connect  # noqa: PLC0415 — Windows でだけ読み込む
+    """部品と組立を作り、黒い画面に 1 行ずつ結果を表示する。"""
 
-    parts = [p for p in spec.parts if not only or p.key in only]
-    out_dir.mkdir(parents=True, exist_ok=True)
-    print("Inventor に接続しています…")
-    app = connect()
-    builder = Builder(app, part_template=template)
-    screen, silent = app.ScreenUpdating, app.SilentOperation
-    app.ScreenUpdating, app.SilentOperation = False, True
-    results = []
-    try:
-        print(f"部品 {len(parts)} 種類を作ります（保存先: {out_dir}）")
-        for p in parts:
-            r = builder.build_part(p, out_dir)
-            results.append(r)
-            verdict = "一致" if r.ok else ("失敗" if r.error else "不一致")
-            detail = r.error or f"体積 {_pct(r.volume_diff)}  表面積 {_pct(r.area_diff)}  {r.file_detail}"
-            print(f"  {verdict}  {p.key}  {p.name}  {detail}", flush=True)
-        placed, asm_error, asm_path = 0, None, None
-        if assembly and sum(len(r.part.instances) for r in results if r.path) > 1:
-            asm_path = out_dir / f"{Path(spec.source.get('file', 'assembly')).stem}.iam"
-            placed, asm_error = builder.build_assembly(results, asm_path)
-            print(f"組立: {asm_path.name}（配置 {placed} か所）" + (f"  失敗: {asm_error}" if asm_error else ""))
-    finally:
-        app.ScreenUpdating, app.SilentOperation = screen, silent
+    def progress(event, run, result=None):
+        if event == "connecting":
+            print("Inventor に接続しています…")
+        elif event == "start":
+            print(f"部品 {len(run.parts)} 種類を作ります（保存先: {run.out_dir}）")
+        elif event == "part":
+            verdict = "一致" if result.ok else ("失敗" if result.error else "不一致")
+            detail = result.error or f"体積 {runner.pct(result.volume_diff)}  表面積 {runner.pct(result.area_diff)}  {result.file_detail}"
+            print(f"  {verdict}  {result.part.key}  {result.part.name}  {detail}", flush=True)
+        elif event == "done":
+            if run.assembly_path:
+                print(f"組立: {run.assembly_path.name}（配置 {run.placed} か所）" + (f"  失敗: {run.assembly_error}" if run.assembly_error else ""))
+            print(f"結果: 一致 {run.good} / {len(run.results)}（詳細は {run.out_dir / REPORT}）")
 
-    report = {
-        "source": spec.source,
-        "parts": [
-            {
-                "key": r.part.key, "name": r.part.name, "file": r.path.name if r.path else None,
-                "ok": r.ok, "error": r.error,
-                "volume": {"expect": r.part.expect_volume, "inventor": r.volume, "diff": r.volume_diff},
-                "area": {"expect": r.part.expect_area, "inventor": r.area, "diff": r.area_diff},
-                "file_check": {"ok": r.file_check, "detail": r.file_detail},
-                "instances": len(r.part.instances), "notes": r.notes,
-            }
-            for r in results
-        ],
-        "assembly": {"file": asm_path.name if asm_path else None, "placed": placed, "error": asm_error},
-        "skipped": list(spec.skipped),
-    }
-    (out_dir / REPORT).write_text(json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
-    good = sum(r.ok for r in results)
-    print(f"結果: 一致 {good} / {len(results)}（詳細は {out_dir / REPORT}）")
-    return 0 if good == len(results) and not asm_error else 1
+    run = runner.build(spec, out_dir, only, assembly, template, progress)
+    return 0 if run.ok else 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -98,7 +69,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-assembly", action="store_true", help="組立（.iam）を作らない")
     parser.add_argument("--template", help="部品のテンプレート（.ipt）")
     parser.add_argument("--dry-run", action="store_true", help="Inventor を使わずに作成計画と期待値を確かめる")
+    parser.add_argument("--gui", action="store_true", help="画面つきで実行する（確認はダイアログ、進み具合と結果は HTML）")
+    parser.add_argument("--yes", action="store_true", help=argparse.SUPPRESS)  # --gui で、作る前の確認を省く（ライブラリを入れた後の再実行）
     args = parser.parse_args(argv)
+    if args.gui:
+        from . import gui  # noqa: PLC0415
+
+        return gui.run(args.spec, confirmed=args.yes)
     try:
         spec = load_spec(args.spec)
     except SpecError as error:
@@ -106,7 +83,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if args.dry_run:
         return dry_run(spec)
-    out_dir = args.out or args.spec.with_name(args.spec.name.split(".")[0] + "_ipt")
+    out_dir = args.out or runner.default_out_dir(args.spec)
     try:
         return build(spec, out_dir, set(args.only), not args.no_assembly, args.template)
     except RuntimeError as error:

@@ -1,6 +1,8 @@
-// アプリの入口: ファイルの読み込み（ボタン・ドラッグ＆ドロップ・Ctrl+O・サンプル）、解析、表示、3D ⇄ パネルの連動。
+// アプリの入口: ファイルの読み込み（起動画面・ボタン・ドラッグ＆ドロップ・Ctrl+O・サンプル・起動ファイル）、解析、表示、
+// 3D ⇄ パネルの連動。
 //   .ipt  … ブラウザ内で解析して表示する
 //   .html … 隔離した iframe で動かし、three.js の形状を取り出して回転体・押し出しとして認識する
+// 起動ファイルにドロップされたファイルは、起動.bat がページの複製の末尾に埋め込んで届ける（window.IPT_VIEWER_LAUNCH）。
 
 import { describeBody } from "./viewer/describe.js";
 import { buildInventorSpec, formatSpec } from "./export/inventor.js";
@@ -59,8 +61,18 @@ function showAlert(message) {
   alert.hidden = !message;
 }
 
+/** 誤りではない知らせ（開かなかったファイルなど）。 */
+function showNotice(message) {
+  const notice = $("notice");
+  notice.textContent = message;
+  notice.hidden = !message;
+}
+
+/** 表示モード: empty（何も開いていない）・ipt・html。 */
 function setMode(mode) {
   $("app").classList.toggle("is-html", mode === "html");
+  $("app").classList.toggle("is-empty", mode === "empty");
+  $("stage-empty").hidden = mode !== "empty";
   $("source").hidden = mode !== "html";
   setPanelMode(mode);
   if (mode !== "html" && source) {
@@ -209,27 +221,62 @@ const OLE2 = [0xd0, 0xcf, 0x11, 0xe0];
 const isHtml = (name, bytes) => /\.html?$/i.test(name) || (!OLE2.every((b, i) => bytes[i] === b) && /<html|<!doctype|<script/i.test(new TextDecoder().decode(bytes.subarray(0, 2048))));
 
 function load(bytes, name, isSample = false) {
+  closeStart();
+  showNotice("");
   if (isHtml(name, bytes)) loadHtml(new TextDecoder().decode(bytes), name, isSample);
   else loadIpt(bytes, name, isSample);
 }
 
-async function openFile(file) {
-  if (!file) return;
+const VIEWABLE = /\.(ipt|html?)$/i;
+const SPEC = /\.json$/i;
+const nameList = (items) => items.map((i) => i.name).join("、");
+
+// ---- 受け取ったファイル（ドロップ・選択・起動ファイル）-----------------------------
+// .ipt・.html の最初の 1 つを開く。2 つ以上なら起動画面の「受け取ったファイル」に並べ、そこから切り替えられるようにする。
+// 受け取ったものは { name, size, read: () => Promise<Uint8Array> } にそろえる。
+let received = [];
+let shown = null; // 表示中の受け取ったファイル（サンプルを開いたら null）
+
+async function openItem(item) {
   const button = $("open");
   button.disabled = true;
   button.textContent = "読み込み中…";
   try {
-    load(new Uint8Array(await file.arrayBuffer()), file.name);
+    load(await item.read(), item.name);
+    shown = item;
   } finally {
     button.disabled = false;
     button.textContent = "ファイルを開く";
+    renderReceived();
   }
 }
+
+async function receive(items) {
+  if (!items.length) return;
+  const usable = items.filter((i) => VIEWABLE.test(i.name));
+  const specs = items.filter((i) => SPEC.test(i.name));
+  const others = items.filter((i) => !VIEWABLE.test(i.name) && !SPEC.test(i.name));
+  if (!usable.length && !specs.length) usable.push(others.shift()); // 拡張子が違っても、中身で判断して開いてみる
+  const notes = [];
+  if (specs.length) notes.push(`変換データ（${nameList(specs)}）はビューアでは開きません。Inventor のある PC で、起動ファイル（Inventor部品ビューア.vbs）にドラッグ＆ドロップすると部品を作ります。`);
+  if (others.length) notes.push(`${nameList(others)} は開けません（対応しているのは .ipt・.html）。`);
+  if (!usable.length) {
+    closeStart();
+    showAlert(notes.join(" "));
+    return;
+  }
+  received = usable;
+  await openItem(usable[0]);
+  if (usable.length > 1) notes.unshift(`${usable.length} 件を受け取り、${usable[0].name} を開きました。ほかのファイルは「サンプル・使い方」の一覧から開けます。`);
+  showNotice(notes.join(" "));
+}
+
+const fromFiles = (fileList) => [...(fileList ?? [])].map((f) => ({ name: f.name, size: f.size, read: async () => new Uint8Array(await f.arrayBuffer()) }));
 
 const input = $("file-input");
 $("open").addEventListener("click", () => input.click());
 input.addEventListener("change", () => {
-  openFile(input.files[0]);
+  receive(fromFiles(input.files));
   input.value = ""; // 同じファイルを続けて選んでも change が発生するように
 });
 addEventListener("keydown", (event) => {
@@ -240,22 +287,40 @@ addEventListener("keydown", (event) => {
 });
 $("capture").addEventListener("click", capture);
 
-// ドラッグ＆ドロップ（画面のどこでも受け付ける）
+// ---- 起動画面（ファイルを開く・サンプル・変換の流れ）---------------------------
+const start = $("start");
+const dropzone = $("dropzone");
+function openStart() {
+  if (!start.open) start.showModal();
+}
+function closeStart() {
+  if (start.open) start.close();
+}
+$("show-start").addEventListener("click", openStart);
+$("start-close").addEventListener("click", closeStart);
+start.addEventListener("click", (event) => event.target === start && closeStart()); // 背景（枠の外）のクリック
+dropzone.addEventListener("click", () => input.click()); // 中の「ファイルを選ぶ」ボタンのクリックもここに届く
+
+// ドラッグ＆ドロップ（画面のどこでも受け付ける。起動画面が開いていれば、その受け口を強調する）
 const overlay = $("drop-overlay");
 const hasFiles = (event) => [...(event.dataTransfer?.types ?? [])].includes("Files");
+const showDropTarget = (on) => {
+  dropzone.classList.toggle("is-over", on && start.open);
+  overlay.hidden = !on || start.open;
+};
 addEventListener("dragover", (event) => {
   if (!hasFiles(event)) return;
   event.preventDefault();
-  overlay.hidden = false;
+  showDropTarget(true);
 });
 addEventListener("dragleave", (event) => {
-  if (!event.relatedTarget) overlay.hidden = true;
+  if (!event.relatedTarget) showDropTarget(false);
 });
 addEventListener("drop", (event) => {
   if (!hasFiles(event)) return;
   event.preventDefault();
-  overlay.hidden = true;
-  openFile(event.dataTransfer.files[0]);
+  showDropTarget(false);
+  receive(fromFiles(event.dataTransfer.files));
 });
 
 // ---- ツールバー ----------------------------------------------------------------
@@ -269,19 +334,60 @@ $("toggle-edges").addEventListener("click", (event) => {
   viewer?.setEdgesVisible(on);
 });
 
-// ---- サンプル（ビルド時に埋め込まれたファイル）-----------------------------------
+// ---- 起動画面の一覧（受け取ったファイル・サンプル）--------------------------------
+const decodeBase64 = (text) => Uint8Array.from(atob(text.trim()), (c) => c.charCodeAt(0));
+const sizeText = (bytes) => (bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`);
+const span = (className, text) => Object.assign(document.createElement("span"), { className, textContent: text });
+
+/** 一覧の 1 行（種類・名前・大きさ）。 */
+function fileRow({ name, size }, onOpen, current = false) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "sample-row";
+  button.title = name;
+  if (current) button.setAttribute("aria-current", "true");
+  const ext = name.match(/\.([^.]+)$/)?.[1].toLowerCase() ?? "";
+  const kind = ext === "htm" ? "html" : ext;
+  button.append(span("sample-kind", kind), span("sample-name", name.replace(/\.[^.]+$/, "")), span("sample-size", sizeText(size)));
+  button.addEventListener("click", onOpen);
+  const item = document.createElement("li");
+  item.append(button);
+  return item;
+}
+
+function renderReceived() {
+  $("start-received").hidden = received.length < 2;
+  $("received-rows").replaceChildren(...received.map((item) => fileRow(item, () => openItem(item), item === shown)));
+}
+
 const samples = [...document.querySelectorAll("script.sample")];
-const decodeSample = (node) => Uint8Array.from(atob(node.textContent.trim()), (c) => c.charCodeAt(0));
-$("samples").hidden = !samples.length;
-$("sample-list").replaceChildren(
-  ...samples.map((node) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "link";
-    button.textContent = node.dataset.label;
-    button.title = node.dataset.name;
-    button.addEventListener("click", () => load(decodeSample(node), node.dataset.name, true));
-    return button;
-  }),
+$("start-samples").hidden = !samples.length;
+$("sample-rows").replaceChildren(
+  ...samples.map((node) => fileRow({ name: node.dataset.name, size: Number(node.dataset.size) }, () => {
+    load(decodeBase64(node.textContent), node.dataset.name, true);
+    shown = null;
+    renderReceived();
+  })),
 );
-if (samples[0]) load(decodeSample(samples[0]), samples[0].dataset.name, true);
+
+// ---- 起動ファイルから届いたもの（起動.bat が埋め込む）----------------------------
+//   { name, data } … ドロップされたファイル。certutil の Base64（名前は UTF-16LE の文字列、中身はファイルそのもの）
+//   { message }    … 知らせ（"python-missing": Inventor で部品を作るための Python が見つからない）
+const fromCertutil = (text) => decodeBase64(String(text ?? "").replace(/-----[^-]*-----/g, "").replace(/\s+/g, ""));
+function launchedItems(entries) {
+  return entries.filter((e) => "name" in e).map((e) => {
+    const bytes = fromCertutil(e.data);
+    return { name: new TextDecoder("utf-16le").decode(fromCertutil(e.name)).trim(), size: bytes.length, read: async () => bytes };
+  });
+}
+const UNREADABLE = "起動ファイルから受け取れなかったファイルがあります（ほかのアプリが使用中の可能性があります）。";
+
+// ---- 起動 ----------------------------------------------------------------------
+setMode("empty");
+const launch = window.IPT_VIEWER_LAUNCH ?? [];
+$("python-help").hidden = !launch.some((e) => e.message === "python-missing");
+const launchedAll = launchedItems(launch);
+const launched = launchedAll.filter((item) => item.name); // 名前を読めなかったもの（起動.bat が読めなかったファイル）は除いて知らせる
+if (launched.length) await receive(launched); // 開き終えてから起動画面（案内）を出す（開くと起動画面は閉じるため）
+if (launched.length < launchedAll.length) showNotice([$("notice").hidden ? "" : $("notice").textContent, UNREADABLE].join(" ").trim());
+if (!launched.length || !$("python-help").hidden) openStart();

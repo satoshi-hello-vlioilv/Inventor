@@ -4,7 +4,7 @@
 //   edges   … 稜線の折れ線
 //   summary … 外形・穴・R の要約
 
-import labels from "../../../spec/labels.json" with { type: "json" };
+import labels from "../../../Inventor部品ビューア/アプリ本体/ipt_inspect/labels.json" with { type: "json" }; // Python 版と共用
 import { Topology, round, summarize } from "./brep.js";
 import { cross, dot, mul, reject, sub, unit } from "./vec.js";
 

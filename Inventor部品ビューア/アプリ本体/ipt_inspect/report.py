@@ -10,7 +10,7 @@ from .container import IptFile
 
 _AXES = {(1.0, 0.0, 0.0): "X", (0.0, 1.0, 0.0): "Y", (0.0, 0.0, 1.0): "Z"}
 # 表示名は Python 版と JS 版（app/）で共用する
-LABELS = json.loads((Path(__file__).resolve().parents[1] / "spec" / "labels.json").read_text(encoding="utf-8"))
+LABELS = json.loads(Path(__file__).with_name("labels.json").read_text(encoding="utf-8"))  # JS 版と共用
 SURFACE_LABELS = LABELS["surfaces"]
 CYLINDER_LABELS = LABELS["cylinders"]  # kind → 表示名・寸法記号・寸法に使う値
 
