@@ -14,8 +14,9 @@ Inventor の部品（.ipt）に変換するツール。
 ```
 Inventor部品ビューア/
 ├─ Inventor部品ビューア.vbs   ← 起動ファイル（これだけを使う）
-└─ アプリ本体/                ← 起動ファイルが使う中身（開かなくてよい）
-   ├─ ipt-viewer.html          ビューア
+└─ アプリ本体/                ← 中身（開かなくてよい）
+   ├─ 起動.bat                 起動の振り分け（VBS が黒い画面を出さずに実行する）
+   ├─ ipt-viewer.html          ビューア（HTML・JavaScript・CSS。単体で動く）
    ├─ ipt_build/               Inventor で部品を作るビルダー（Python）
    ├─ ipt_inspect/             .ipt の解析（ビルダーが作った部品の確認に使う）
    └─ requirements.txt         ビルダーが使う Python のライブラリ
@@ -23,10 +24,12 @@ Inventor部品ビューア/
 
 | 操作 | 動き |
 |---|---|
-| 起動ファイルをダブルクリック | ビューアを開く（Microsoft Edge のアプリ画面。無ければ Chrome、既定のブラウザー） |
-| .ipt・.html を起動ファイルにドロップ | そのファイルをビューアで開く（1 ファイルにつき 1 ウィンドウ） |
-| 変換データ（.inventor.json）を起動ファイルにドロップ | 確認のうえ、Inventor で部品（.ipt）と組立（.iam）を作る（要 Python 3.10 以上） |
+| 起動ファイルをダブルクリック | ビューアを開く（Microsoft Edge のアプリ画面。無ければ既定のブラウザー） |
+| .ipt・.html を起動ファイルにドロップ | そのファイルをビューアで開く（複数なら 1 つのウィンドウにまとめ、起動画面の一覧から切り替える） |
+| 変換データ（.inventor.json）を起動ファイルにドロップ | 確認のダイアログのあと、Inventor で部品（.ipt）と組立（.iam）を作る。進み具合と結果は HTML のページに出る（要 Python 3.10 以上） |
 
+- 起動ファイル（VBS）は「黒い画面を出さない」ためだけにあり、処理はすべて `アプリ本体\起動.bat` にある。
+  VBScript が使えない環境では 起動.bat を直接使ってもよい（黒い画面が出るだけ）
 - ビューアは起動画面で「ファイルを開く（ドラッグ＆ドロップ）」「サンプルで試す」「変換の流れ」を示す。
   開いたあとも、画面へのドラッグ＆ドロップ・`Ctrl`+`O`・「サンプル・使い方」で開き直せる
 - **.ipt**: ブラウザ内で解析し、形状と寸法（外形・穴・R）を表示する。対応している面は平面と円筒で、それ以外は稜線だけを表示する
@@ -50,7 +53,7 @@ npm install
 npm test        # 評価（解析の一致・形状認識・変換データ・配布フォルダ）
 npm run build   # app/ → Inventor部品ビューア/アプリ本体/ipt-viewer.html（samples のファイルを埋め込む）
 node app/test/capture-html.mjs    # samples/html から形状を取り出し、テスト用データを作り直す（要 Playwright）
-node app/test/launcher-wine.mjs   # 起動ファイル（VBS）の動作確認（要 Wine・xvfb・Playwright）
+node app/test/launcher-wine.mjs   # 起動ファイル（VBS・起動.bat）の動作確認（要 Wine・Playwright）
 ```
 
 | ディレクトリ | 内容 |
