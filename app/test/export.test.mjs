@@ -5,13 +5,13 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, test } from "node:test";
-import { cross, dot, length } from "../src/ipt/vec.js";
-import { expectedProperties, featureOf, maxDeviation, meshProperties } from "../src/export/inventor.js";
-import { loopCorners, loopIntegrals } from "../src/recognize/geometry2d.js";
-import { recognizeSnapshot } from "../src/recognize/index.js";
-import { pointAt } from "../src/recognize/mesh.js";
-import { CORNER_ZONE } from "../src/recognize/prism.js";
-import { BUILDER_FIXTURES, builderFixtures, fixtureText } from "./builder-fixtures.mjs";
+import { cross, dot, length } from "../src/core/vec.js";
+import { expectedProperties, featureOf, maxDeviation, meshProperties } from "../src/convert/inventor.js";
+import { loopCorners, loopIntegrals } from "../src/convert/recognize/geometry2d.js";
+import { recognizeSnapshot } from "../src/convert/recognize/index.js";
+import { pointAt } from "../src/convert/recognize/mesh.js";
+import { CORNER_ZONE } from "../src/convert/recognize/prism.js";
+import { BUILDER_FIXTURES, builderFixtures, fixtureText } from "../tools/builder-fixtures.mjs";
 import { readHtmlFixture } from "./helpers.mjs";
 
 const FIXTURES = [
@@ -113,7 +113,7 @@ describe("変換データの構造", () => {
   test("ビルダーのテストに使う保存済みの変換データが、現在の出力と一致する", () => {
     for (const [name, spec] of Object.entries(specs)) {
       const stored = fs.readFileSync(path.join(BUILDER_FIXTURES, `${name}.inventor.json`), "utf8");
-      assert.equal(stored, fixtureText(spec), `${name}: node app/test/builder-fixtures.mjs で更新してください`);
+      assert.equal(stored, fixtureText(spec), `${name}: node app/tools/builder-fixtures.mjs で更新してください`);
     }
   });
 });

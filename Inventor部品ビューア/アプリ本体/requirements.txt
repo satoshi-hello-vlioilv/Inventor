@@ -1,3 +1,0 @@
-olefile>=0.46
-zstandard>=0.21
-pywin32>=306; sys_platform == "win32"

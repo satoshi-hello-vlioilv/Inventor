@@ -2,11 +2,11 @@
 
 `samples/iam/Assembly_全体_Φ54.5.iam`（Inventor 2026、部品 10 種類・39 か所）を、同じ組立を Inventor で書き出した
 `samples/stp/Assembly_全体_Φ54.5.stp` と突き合わせて調べた結果。
-読み取りは `app/src/iam/index.js`、評価は `app/test/assembly.test.mjs`。
+読み取りは `app/src/formats/iam/index.js`、評価は `app/test/assembly.test.mjs`。
 
 ## 1. 結論
 
-- .iam も .ipt と同じ **OLE2（CFB）＋ RSe セグメント（Zstandard 圧縮）** で、.ipt の読み取り（`app/src/ipt/container.js`）をそのまま使える
+- .iam も .ipt と同じ **OLE2（CFB）＋ RSe セグメント（Zstandard 圧縮）** で、.ipt の読み取り（`app/src/formats/ipt/container.js`）をそのまま使える
 - **形状（B-rep）は持たない**。部品の形状は参照先の .ipt にある（`AmBREPSegment` は 623 バイトで、形状を含まない）
 - 表示に必要な 3 つを読み取れた
 
@@ -41,7 +41,7 @@
   例: `C:\ProgramData\Autodesk\Inventor 2026\Content Center\Libraries\ja-JP\JIS B 1176\JIS B 1176 - M4 x 8 - 0.7.ipt`
   → `Content Center Files` → `JIS B 1176 - メートル M4 x 8`
 - 出現名の部品名は、ファイル名（拡張子なし）か、この表示名になる（§6）
-- パスには**保存した PC のユーザー名を含むフォルダ名**が記録される（サンプルを配布ビューアに埋め込むときは注意）
+- パスには**保存した PC のユーザー名を含むフォルダ名**が記録される（サンプルを配布するアプリに埋め込むときは注意）
 
 ## 4. 出現名（`AmDcSegment`）
 
@@ -74,18 +74,18 @@
 - **出現名を ID の順に並べると、配置の並びと 1 対 1 に対応する**（どちらも作成の順）
 - 表示の順は出現名の並び（モデルブラウザーの順）に戻す
 - 部品は、出現名の「部品名」を参照ファイルの名前（拡張子なし）か Content Center の表示名と照らして決める
-- 出現と配置の数が合わないとき（未知の版や構造）は対応づけられないので、ビューアは部品を原点に置いて知らせる
+- 出現と配置の数が合わないとき（未知の版や構造）は対応づけられないので、アプリは部品を原点に置いて知らせる
 
 照合（`app/test/assembly.test.mjs`）: 名前・並び・部品・配置が STEP と一致。部品の形状は samples/ipt の .ipt から読み、
 ボルト 20 本の軸が組み付け先の部品のねじ穴の軸と一直線になることも確かめている（形からの独立な確認）。
 
-## 7. ビューアでの参照先の探し方
+## 7. アプリでの参照先の探し方
 
 .iam には形状が無いので、参照先の .ipt を次の順で探す（ファイル名で照合、大文字小文字は区別しない）。
 
 1. 一緒に受け取ったファイル（ドラッグ＆ドロップ・ファイル選択・起動ファイル）。
-   起動ファイルに .iam をドロップすると、**同じフォルダの .ipt も一緒に**ビューアへ送る
-2. ビューアに埋め込んだサンプル（samples/ipt）
+   起動ファイルに .iam をドロップすると、**同じフォルダの .ipt も一緒に**アプリへ送る
+2. アプリに埋め込んだサンプル（samples/ipt）
 
 見つからない部品は「見つからない部品」に保存先のパスとともに挙げ、その .ipt を画面にドロップすると組立に加わる。
 
@@ -100,7 +100,7 @@
 
 ## 9. 同じ組立の STEP（AP214）
 
-STEP は形状と配置を全て含むので、それだけで組立を表示できる（`app/src/step/`）。
+STEP は形状と配置を全て含むので、それだけで組立を表示できる（`app/src/formats/step/`）。
 
 - 書式: ISO 10303-21。複合エンティティ、`\X2\…\X0\`（UTF-16）の文字列、行をまたぐ文字列を読む
 - 組立: `NEXT_ASSEMBLY_USAGE_OCCURRENCE` と `CONTEXT_DEPENDENT_SHAPE_REPRESENTATION`（`ITEM_DEFINED_TRANSFORMATION`、

@@ -7,6 +7,7 @@
     - 体積・表面積は、描かれた断面を細かい折れ線にして数値的に求める
       （アプリの JS 版・ビルダーの Python 版の厳密式とは別の方法で計算し、同じ式の誤りを見逃さないため）
     - 押し出すと、端面（Z = ±長さ/2）と側面を持つボディを作る。端面の稜線は、描いた線 1 本ごとに 1 本
+    - ボディの外接箱（PreciseRangeBox）は、断面の折れ線を押し出し・回転した点から求める（ビルダーの厳密式とは別の方法）
     - 面取りは、選ばれた稜線が「どのループの・どちらの端面の縁か」を調べ、ループの全ての稜線がそろっている場合だけ
       体積・表面積に反映する（一部だけの選択・端面以外の稜線は失敗）。削られる量は ipt_build.chamfer の折れ線の方法
       （JS 版の厳密式とは独立）で、代替オブジェクト自身の折れ線から求める
@@ -231,11 +232,27 @@ class Face:
         self.Edges = Collection(edges)
 
 
+class Box:
+    def __init__(self, points):
+        self.MinPoint = Point(*(min(p[k] for p in points) for k in range(3)))
+        self.MaxPoint = Point(*(max(p[k] for p in points) for k in range(3)))
+
+
+class RevolvedBody:
+    """回転したボディ（Y 軸まわり、XY 平面に対して対称に theta）。外接箱だけを持つ。"""
+
+    def __init__(self, loops: list[Loop], theta: float):
+        n = max(8, int(SAMPLES_PER_TURN * theta / (2 * math.pi)))
+        angles = [-theta / 2 + theta * i / n for i in range(n + 1)]
+        self.PreciseRangeBox = Box([(x * math.cos(t), y, x * math.sin(t)) for loop in loops for x, y in loop.points for t in angles])
+
+
 class Body:
     """押し出したボディ: 端面 2 つ（稜線はループの線ごと）と、ループごとの側面。"""
 
     def __init__(self, loops: list[Loop], distance: float):
         self.loops, self.distance = loops, distance
+        self.PreciseRangeBox = Box([(x, y, z) for loop in loops for x, y in loop.points for z in (-distance / 2, distance / 2)])
         caps = {side: [Edge(i, e, side, side * distance / 2) for i, loop in enumerate(loops) for e in loop.entities] for side in (1, -1)}
         sides = [Face([e for side in (1, -1) for e in caps[side] if e.loop == i]) for i in range(len(loops))]
         self.Faces = Collection([Face(caps[1]), Face(caps[-1]), *sides])
@@ -269,6 +286,7 @@ class Features:
                 area, moment, _, lateral = _polygon_integrals(profile.loops[0].points)
                 mass.Volume = theta * abs(moment)
                 mass.Area = theta * lateral + (2 * abs(area) if theta < 2 * math.pi - 1e-12 else 0.0)
+                owner.SurfaceBodies = Collection([RevolvedBody(profile.loops, theta)])
 
         class ExtrudeDefinition:
             def __init__(self, profile, operation):

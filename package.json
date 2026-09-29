@@ -1,10 +1,12 @@
 {
-  "name": "inventor-ipt-app",
+  "name": "inventor-3d-tool",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "node app/build.mjs",
-    "test": "node --test \"app/test/*.test.mjs\""
+    "test": "node --test \"app/test/*.test.mjs\"",
+    "test:launcher": "node app/test/launcher-wine.mjs",
+    "inspect": "node app/tools/inspect.mjs"
   },
   "dependencies": {
     "fzstd": "0.1.1"

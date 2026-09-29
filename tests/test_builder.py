@@ -13,7 +13,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
-from tests import PLATE
+import tests  # noqa: F401 — アプリ本体の ipt_build を import できるようにする
 from ipt_build import SpecError, load_spec
 from ipt_build import inventor as inventor_module
 from ipt_build.__main__ import main
@@ -77,10 +77,29 @@ class BuildPartsTest(unittest.TestCase):
         self.assertFalse(results[0].ok)
         self.assertAlmostEqual(results[0].volume_diff, 10**3 - 1, places=6)
 
-    def test_fake_files_cannot_be_reread_so_the_file_check_is_skipped_not_failed(self):
-        _, results = self.build("finger")
-        self.assertIsNone(results[0].file_check)
-        self.assertTrue(results[0].ok)
+    def test_every_part_extent_matches_the_conversion_data(self):
+        # 外接箱の照合: 代替オブジェクトが断面の折れ線から求めた箱と、変換データから計算した箱が一致すること
+        for name in NAMES:
+            _, results = self.build(name)
+            for r in results:
+                with self.subTest(name=name, part=r.part.key):
+                    self.assertIs(r.extent_check, True, r.extent_detail)
+
+    def test_an_extent_offset_is_caught_by_the_check(self):
+        # 評価関数の確認: 対称のはずの押し出しが片側に寄る（体積・表面積は変わらない）と、外接箱の照合で不一致になること
+        from tests.fake_inventor import Body
+
+        original = Body.__init__
+
+        def one_sided(self, loops, distance):
+            original(self, loops, distance)
+            self.PreciseRangeBox.MinPoint.Z, self.PreciseRangeBox.MaxPoint.Z = 0.0, distance
+
+        with mock.patch.object(Body, "__init__", one_sided):
+            _, results = self.build("finger")
+        self.assertIs(results[0].extent_check, False)
+        self.assertLess(abs(results[0].volume_diff), 1e-9)
+        self.assertFalse(results[0].ok)
 
     def test_one_failing_part_does_not_stop_the_others(self):
         app = FakeInventor()
@@ -187,14 +206,8 @@ class AssemblyTest(unittest.TestCase):
         self.assertEqual(system[1:], (frame.x, frame.y, frame.z))
 
 
-class FileCheckTest(unittest.TestCase):
-    """保存したファイルを読み直す確認（ビルダーの単位の前提から独立した確認）。"""
-
-    def test_reads_the_sample_ipt_in_mm_from_the_units_written_in_the_file(self):
-        from ipt_build.verify import file_bbox
-
-        lo, hi = file_bbox(PLATE)
-        self.assertEqual((lo, hi), ((0.0, 0.0, -7.5), (21.0, 2.0, 0.0)))
+class ExtentTest(unittest.TestCase):
+    """変換データから計算する外接箱（外形の照合の期待値）の評価。"""
 
     def test_expected_bbox_matches_a_brute_force_sampling_of_the_solid(self):
         from ipt_build.verify import expected_bbox

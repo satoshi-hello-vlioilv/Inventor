@@ -17,30 +17,6 @@ export const sampleSteps = () => listSamples("stp", /\.(stp|step)$/i);
 export const readSample = (name = SAMPLE_NAME) => new Uint8Array(fs.readFileSync(path.join(SAMPLES_IPT, name)));
 /** samples/<dir>/<name> の中身。 */
 export const readSampleFile = (dir, name) => new Uint8Array(fs.readFileSync(path.join(ROOT, "samples", dir, name)));
-/** Python 版の解析結果（正解データ）。python -m tests.golden が作る。無ければ null。 */
-export function readGolden(name = SAMPLE_NAME) {
-  const file = path.join(ROOT, "tests/fixtures/ipt", `${name.replace(/\.ipt$/i, "")}.expected.json`);
-  return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : null;
-}
-
-/** 2 つの JSON 値の差分を列挙する（数値は許容誤差内なら一致とみなす）。 */
-export function diff(actual, expected, tolerance = 1e-6, at = "$", out = []) {
-  if (typeof expected === "number" && typeof actual === "number") {
-    if (!(Math.abs(actual - expected) <= tolerance)) out.push(`${at}: ${actual} ≠ ${expected}`);
-  } else if (Array.isArray(expected)) {
-    if (!Array.isArray(actual) || actual.length !== expected.length) {
-      out.push(`${at}: 長さ ${Array.isArray(actual) ? actual.length : typeof actual} ≠ ${expected.length}`);
-    } else expected.forEach((e, i) => diff(actual[i], e, tolerance, `${at}[${i}]`, out));
-  } else if (expected && typeof expected === "object") {
-    if (!actual || typeof actual !== "object") out.push(`${at}: ${JSON.stringify(actual)} ≠ object`);
-    else {
-      const keys = new Set([...Object.keys(expected), ...Object.keys(actual)]);
-      for (const k of keys) diff(actual[k], expected[k], tolerance, `${at}.${k}`, out);
-    }
-  } else if (actual !== expected) out.push(`${at}: ${JSON.stringify(actual)} ≠ ${JSON.stringify(expected)}`);
-  return out;
-}
-
 /** capture-html.mjs が保存した取り出し結果（型付き配列は base64）を読み込む。 */
 export function readHtmlFixture(name) {
   const zlib = require("node:zlib");

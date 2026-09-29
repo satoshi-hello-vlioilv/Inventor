@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import * as THREE from "three";
-import { parseIpt } from "../src/ipt/index.js";
+import { parseIpt } from "../src/formats/ipt/index.js";
 import { describeBody } from "../src/viewer/describe.js";
 import { faceGeometry } from "../src/viewer/tessellate.js";
 import { SAMPLE_NAME, readSample } from "./helpers.mjs";

@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import * as THREE from "three";
-import { recognizeMesh, recognizeSnapshot } from "../src/recognize/index.js";
+import { recognizeMesh, recognizeSnapshot } from "../src/convert/recognize/index.js";
 import { readHtmlFixture } from "./helpers.mjs";
 
 const near = (actual, expected, label, tol = 1e-3) => assert.ok(Math.abs(actual - expected) <= tol, `${label}: ${actual} ≠ ${expected}`);

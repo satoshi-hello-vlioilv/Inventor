@@ -1,5 +1,5 @@
 // app/ を 1 つの HTML ファイルにまとめ、配布フォルダに書き出す（ダブルクリックでも、起動ファイルからも開ける）。
-//   node app/build.mjs                    → Inventor部品ビューア/アプリ本体/ipt-viewer.html
+//   node app/build.mjs                    → Inventor3Dツール/アプリ本体/app.html
 //   node app/build.mjs --fragment FILE    → 外側の <html> 骨格を持たない断片も書き出す（埋め込み用）
 // three.js は importmap で CDN から読み込み、それ以外（解析処理・fzstd）は同梱する。
 // samples/ipt・iam・stp・html に置いたファイルは全てサンプルとして埋め込む（起動画面のサンプル一覧に並ぶ）。
@@ -12,8 +12,8 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-export const APP_DIR = path.join(ROOT, "Inventor部品ビューア", "アプリ本体");
-export const OUT = path.join(APP_DIR, "ipt-viewer.html");
+export const APP_DIR = path.join(ROOT, "Inventor3Dツール", "アプリ本体");
+export const OUT = path.join(APP_DIR, "app.html");
 const SAMPLE_DIRS = [
   { dir: "samples/ipt", pattern: /\.ipt$/i },
   { dir: "samples/iam", pattern: /\.iam$/i },

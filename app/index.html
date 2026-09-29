@@ -1,4 +1,4 @@
-<title>Inventor 部品ビューア</title>
+<title>Inventor 3Dツール</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+JP:wght@400;500;600&display=swap">
@@ -355,7 +355,7 @@ kbd { font: 500 11px var(--font-ui); padding: 0 4px; border: 1px solid var(--rul
         <button type="button" class="secondary" id="save-spec" disabled>変換データを保存</button>
         <button type="button" class="secondary" id="copy-spec" disabled>コピー</button>
       </div>
-      <p class="convert-hint">保存した JSON を、Inventor のある PC で起動ファイル（Inventor部品ビューア.vbs）にドラッグ＆ドロップすると、部品（.ipt）と組立（.iam）を作り、体積・表面積を照合します。コマンドで実行する場合（アプリ本体フォルダで）:<code id="build-command">python -m ipt_build 変換データ.json</code></p>
+      <p class="convert-hint">保存した JSON を、Inventor のある PC で起動ファイル（Inventor3Dツール.vbs）にドラッグ＆ドロップすると、部品（.ipt）と組立（.iam）を作り、体積・表面積を照合します。コマンドで実行する場合（アプリ本体フォルダで）:<code id="build-command">python -m ipt_build 変換データ.json</code></p>
     </section>
     <section data-mode="html" hidden>
       <h2>部品<span class="unit">mm</span></h2>
@@ -409,7 +409,7 @@ kbd { font: 500 11px var(--font-ui); padding: 0 4px; border: 1px solid var(--rul
 <dialog class="start" id="start" aria-labelledby="start-title">
   <div class="start-body">
     <header class="start-head">
-      <h1 id="start-title">Inventor 部品ビューア</h1>
+      <h1 id="start-title">Inventor 3Dツール</h1>
       <p>Inventor の部品（.ipt）・組立（.iam）と STEP（.stp）を表示し、three.js で作った 3D モデル（.html）を Inventor の部品に変換します。</p>
     </header>
     <section class="start-help" id="python-help" role="alert" hidden>
