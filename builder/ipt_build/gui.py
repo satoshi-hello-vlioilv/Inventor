@@ -25,7 +25,7 @@ from .verify import BBOX_TOL
 
 TITLE = "Inventor 部品の作成"
 PAGE = "作成結果.html"
-APP_DIR = Path(__file__).resolve().parents[1]
+BUILDER_DIR = Path(__file__).resolve().parents[1]  # builder フォルダ（requirements.txt と ipt_build の置き場）
 
 
 def _ask(title: str, message: str) -> bool:
@@ -42,14 +42,14 @@ def _ask(title: str, message: str) -> bool:
 
 
 def _install() -> tuple[bool, str]:
-    done = subprocess.run([sys.executable, "-m", "pip", "install", "-r", str(APP_DIR / "requirements.txt")],
+    done = subprocess.run([sys.executable, "-m", "pip", "install", "-r", str(BUILDER_DIR / "requirements.txt")],
                           capture_output=True, text=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     return done.returncode == 0, (done.stdout + done.stderr)[-2000:]
 
 
 def _relaunch(spec_path: Path) -> int:
     """ライブラリを入れた後は、新しい Python で続きを実行する（入れたライブラリの読み込み設定を反映するため）。"""
-    return subprocess.run([sys.executable, "-m", "ipt_build", "--gui", "--yes", str(spec_path)], cwd=APP_DIR).returncode
+    return subprocess.run([sys.executable, "-m", "ipt_build", "--gui", "--yes", str(spec_path)], cwd=BUILDER_DIR).returncode
 
 
 @dataclass

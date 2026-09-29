@@ -7,13 +7,36 @@ three.js のモデルを Inventor の部品（.ipt）・組立（.iam）に変�
 - 形式の調査結果: [docs/ipt-format.md](docs/ipt-format.md)（部品）・[docs/iam-format.md](docs/iam-format.md)（組立・STEP との照合）
 - Inventor で部品を作る手順: [docs/inventor-builder.md](docs/inventor-builder.md)
 
+## はじめに（使い方）
+
+1. **準備（初回のみ）**: [Node.js](https://nodejs.org/)（LTS 版）を入れる（`winget install OpenJS.NodeJS.LTS`）。
+   Inventor で部品を作る機能も使うなら、Python 3.10 以上も入れる（[docs/inventor-builder.md](docs/inventor-builder.md) §1）
+2. **起動**: 最上位の **`Inventor3Dツール.vbs`** をダブルクリックする。アプリ（画面）は `app/` のソースから自動で作られ、
+   Microsoft Edge のアプリ画面（無ければ既定のブラウザー）で開く。初回はライブラリを入れるので少し時間がかかる
+
+| 操作 | 動き |
+|---|---|
+| 起動ファイルをダブルクリック | アプリを開く（ソースが前に作ったものより新しければ、作り直してから開く） |
+| .ipt・.iam・.stp・.html を起動ファイルにドロップ | そのファイルをアプリで開く（複数なら 1 つのウィンドウにまとめ、起動画面の一覧から切り替える）。.iam は同じフォルダの .ipt も一緒に送り、組み立てて表示する |
+| 変換データ（.inventor.json）を起動ファイルにドロップ | 確認のダイアログのあと、Inventor で部品（.ipt）と組立（.iam）を作る。進み具合と結果は HTML のページに出る（要 Python 3.10 以上） |
+
+- 起動ファイル（VBS）は「黒い画面を出さない」ためだけにあり、処理はすべて `launcher\起動.bat` にある。
+  VBScript が使えない環境では 起動.bat を直接使ってもよい（黒い画面が出るだけ）
+- Node.js が無い・作り直しに失敗したときは、前に作ったアプリを開いてその旨を知らせる。一度も作れていなければ、
+  準備の手順のページ（`launcher/setup.html`）を開く
+- 起動画面で「ファイルを開く（ドラッグ＆ドロップ）」「サンプルで試す」「変換の流れ」を示す。
+  開いたあとも、画面へのドラッグ＆ドロップ・`Ctrl`+`O`・「サンプル・使い方」で開き直せる
+
 ## リポジトリの見取り図
 
-アプリは 1 つだけ。**編集するのはソース**（`app/`・`Inventor3Dツール/アプリ本体/ipt_build/`）で、
-`Inventor3Dツール/アプリ本体/app.html` は `npm run build` が `app/` から作る**生成物**（使う人がビルドせずに使えるよう、生成物もリポジトリに置く）。
+リポジトリには**ソースだけ**を置く（生成物・その写しは置かない）。アプリの画面は `npm run build` が `app/` から
+`dist/inventor-3d-tool.html` に作る（`dist/` は git に入れない。起動ファイルが必要なときに自動で作る）。
 
 ```mermaid
 flowchart LR
+  VBS["Inventor3Dツール.vbs<br/>（起動ファイル）"] --> BAT["launcher/起動.bat"]
+  BAT -- "ソースが新しければ<br/>npm run build" --> APP["dist/inventor-3d-tool.html<br/>（手元だけの生成物）"]
+  BAT -- "変換データ" --> B
   subgraph src["app/（ブラウザで動くアプリのソース）"]
     F["formats/ 読み取り<br/>.ipt・.iam・STEP"] --> M["model/ 形式によらない形<br/>面・稜線・寸法の要約"]
     H["html/ three.js の HTML から<br/>形状を取り出す"] --> C["convert/ 形状の認識と<br/>Inventor 用の変換データ"]
@@ -21,20 +44,22 @@ flowchart LR
     C --> V
     V --> U["ui/・main.js 画面"]
   end
-  src -- "npm run build<br/>（samples/ も埋め込む）" --> APP["Inventor3Dツール/アプリ本体/app.html"]
-  C -- "変換データ（.inventor.json）" --> B["Inventor3Dツール/アプリ本体/ipt_build/<br/>（Python・Inventor API）"] --> OUT[".ipt・.iam"]
+  src -. "作る（samples/ も埋め込む）" .-> APP
+  C -- "変換データ（.inventor.json）" --> B["builder/ipt_build<br/>（Python・Inventor API）"] --> OUT[".ipt・.iam"]
   OUT -. "アプリで開いて確かめる" .-> F
 ```
 
 | 場所 | 中身 |
 |---|---|
-| [`Inventor3Dツール/`](Inventor3Dツール) | **配布フォルダ**（使う人に渡すもの。下の「使う人に渡すもの」） |
+| `Inventor3Dツール.vbs` | **起動ファイル**（これだけを使う） |
+| `launcher/` | 起動処理（`起動.bat`: アプリを作って開く・ファイルを渡す・ビルダーを呼ぶ）と、準備の手順のページ（`setup.html`） |
 | `app/index.html`・`app/src/` | アプリのソース（HTML・JavaScript・CSS） |
-| `app/test/` | アプリの評価（`npm test`） |
+| `app/build.mjs` | `app/` と `samples/` から `dist/inventor-3d-tool.html` を作る |
+| `app/test/` | アプリと起動の評価（`npm test`） |
 | `app/tools/` | 開発用の道具（ファイルの中身の調査・テスト用データの作成） |
-| `app/build.mjs` | `app/` と `samples/` から配布フォルダの `app.html` を作る |
+| `builder/` | Inventor で部品を作るビルダー（Python。`ipt_build/` と `requirements.txt`） |
+| `tests/` | ビルダーの評価（`python -m unittest`）。Inventor の代わりの `fake_inventor.py` を使う |
 | `samples/` | サンプルの置き場（アプリに埋め込むサンプル兼、評価の題材） |
-| `tests/` | ビルダー（Python）の評価（`python -m unittest`）。Inventor の代わりの `fake_inventor.py` を使う |
 | `docs/` | 設計と調査の記録 |
 
 ### アプリのソース（`app/src/`）
@@ -50,30 +75,8 @@ flowchart LR
 | `ui/` | 画面の部品: 仕様パネル・起動画面・ファイルの受け付け・変換の節・製品名 | ✓ |
 | `main.js` | 入口。ファイルを読み、表示し、3D ⇄ パネルを連動させる | ✓ |
 
-## 使う人に渡すもの（配布フォルダ）
+## できること
 
-[`Inventor3Dツール/`](Inventor3Dツール) を **フォルダごと** 渡す（ZIP にして渡してよい）。
-
-```
-Inventor3Dツール/
-├─ Inventor3Dツール.vbs   ← 起動ファイル（これだけを使う）
-└─ アプリ本体/            ← 中身（開かなくてよい）
-   ├─ 起動.bat             起動の振り分け（VBS が黒い画面を出さずに実行する）
-   ├─ app.html             アプリ（HTML 単体で動く。npm run build が作る）
-   ├─ ipt_build/           Inventor で部品を作るビルダー（Python）
-   └─ requirements.txt     ビルダーが使う Python のライブラリ
-```
-
-| 操作 | 動き |
-|---|---|
-| 起動ファイルをダブルクリック | アプリを開く（Microsoft Edge のアプリ画面。無ければ既定のブラウザー） |
-| .ipt・.iam・.stp・.html を起動ファイルにドロップ | そのファイルをアプリで開く（複数なら 1 つのウィンドウにまとめ、起動画面の一覧から切り替える）。.iam は同じフォルダの .ipt も一緒に送り、組み立てて表示する |
-| 変換データ（.inventor.json）を起動ファイルにドロップ | 確認のダイアログのあと、Inventor で部品（.ipt）と組立（.iam）を作る。進み具合と結果は HTML のページに出る（要 Python 3.10 以上） |
-
-- 起動ファイル（VBS）は「黒い画面を出さない」ためだけにあり、処理はすべて `アプリ本体\起動.bat` にある。
-  VBScript が使えない環境では 起動.bat を直接使ってもよい（黒い画面が出るだけ）
-- 起動画面で「ファイルを開く（ドラッグ＆ドロップ）」「サンプルで試す」「変換の流れ」を示す。
-  開いたあとも、画面へのドラッグ＆ドロップ・`Ctrl`+`O`・「サンプル・使い方」で開き直せる
 - **.ipt**: 形状と寸法（外形・穴・外径・R・ねじ・円錐）を表示する。ねじは Inventor が面に付けた情報から呼び（M6×1 など）・等級・ねじ長さを示す。
   材質・密度（iProperties）が分かれば体積と質量も示す。対応している面は平面・円筒・円錐・トーラスで、それ以外は稜線だけを表示する
 - **.iam（組立）**: 部品の参照と配置を読み、参照先の .ipt（一緒に受け取ったもの・サンプル）で組み立てる。部品表（部品名・数・外形・材質・質量）の
@@ -98,8 +101,8 @@ Inventor3Dツール/
 
 ```
 npm install
-npm test                 # アプリの評価（読み取り・三角形分割・組立と STEP の照合・形状認識・変換データ・配布フォルダ）
-npm run build            # app/ → Inventor3Dツール/アプリ本体/app.html（samples のファイルを埋め込む）
+npm run build            # app/ → dist/inventor-3d-tool.html（samples のファイルを埋め込む。起動ファイルも使う）
+npm test                 # アプリと起動の評価（読み取り・三角形分割・組立と STEP の照合・形状認識・変換データ・起動の構成）
 npm run test:launcher    # 起動ファイル（VBS・起動.bat）の動作確認（要 Wine・Playwright）
 npm run inspect -- samples/ipt/E_Plate_改_Φ54.5.ipt [--dump 出力先]   # .ipt・.iam の中身を調べる（形式の調査の再現）
 node app/tools/capture-html.mjs      # samples/html から形状を取り出し、テスト用データを作り直す（要 Playwright）
@@ -108,12 +111,10 @@ node app/tools/builder-fixtures.mjs  # ビルダーのテスト用の変換デ�
 
 ### ビルダー（Python）
 
-ビルダーは配布フォルダの `アプリ本体/ipt_build/` にある（配布物と開発で同じものを使う。コピーは持たない）。
-
 ```
-pip install -r "Inventor3Dツール/アプリ本体/requirements.txt"
+pip install -r builder/requirements.txt
 python -m unittest discover -s tests       # ビルダーの評価（Inventor の代わりに fake_inventor を使う）
 
-cd "Inventor3Dツール/アプリ本体"
+cd builder
 python -m ipt_build 名前.inventor.json --dry-run    # Inventor を使わずに確かめる（どの OS でも可）
 ```

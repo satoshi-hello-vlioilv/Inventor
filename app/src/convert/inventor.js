@@ -1,4 +1,4 @@
-// Inventor 用の変換データ（JSON）を作る。ビルダー（配布フォルダの ipt_build。Python）がこれを読み、Inventor API で .ipt を作る。
+// Inventor 用の変換データ（JSON）を作る。ビルダー（builder/ipt_build。Python）がこれを読み、Inventor API で .ipt を作る。
 //
 // 部品ごとのローカル座標系（mm）:
 //   回転体   … 断面を XY 平面に「x = 半径、y = 軸方向」で描き、Y 軸まわりに回す。部分回転は XY 平面に対して対称

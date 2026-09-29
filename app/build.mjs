@@ -1,5 +1,6 @@
-// app/ を 1 つの HTML ファイルにまとめ、配布フォルダに書き出す（ダブルクリックでも、起動ファイルからも開ける）。
-//   node app/build.mjs                    → Inventor3Dツール/アプリ本体/app.html
+// app/ を 1 つの HTML ファイル（アプリ）にまとめ、dist/ に書き出す。ソースから作る生成物なので、リポジトリには置かない。
+//   node app/build.mjs                    → dist/inventor-3d-tool.html
+//   node app/build.mjs --if-stale         → ソース・サンプルが前に作ったものより新しいときだけ作る（起動ファイルが毎回使う）
 //   node app/build.mjs --fragment FILE    → 外側の <html> 骨格を持たない断片も書き出す（埋め込み用）
 // three.js は importmap で CDN から読み込み、それ以外（解析処理・fzstd）は同梱する。
 // samples/ipt・iam・stp・html に置いたファイルは全てサンプルとして埋め込む（起動画面のサンプル一覧に並ぶ）。
@@ -12,8 +13,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-export const APP_DIR = path.join(ROOT, "Inventor3Dツール", "アプリ本体");
-export const OUT = path.join(APP_DIR, "app.html");
+export const OUT = path.join(ROOT, "dist", "inventor-3d-tool.html");
 const SAMPLE_DIRS = [
   { dir: "samples/ipt", pattern: /\.ipt$/i },
   { dir: "samples/iam", pattern: /\.iam$/i },
@@ -31,6 +31,27 @@ export function sampleFiles() {
       .sort((a, b) => a.localeCompare(b, "ja"))
       .map((name) => ({ file: path.join(ROOT, dir, name), name })));
 }
+
+/** アプリの材料: ソース（app/ の HTML・JavaScript・この build.mjs）、依存の版（package-lock.json）、埋め込むサンプル */
+export function buildInputs() {
+  const src = fs.readdirSync(path.join(ROOT, "app/src"), { recursive: true }).map((f) => path.join(ROOT, "app/src", f));
+  return [
+    path.join(ROOT, "app/index.html"), path.join(ROOT, "app/build.mjs"), path.join(ROOT, "package-lock.json"),
+    ...src.filter((f) => fs.statSync(f).isFile()),
+    ...sampleFiles().map((s) => s.file),
+  ];
+}
+
+/** 作り直しが要るか: 出力が無い、または材料のどれかが出力より新しい。サンプルを消したときも作り直す（一覧が変わる） */
+export function isStale(inputs = buildInputs(), output = OUT, stamp = `${output}.inputs`) {
+  if (!fs.existsSync(output)) return true;
+  const built = fs.statSync(output).mtimeMs;
+  if (inputs.some((f) => fs.statSync(f).mtimeMs > built)) return true;
+  return !fs.existsSync(stamp) || fs.readFileSync(stamp, "utf8") !== listing(inputs);
+}
+
+/** 材料の一覧（リポジトリからの相対パス。ファイルの削除・追加に気づくため、出力の隣に残す） */
+const listing = (inputs) => inputs.map((f) => path.relative(ROOT, f).split(path.sep).join("/")).join("\n");
 
 /** 完成したページ（{ page: 骨格なし, html: 骨格あり }）を作る。書き込みはしない。 */
 export async function buildPage() {
@@ -59,9 +80,15 @@ export async function buildPage() {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const inputs = buildInputs();
+  if (process.argv.includes("--if-stale") && !isStale(inputs)) {
+    console.log(`${path.relative(ROOT, OUT)} は最新です`);
+    process.exit(0);
+  }
   const { page, html } = await buildPage();
   fs.mkdirSync(path.dirname(OUT), { recursive: true });
   fs.writeFileSync(OUT, html);
+  fs.writeFileSync(`${OUT}.inputs`, listing(inputs));
   console.log(`wrote ${path.relative(ROOT, OUT)} (${(fs.statSync(OUT).size / 1024).toFixed(0)} KB, サンプル ${sampleFiles().length} 件)`);
   const at = process.argv.indexOf("--fragment");
   if (at > 0 && process.argv[at + 1]) {

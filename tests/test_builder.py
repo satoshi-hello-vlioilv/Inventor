@@ -13,7 +13,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
-import tests  # noqa: F401 — アプリ本体の ipt_build を import できるようにする
+import tests  # noqa: F401 — builder/ の ipt_build を import できるようにする
 from ipt_build import SpecError, load_spec
 from ipt_build import inventor as inventor_module
 from ipt_build.__main__ import main

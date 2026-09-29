@@ -8,7 +8,8 @@ export const fromFiles = (fileList) => [...(fileList ?? [])].map((f) => ({ name:
 
 // ---- 起動ファイルから届いたもの（起動.bat が window.INVENTOR_TOOL_LAUNCH に埋め込む）---------------
 //   { name, data } … ドロップされたファイル。certutil の Base64（名前は UTF-16LE の文字列、中身はファイルそのもの）
-//   { message }    … 知らせ（"python-missing": Inventor で部品を作るための Python が見つからない）
+//   { message }    … 知らせ（"python-missing": Inventor で部品を作るための Python が見つからない、
+//                     "node-missing"・"build-failed": ソースからアプリを作り直せず、前に作ったものを開いた）
 const fromCertutil = (text) => decodeBase64(String(text ?? "").replace(/-----[^-]*-----/g, "").replace(/\s+/g, ""));
 
 /** @returns {{ items: object[], unreadable: number, messages: string[] }}  名前を読めなかったもの（起動.bat が読めなかったファイル）は数だけ返す */

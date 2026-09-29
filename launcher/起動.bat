@@ -1,24 +1,31 @@
 @echo off
 rem ===========================================================================
 rem Inventor 3Dツール の起動処理
-rem   Inventor3Dツール.vbs が、黒い画面を出さずにこのファイルを実行する。
+rem   リポジトリの最上位にある Inventor3Dツール.vbs が、黒い画面を出さずにこのファイルを実行する。
 rem   VBScript が使えない環境では、このファイルを直接ダブルクリック・ドロップしてもよい（黒い画面が出るだけ）。
 rem
 rem   引数なし                アプリを開く
 rem   .ipt .iam .stp .step .html .htm   アプリで開く（まとめて 1 つのウィンドウ。2 つ以上は起動画面の一覧から切り替える）
 rem                         .iam は、同じフォルダの .ipt（組立が参照する部品）も一緒に送る
-rem   .json（変換データ）     Python で Inventor の部品を作る（確認はダイアログ、進み具合と結果は HTML のページ）
+rem   .json（変換データ）     builder フォルダの Python で Inventor の部品を作る（確認はダイアログ、進み具合と結果は HTML のページ）
 rem   それ以外                アプリで「開けない」と知らせる
+rem
+rem アプリ（dist フォルダの inventor-3d-tool.html）は、app フォルダのソースから Node.js で作る（リポジトリには置かない）。
+rem 開くたびに、ソースが前に作ったものより新しいときだけ作り直す（初めてのときは、必要なライブラリも入れる）。
+rem Node.js が無い・作り直せないときは、前に作ったものを開いてアプリで知らせる。一度も作れていなければ、準備の手順（setup.html）を開く。
 rem
 rem ブラウザーのページは、ファイルをパスから直接は読めない。そこで、アプリの複製を一時フォルダに作り、
 rem その末尾に「ファイルの名前と中身を Base64（certutil）にした script」を付け足して開く。
 rem 実行する命令は英数字だけで書く（Windows の文字コードの設定に左右されないため）。日本語は注記だけ。
 rem ===========================================================================
 setlocal
-set "APP=%~dp0"
+for %%I in ("%~dp0..") do set "TOP=%%~fI\"
+set "HERE=%~dp0"
+set "APPFILE=%TOP%dist\inventor-3d-tool.html"
 set "ROOT=%TEMP%\inventor-3d-tool"
 set "PAGE="
 set "SHOW="
+set "SETUP="
 if "%~1"=="" set "SHOW=1"
 call :cleanup
 
@@ -43,16 +50,45 @@ start "" "%PAGE%"
 exit /b 0
 
 rem ---- 一時フォルダにアプリの複製を作る -----------------------------------------
+rem アプリが一度も作れていなければ、複製の代わりに準備の手順のページを開く（ファイルは付け足さない）
 :begin
+call :prepare
+if not exist "%APPFILE%" goto begin_setup
+:begin_work
 set "WORK=%ROOT%\%RANDOM%%RANDOM%"
-if exist "%WORK%" goto begin
+if exist "%WORK%" goto begin_work
 mkdir "%WORK%"
 set "PAGE=%WORK%\app.html"
-copy /b "%APP%app.html" "%PAGE%" >nul
+copy /b "%APPFILE%" "%PAGE%" >nul
 rem 付け足す script の部品。名前と中身の Base64 は、この間に挟む（JavaScript の複数行の文字列として読む）
 > "%WORK%\open.txt" echo ^<script^>(window.INVENTOR_TOOL_LAUNCH=window.INVENTOR_TOOL_LAUNCH^|^|[]).push({name:`
 > "%WORK%\data.txt" echo `,data:`
 > "%WORK%\close.txt" echo `});^</script^>
+rem 作り直せなかったときは、その知らせを付け足す（if の後ろに書くと、かっこが if の区切りと解釈されて壊れるので、分けて書く）
+if not defined NOTE exit /b 0
+>> "%PAGE%" echo ^<script^>(window.INVENTOR_TOOL_LAUNCH=window.INVENTOR_TOOL_LAUNCH^|^|[]).push({message:"%NOTE%"});^</script^>
+exit /b 0
+:begin_setup
+set "PAGE=%HERE%setup.html"
+set "SETUP=1"
+exit /b 0
+
+rem ---- アプリをソースから作る（新しいときだけ）---------------------------------------
+rem NOTE は作り直せなかった理由（node-missing: Node.js が無い、build-failed: 作れなかった）。アプリが知らせる
+:prepare
+set "NOTE="
+node --version >nul 2>&1
+if errorlevel 1 goto prepare_no_node
+if exist "%TOP%node_modules\esbuild\package.json" goto prepare_build
+pushd "%TOP%"
+call npm ci --no-audit --no-fund >nul 2>&1
+popd
+:prepare_build
+node "%TOP%app\build.mjs" --if-stale >nul 2>&1
+if errorlevel 1 set "NOTE=build-failed"
+exit /b 0
+:prepare_no_node
+set "NOTE=node-missing"
 exit /b 0
 
 rem ---- ドロップされたファイルを 1 つ付け足す --------------------------------------
@@ -60,6 +96,7 @@ rem ---- ドロップされたファイルを 1 つ付け足す ----------------
 if exist "%~1\*" exit /b 0
 set "SHOW=1"
 if not defined PAGE call :begin
+if defined SETUP exit /b 0
 rem 名前は cmd /u で UTF-16 の文字として書き出してから Base64 にする（どんな文字の名前でも崩れない）。
 rem 前のファイルの結果が残らないよう、先に空にする（読めなければ空のまま送り、アプリが「受け取れなかった」と知らせる）
 type nul > "%WORK%\name.b64"
@@ -82,7 +119,7 @@ rem ---- 変換データ: Python で Inventor の部品を作る ---------------
 :build
 call :python
 if not defined PY goto no_python
-pushd "%APP%"
+pushd "%TOP%builder"
 %PY% -m ipt_build --gui "%~1"
 popd
 exit /b 0
@@ -90,6 +127,7 @@ exit /b 0
 :no_python
 set "SHOW=1"
 if not defined PAGE call :begin
+if defined SETUP exit /b 0
 >> "%PAGE%" echo ^<script^>(window.INVENTOR_TOOL_LAUNCH=window.INVENTOR_TOOL_LAUNCH^|^|[]).push({message:"python-missing"});^</script^>
 exit /b 0
 

@@ -306,8 +306,12 @@ setMode("empty");
 const launch = readLaunch(window.INVENTOR_TOOL_LAUNCH);
 startDialog.showPythonHelp(launch.messages.includes("python-missing"));
 if (launch.items.length) await receive(launch.items); // 開き終えてから起動画面（案内）を出す（開くと起動画面は閉じるため）
-if (launch.unreadable) {
-  const UNREADABLE = "起動ファイルから受け取れなかったファイルがあります（ほかのアプリが使用中の可能性があります）。";
-  showNotice([$("notice").hidden ? "" : $("notice").textContent, UNREADABLE].join(" ").trim());
-}
+// 起動ファイルからの知らせ（ソースからアプリを作り直せず、前に作ったものを開いたとき・受け取れなかったファイルがあるとき）
+const LAUNCH_NOTICES = {
+  "node-missing": "Node.js が見つからないため、ソースからアプリを作り直せませんでした。前に作ったアプリを開いています（最近の変更が入っていない場合があります）。",
+  "build-failed": "ソースからアプリを作り直せませんでした。前に作ったアプリを開いています。リポジトリのフォルダで npm run build を実行すると理由が分かります。",
+};
+const launchNotes = launch.messages.map((m) => LAUNCH_NOTICES[m]).filter(Boolean);
+if (launch.unreadable) launchNotes.push("起動ファイルから受け取れなかったファイルがあります（ほかのアプリが使用中の可能性があります）。");
+if (launchNotes.length) showNotice([$("notice").hidden ? "" : $("notice").textContent, ...launchNotes].join(" ").trim());
 if (!launch.items.length || launch.messages.includes("python-missing")) startDialog.open();

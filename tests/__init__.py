@@ -1,12 +1,12 @@
-"""評価（Python）: Inventor で部品を作るビルダー（ipt_build）。
+"""評価（Python）: Inventor で部品を作るビルダー（builder/ipt_build）。
 
-ビルダーは配布フォルダ（アプリ本体）にあるので、各テストはこのパッケージを先に読み込み、そこを import できるようにする。
+各テストはこのパッケージを先に読み込み、builder/ の ipt_build を import できるようにする。
 """
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-APP_DIR = ROOT / "Inventor3Dツール" / "アプリ本体"
+BUILDER_DIR = ROOT / "builder"
 
-if str(APP_DIR) not in sys.path:
-    sys.path.insert(0, str(APP_DIR))
+if str(BUILDER_DIR) not in sys.path:
+    sys.path.insert(0, str(BUILDER_DIR))

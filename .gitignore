@@ -1,3 +1,5 @@
 __pycache__/
 *.pyc
 node_modules/
+# npm run build（起動ファイルも使う）が app/ から作るアプリ。ソースから作る生成物なのでリポジトリには置かない
+dist/

@@ -41,7 +41,7 @@
   例: `C:\ProgramData\Autodesk\Inventor 2026\Content Center\Libraries\ja-JP\JIS B 1176\JIS B 1176 - M4 x 8 - 0.7.ipt`
   → `Content Center Files` → `JIS B 1176 - メートル M4 x 8`
 - 出現名の部品名は、ファイル名（拡張子なし）か、この表示名になる（§6）
-- パスには**保存した PC のユーザー名を含むフォルダ名**が記録される（サンプルを配布するアプリに埋め込むときは注意）
+- パスには**保存した PC のユーザー名を含むフォルダ名**が記録される（サンプルとしてアプリに埋め込み、人に渡すときは注意）
 
 ## 4. 出現名（`AmDcSegment`）
 
