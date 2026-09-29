@@ -2,25 +2,31 @@
 
 ブラウザアプリ（app/）の JS 版 scene.js と同じ出力を作り、tests/golden.py で正解データとして保存する。
 三角形分割はビューア側で行う。ここで渡すのは次の 3 つだけ。
-    faces    … 面ごとの曲面パラメータ（平面: 法線と境界ループ / 円筒: 軸・半径・角度と高さの範囲）
+    faces    … 面ごとの曲面パラメータと境界ループ
+               平面: 法線 / 円筒・円錐（回転面）: 軸上の原点・軸・角度の基準方向・半径・半径の傾き
+               （ビューアは境界ループに沿って分割する。ループは隣の面と同じ点列なので、面どうしが隙間なくつながる）
     edges    … 稜線の折れ線
-    summary  … 外形・穴・R の要約（テキスト出力と同じ値）
+    summary  … 外形・穴・R・ねじ・円錐の要約（テキスト出力と同じ値）
 """
 from __future__ import annotations
 
-import math
 from dataclasses import asdict
 
 from . import brep, report
 from .container import IptFile
-from .vec import Vec, cross, dot, mul, reject, sub, unit
+from .vec import Vec, mul, reject, unit
 
 BREP_SEGMENT = "PmBRepSegment"
 _DIGITS = 5
+_SLOPE_DIGITS = 9
 
 
 def _mm(v: Vec, scale: float) -> list[float]:
     return [round(c * scale, _DIGITS) + 0.0 for c in v]
+
+
+def _loops(face: brep.Face, scale: float) -> list[list[list[float]]]:
+    return [[_mm(p, scale) for p in loop] for loop in face.loops]
 
 
 def _plane(face: brep.Face, scale: float) -> dict:
@@ -28,35 +34,27 @@ def _plane(face: brep.Face, scale: float) -> dict:
     return {
         "type": "plane",
         "normal": _mm(mul(normal, -1.0 if face.reversed else 1.0), 1.0),
-        "loops": [[_mm(p, scale) for p in loop] for loop in face.loops],
+        "loops": _loops(face, scale),
     }
 
 
-def _cylinder(face: brep.Face, scale: float) -> dict:
+def _revolved(face: brep.Face, scale: float) -> dict:
+    """円筒・円錐: 点 = origin + h・axis + ρ(h)・(cos θ・ref + sin θ・(axis × ref))、ρ(h) = radius + slope・h"""
     s = face.surface
     axis = unit(s.direction)
-    points = [p for loop in face.loops for p in loop]
-    radials = [reject(sub(p, s.origin), axis) for p in points]
-    full = any(e.sweep_deg >= 360.0 - 1e-3 for e in face.edges)
-    # 部分円筒は点群の平均方向（円弧の中央）を角度の基準にすると、角度が ±π を跨がない
-    mean = tuple(sum(r[k] for r in radials) / len(radials) for k in range(3))
-    ref = unit(radials[0] if full else mean)
-    side = cross(axis, ref)
-    angles = [math.atan2(dot(r, side), dot(r, ref)) for r in radials]
-    heights = [dot(sub(p, s.origin), axis) for p in points]
     return {
-        "type": "cylinder",
+        "type": s.kind,
         "origin": _mm(s.origin, scale),
         "axis": _mm(axis, 1.0),
-        "ref": _mm(ref, 1.0),
-        "radius": round(s.radius * scale, _DIGITS),
-        "theta": [0.0, round(2 * math.pi, 9)] if full else [round(min(angles), 9), round(max(angles), 9)],
-        "height": [round(min(heights) * scale, _DIGITS), round(max(heights) * scale, _DIGITS)],
+        "ref": _mm(unit(reject(s.major, axis)), 1.0),
+        "radius": round(s.radius * scale, _DIGITS) + 0.0,
+        "slope": round(s.slope, _SLOPE_DIGITS) + 0.0,
         "outward": not face.concave,  # 面の法線が軸から外へ向くか（凸面なら True）
+        "loops": _loops(face, scale),
     }
 
 
-_FACE_EXPORTERS = {"plane": _plane, "cylinder": _cylinder}
+_FACE_EXPORTERS = {"plane": _plane, "cylinder": _revolved, "cone": _revolved}
 
 
 def _face(face: brep.Face, scale: float) -> dict:

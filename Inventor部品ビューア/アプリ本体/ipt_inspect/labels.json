@@ -2,8 +2,10 @@
   "surfaces": { "plane": "平面", "cylinder": "円筒", "cone": "円錐" },
   "cylinders": {
     "hole": { "name": "穴", "symbol": "Φ", "field": "diameter" },
-    "boss": { "name": "軸", "symbol": "Φ", "field": "diameter" },
+    "boss": { "name": "外径", "symbol": "Φ", "field": "diameter" },
     "round": { "name": "角R", "symbol": "R", "field": "radius" },
     "inner_round": { "name": "隅R", "symbol": "R", "field": "radius" }
-  }
+  },
+  "threads": { "internal": "ねじ穴", "external": "おねじ" },
+  "cone": { "name": "円錐" }
 }

@@ -13,6 +13,8 @@ _AXES = {(1.0, 0.0, 0.0): "X", (0.0, 1.0, 0.0): "Y", (0.0, 0.0, 1.0): "Z"}
 LABELS = json.loads(Path(__file__).with_name("labels.json").read_text(encoding="utf-8"))  # JS 版と共用
 SURFACE_LABELS = LABELS["surfaces"]
 CYLINDER_LABELS = LABELS["cylinders"]  # kind → 表示名・寸法記号・寸法に使う値
+THREAD_LABELS = LABELS["threads"]  # 凹（めねじ）・凸（おねじ）→ 表示名
+CONE_LABEL = LABELS["cone"]
 
 
 def shapes(ipt: IptFile):
@@ -114,5 +116,15 @@ def _format_body(b: dict) -> list[str]:
         out.append(
             f"      {label['name']:<4}{dim:>10}  長さ {c['length']:.3f}  "
             f"{c['sweep_deg']:g}°  軸 {_axis(c['axis'])}  中心 {_xyz(c['center'])}"
+        )
+        if c["thread"]:
+            t = c["thread"]
+            name = THREAD_LABELS["internal" if c["kind"] in ("hole", "inner_round") else "external"]
+            lengths = " / ".join(f"{v:g}" for v in t["lengths"])
+            out.append(f"        {name} {t['designation']} {t['class']}  ねじ長さ {lengths}  {t['type']}")
+    for c in b.get("cones", ()):
+        out.append(
+            f"      {CONE_LABEL['name']:<4}  頂角 {c['angle_deg']:g}°  "
+            f"Φ{c['diameters'][0]:.3f} 〜 Φ{c['diameters'][1]:.3f}  長さ {c['length']:.3f}  中心 {_xyz(c['center'])}"
         )
     return out

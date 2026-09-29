@@ -72,7 +72,7 @@ export function renderIptPanel({ report, scene, describe }, handlers) {
     }),
   );
   const rows = renderRows("features", describe.groups,
-    (g) => ({ kind: g.name, dim: g.dim, count: g.items.length, sub: g.detail }), handlers, "穴・R などの円筒形状はありません");
+    (g) => ({ kind: g.name, dim: g.dim, count: g.items.length, sub: g.detail }), handlers, "穴・R・ねじ・円錐などの形状要素はありません");
 
   const surfaces = Object.entries(s.surfaces).map(([k, v]) => `${scene.labels.surfaces[k] ?? k} ${v}`).join("・");
   const topology = [
