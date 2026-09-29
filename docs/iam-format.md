@@ -1,12 +1,12 @@
 # Inventor 組立ファイル（.iam）の構造解析
 
-`samples/iam/Assembly_全体_Φ54.5.iam`（Inventor 2026、部品 10 種類・39 か所）を、同じ組立を Inventor で書き出した
-`samples/stp/Assembly_全体_Φ54.5.stp` と突き合わせて調べた結果。
-読み取りは `app/src/formats/iam/index.js`、評価は `app/test/assembly.test.mjs`。
+`program/samples/iam/Assembly_全体_Φ54.5.iam`（Inventor 2026、部品 10 種類・39 か所）を、同じ組立を Inventor で書き出した
+`program/samples/stp/Assembly_全体_Φ54.5.stp` と突き合わせて調べた結果。
+読み取りは `program/app/static/js/formats/iam/index.js`、評価は `program/tests/js/assembly.test.mjs`。
 
 ## 1. 結論
 
-- .iam も .ipt と同じ **OLE2（CFB）＋ RSe セグメント（Zstandard 圧縮）** で、.ipt の読み取り（`app/src/formats/ipt/container.js`）をそのまま使える
+- .iam も .ipt と同じ **OLE2（CFB）＋ RSe セグメント（Zstandard 圧縮）** で、.ipt の読み取り（`formats/ipt/container.js`）をそのまま使える
 - **形状（B-rep）は持たない**。部品の形状は参照先の .ipt にある（`AmBREPSegment` は 623 バイトで、形状を含まない）
 - 表示に必要な 3 つを読み取れた
 
@@ -76,7 +76,7 @@
 - 部品は、出現名の「部品名」を参照ファイルの名前（拡張子なし）か Content Center の表示名と照らして決める
 - 出現と配置の数が合わないとき（未知の版や構造）は対応づけられないので、アプリは部品を原点に置いて知らせる
 
-照合（`app/test/assembly.test.mjs`）: 名前・並び・部品・配置が STEP と一致。部品の形状は samples/ipt の .ipt から読み、
+照合（`tests/js/assembly.test.mjs`）: 名前・並び・部品・配置が STEP と一致。部品の形状は samples/ipt の .ipt から読み、
 ボルト 20 本の軸が組み付け先の部品のねじ穴の軸と一直線になることも確かめている（形からの独立な確認）。
 
 ## 7. アプリでの参照先の探し方
@@ -84,8 +84,8 @@
 .iam には形状が無いので、参照先の .ipt を次の順で探す（ファイル名で照合、大文字小文字は区別しない）。
 
 1. 一緒に受け取ったファイル（ドラッグ＆ドロップ・ファイル選択・起動ファイル）。
-   起動ファイルに .iam をドロップすると、**同じフォルダの .ipt も一緒に**アプリへ送る
-2. アプリに埋め込んだサンプル（samples/ipt）
+   起動ファイルに .iam をドロップすると、サーバーが**同じフォルダの .ipt も**部品の置き場に加える（組立が必要としたときだけ読む）
+2. サンプル（program/samples/ipt）
 
 見つからない部品は「見つからない部品」に保存先のパスとともに挙げ、その .ipt を画面にドロップすると組立に加わる。
 
@@ -100,7 +100,7 @@
 
 ## 9. 同じ組立の STEP（AP214）
 
-STEP は形状と配置を全て含むので、それだけで組立を表示できる（`app/src/formats/step/`）。
+STEP は形状と配置を全て含むので、それだけで組立を表示できる（`formats/step/`）。
 
 - 書式: ISO 10303-21。複合エンティティ、`\X2\…\X0\`（UTF-16）の文字列、行をまたぐ文字列を読む
 - 組立: `NEXT_ASSEMBLY_USAGE_OCCURRENCE` と `CONTEXT_DEPENDENT_SHAPE_REPRESENTATION`（`ITEM_DEFINED_TRANSFORMATION`、

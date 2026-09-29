@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- 起動ごとに変わる合言葉。サーバーはこの画面からの依頼だけを受け付ける（static/js/server.js が依頼に添える） -->
+<meta name="app-token" content="{{ token }}">
+<title>Inventor 3Dツール</title>
+<!-- 書体は読み込めたときだけ使う（読み込みを待たずに描く。つながらない PC では Yu Gothic UI などで表示する） -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+JP:wght@400;500;600&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+<!-- ライブラリは static/vendor に同梱（インターネットにつながらない PC でも動く）。Node の評価もこの対応を読み、同じファイルを使う -->
+<script type="importmap">
+{ "imports": {
+  "three": "/static/vendor/three/three.module.min.js",
+  "three/addons/": "/static/vendor/three/addons/",
+  "fzstd": "/static/vendor/fzstd/index.mjs"
+} }
+</script>
+<script type="module" src="{{ url_for('static', filename='js/main.js') }}"></script>
+</head>
+<body>
+<div class="app is-empty" id="app">
+  <section class="source" id="source" aria-label="元のページ" hidden>
+    <header class="source-bar">
+      <div class="source-text">
+        <p class="eyebrow">元のページ（操作できます）</p>
+        <p class="meta" id="source-status"></p>
+      </div>
+      <button type="button" class="primary" id="capture">この状態を取り込む</button>
+    </header>
+    <div class="source-frame" id="source-frame"></div>
+  </section>
+
+  <main class="stage" id="stage" aria-label="3D ビュー">
+    <canvas class="view" id="view"></canvas>
+    <div class="stage-empty" id="stage-empty">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/></svg>
+      <p class="title">ファイルが開かれていません</p>
+      <p>ここにドラッグ＆ドロップするか、<kbd>Ctrl</kbd>+<kbd>O</kbd> で開きます</p>
+    </div>
+    <div class="toolbar">
+      <div class="tool-group" role="group" aria-label="視点">
+        <button type="button" data-view="iso" title="等角ビュー（ホーム）">等角</button>
+        <button type="button" data-view="top" title="上から見る">上</button>
+        <button type="button" data-view="front" title="前から見る">前</button>
+        <button type="button" data-view="right" title="右から見る">右</button>
+      </div>
+      <div class="tool-group" role="group" aria-label="表示">
+        <button type="button" id="toggle-edges" aria-pressed="true">稜線</button>
+        <button type="button" id="fit" title="モデル全体が収まるように表示">全体表示</button>
+      </div>
+    </div>
+    <canvas class="gizmo" id="gizmo" width="152" height="152" aria-hidden="true"></canvas>
+    <div class="readout" id="readout" aria-live="polite"><span class="chip">面にカーソルを合わせると、種類と寸法を表示します</span></div>
+  </main>
+
+  <aside class="sheet" aria-label="部品・組立の仕様">
+    <header class="file">
+      <div class="file-row">
+        <img class="thumb" id="thumb" alt="Inventor が保存したサムネイル" title="Inventor が保存したサムネイル（表示の見比べ用）" hidden>
+        <div class="file-text">
+          <p class="eyebrow"><span id="file-kind">ファイル</span><span class="badge" id="sample-badge" hidden>サンプル</span></p>
+          <h1 id="file-name">開いていません</h1>
+          <p class="meta" id="file-source"></p>
+        </div>
+      </div>
+      <button type="button" class="link back" id="back-to-assembly" hidden>← 組立に戻る</button>
+      <button type="button" class="primary" id="open">ファイルを開く</button>
+      <p class="drop-hint">Inventor の部品（.ipt）・組立（.iam。部品の .ipt も一緒に）、STEP（.stp）、three.js を使った HTML（.html）。画面へのドラッグ＆ドロップ、<kbd>Ctrl</kbd>+<kbd>O</kbd> でも開けます</p>
+      <p class="samples"><button type="button" class="link" id="show-start">サンプル・使い方</button></p>
+      <input type="file" id="file-input" accept=".ipt,.iam,.stp,.step,.html,.htm" multiple hidden>
+      <p class="alert" id="alert" role="alert" hidden></p>
+      <p class="notice" id="notice" role="status" hidden></p>
+    </header>
+    <section data-mode="html" hidden>
+      <h2>取り込み結果</h2>
+      <div class="tally" id="tally"></div>
+    </section>
+    <section data-mode="html" hidden>
+      <h2>Inventor へ変換</h2>
+      <p class="convert-summary" id="convert-summary">取り込むと、変換できる部品の数を表示します</p>
+      <div class="convert-actions">
+        <button type="button" class="secondary" id="save-spec" disabled>変換データを保存</button>
+        <button type="button" class="secondary" id="copy-spec" disabled>コピー</button>
+      </div>
+      <p class="convert-hint">保存した JSON を、Inventor のある PC で起動ファイル（Start.vbs）にドラッグ＆ドロップすると、部品（.ipt）と組立（.iam）を作り、体積・表面積を照合します。コマンドで実行する場合（program フォルダで）:<code id="build-command">python -m ipt_build 変換データ.json</code></p>
+    </section>
+    <section data-mode="html" hidden>
+      <h2>部品<span class="unit">mm</span></h2>
+      <ul class="features" id="parts"></ul>
+    </section>
+    <details class="structure" data-mode="html" hidden>
+      <summary id="excluded-summary">除外したもの</summary>
+      <dl class="topology" id="excluded"></dl>
+    </details>
+    <section data-mode="ipt asm" hidden>
+      <h2>外形寸法<span class="unit">mm</span></h2>
+      <dl class="dims" id="dims"></dl>
+    </section>
+    <section data-mode="asm" hidden>
+      <h2>部品表<span class="unit">行を押すと、その部品を開きます</span></h2>
+      <div class="tally" id="asm-tally"></div>
+      <ul class="features is-bom" id="bom"></ul>
+    </section>
+    <section data-mode="asm" id="missing-section" hidden>
+      <h2>見つからない部品</h2>
+      <p class="convert-hint" id="missing-hint">組立が参照する部品ファイル（.ipt）を、この画面にドラッグ＆ドロップすると組立に加わります。行を押すとファイルを選べます。</p>
+      <ul class="features is-bom" id="missing"></ul>
+    </section>
+    <section data-mode="asm" hidden>
+      <h2>構成</h2>
+      <dl class="topology" id="asm-info"></dl>
+    </section>
+    <section data-mode="ipt" hidden>
+      <h2>形状要素</h2>
+      <ul class="features" id="features"></ul>
+    </section>
+    <section data-mode="ipt" hidden>
+      <h2>位相</h2>
+      <dl class="topology" id="topology"></dl>
+    </section>
+    <details class="structure" data-mode="ipt" hidden>
+      <summary>ファイル構造</summary>
+      <p id="structure-summary"></p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>セグメント</th><th class="num">格納</th><th class="num">展開後</th><th>圧縮</th></tr></thead>
+          <tbody id="segments"></tbody>
+        </table>
+      </div>
+    </details>
+    <p class="hint">ドラッグで回転、右ドラッグで移動、ホイールで拡大縮小。一覧の行にカーソルを合わせると、該当する面・部品が強調されます。ファイルはブラウザ内だけで解析し、外部には送信しません（HTML が読み込む three.js などは、そのページの指定どおり取得します）。</p>
+  </aside>
+</div>
+<div class="drop-overlay" id="drop-overlay" hidden><p>ドロップして開く（.ipt / .iam / .stp / .html）</p></div>
+
+<dialog class="start" id="start" aria-labelledby="start-title">
+  <div class="start-body">
+    <header class="start-head">
+      <h1 id="start-title">Inventor 3Dツール</h1>
+      <p>Inventor の部品（.ipt）・組立（.iam）と STEP（.stp）を表示し、three.js で作った 3D モデル（.html）を Inventor の部品に変換します。</p>
+    </header>
+    <button type="button" class="start-close" id="start-close" aria-label="閉じる" title="閉じる（Esc）">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+    </button>
+    <section>
+      <h2>ファイルを開く</h2>
+      <div class="dropzone" id="dropzone">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v11m-5-5 5 5 5-5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+        <p class="dropzone-title">ここにファイルをドラッグ＆ドロップ</p>
+        <p class="dropzone-sub">.ipt（部品）・.iam（組立。部品の .ipt も一緒に）・.stp（STEP）・.html（three.js を使ったページ）</p>
+        <p class="dropzone-actions"><button type="button" class="primary" id="start-open" autofocus>ファイルを選ぶ</button><span><kbd>Ctrl</kbd>+<kbd>O</kbd></span></p>
+      </div>
+    </section>
+    <div class="start-lists">
+      <section id="start-received" hidden>
+        <h2>受け取ったファイル</h2>
+        <ul class="sample-rows" id="received-rows"></ul>
+      </section>
+      <section id="start-samples" hidden>
+        <h2>サンプルで試す</h2>
+        <ul class="sample-rows" id="sample-rows"></ul>
+      </section>
+    </div>
+    <section class="start-flow">
+      <h2>Inventor の部品にするまでの流れ</h2>
+      <ol class="flow">
+        <li><b>開く</b><span>.html（three.js）をドロップ</span></li>
+        <li><b>確かめる</b><span>形状・寸法と、変換できる部品の数</span></li>
+        <li><b>保存する</b><span>変換データ（.inventor.json）を保存</span></li>
+        <li><b>Inventor で作る</b><span>保存したファイルを起動ファイルにドロップ</span></li>
+      </ol>
+    </section>
+  </div>
+</dialog>
+</body>
+</html>

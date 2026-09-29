@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>起動しています — Inventor 3Dツール</title>
+<!--
+  起動画面（起動の係 launch_guard.py が開く。file:// で開くので、外部のファイルは読まない）
+  - 進み具合は「確かめた事実」だけで言う（時間で進む見せかけの棒は使わない）: ① サーバーの応答（/api/instance）→ ② 画面を開く
+  - 遅い（20 秒〜）ときは理由の見当を、起動できない（120 秒）ときは次の行動を出す
+  - ポートは #port= で受け取る（無ければ既定の 57840 = config/appsettings.json の既定）
+  - 色はアプリ（static/css/app.css）と同じ値。切り替わっても見た目が跳ばない
+-->
+<style>
+:root {
+  --bg: #e8ecf0; --panel: #f8fafc; --ink: #16202b; --muted: #566272; --rule: #cdd5de;
+  --accent: #1a62c4; --accent-soft: rgba(26, 98, 196, 0.1); --ok: #23703a; --ok-soft: rgba(35, 112, 58, 0.1);
+  --critical: #b3261e; --critical-soft: rgba(179, 38, 30, 0.08);
+  --font-ui: "Yu Gothic UI", "Meiryo", system-ui, sans-serif; --font-num: "Cascadia Mono", Consolas, ui-monospace, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141a21; --panel: #1a2129; --ink: #e5eaf0; --muted: #98a4b2; --rule: #2e3a47;
+    --accent: #5e9dff; --accent-soft: rgba(94, 157, 255, 0.14); --ok: #6fcf8a; --ok-soft: rgba(111, 207, 138, 0.12);
+    --critical: #ff8a80; --critical-soft: rgba(255, 138, 128, 0.1);
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { display: grid; place-items: center; padding: 24px 16px; background: var(--bg); color: var(--ink); font: 14px/1.6 var(--font-ui); }
+.card { width: min(560px, 100%); background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; overflow: hidden; }
+.head { display: grid; grid-template-columns: 56px 1fr; gap: 18px; align-items: center; padding: 24px 28px 16px; }
+.cube { width: 56px; height: 56px; color: var(--accent); }
+.cube .spin { transform-origin: 12px 12px; animation: turn 2.4s ease-in-out infinite; }
+@keyframes turn { 50% { transform: rotate(180deg); } 100% { transform: rotate(360deg); } }
+.done .cube .spin, .fail .cube .spin { animation: none; }
+.fail .cube { color: var(--critical); }
+.eyebrow { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .06em; color: var(--muted); }
+h1 { margin: 2px 0 0; font-size: 18px; line-height: 1.4; }
+.lead { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+
+.bar { height: 4px; margin: 0 28px; border-radius: 2px; background: var(--rule); overflow: hidden; }
+.bar i { display: block; height: 100%; width: 35%; background: var(--accent); border-radius: 2px; animation: slide 1.4s ease-in-out infinite; }
+@keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }
+.done .bar i { width: 100%; animation: none; background: var(--ok); }
+.fail .bar i { width: 100%; animation: none; background: var(--critical); }
+@media (prefers-reduced-motion: reduce) { .cube .spin, .bar i { animation: none !important; } }
+
+ol.steps { list-style: none; margin: 0; padding: 8px 28px; }
+.step { display: grid; grid-template-columns: 24px 1fr auto; gap: 10px; align-items: start; padding: 10px 0; border-top: 1px solid var(--rule); }
+.step:first-child { border-top: 0; }
+.mark { width: 20px; height: 20px; margin-top: 2px; border-radius: 50%; border: 2px solid var(--rule); display: grid; place-items: center;
+  font-size: 12px; font-weight: 700; color: #fff; }
+.step .t { font-weight: 600; }
+.step .d { display: block; color: var(--muted); font-size: 12.5px; word-break: break-all; }
+.step .when { font: 12px var(--font-num); color: var(--muted); padding-top: 3px; }
+.step.wait { color: var(--muted); }
+.step.now .mark { border-color: var(--accent); border-top-color: transparent; animation: turn .9s linear infinite; }
+.step.ok .mark { background: var(--ok); border-color: var(--ok); }
+.step.ok .mark::after { content: "✓"; }
+.step.bad .mark { background: var(--critical); border-color: var(--critical); }
+.step.bad .mark::after { content: "×"; }
+
+.note { margin: 0 28px 16px; padding: 12px 14px; border-radius: 8px; font-size: 13px; line-height: 1.7; }
+.note.slow { background: var(--accent-soft); border: 1px solid var(--accent); }
+.note.fail { background: var(--critical-soft); border: 1px solid var(--critical); }
+.note b { font-weight: 700; }
+.note ol { margin: 6px 0 0; padding-left: 20px; }
+.note code { font-family: var(--font-num); font-size: 12.5px; background: var(--bg); padding: 1px 6px; border-radius: 4px; word-break: break-all; }
+.acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+button { height: 32px; padding: 0 14px; border-radius: 8px; font: 600 13px var(--font-ui); cursor: pointer;
+  border: 1px solid var(--rule); background: var(--panel); color: var(--ink); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+@media (prefers-color-scheme: dark) { button.primary { color: #0d1520; } }
+button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 28px 18px; color: var(--muted); font-size: 12.5px; }
+.elapsed { font-family: var(--font-num); }
+.foot a { color: var(--accent); font-weight: 600; }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main class="card" id="card" aria-labelledby="title">
+  <div class="head">
+    <svg class="cube" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true">
+      <g class="spin"><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/></g>
+    </svg>
+    <div>
+      <p class="eyebrow">Inventor 3Dツール</p>
+      <h1 id="title">アプリを起動しています</h1>
+      <p class="lead" id="lead">準備ができたら、この画面がそのままアプリに切り替わります。</p>
+    </div>
+  </div>
+  <div class="bar"><i></i></div>
+  <ol class="steps" aria-live="polite">
+    <li class="step now" id="s-app"><span class="mark"></span><span><span class="t">アプリの応答を待っています</span>
+      <span class="d" id="s-app-d">バックグラウンドでサーバーを起動しています（窓は出ません）</span></span><span class="when" id="s-app-w"></span></li>
+    <li class="step wait" id="s-open"><span class="mark"></span><span><span class="t">画面を開きます</span>
+      <span class="d" id="s-open-d">この画面がアプリに切り替わります</span></span><span class="when" id="s-open-w"></span></li>
+  </ol>
+  <p class="note slow" id="slow" hidden><b>時間がかかっています。</b> 初めての起動・更新した直後・必要なライブラリを入れているときは、
+    1 分ほどかかることがあります。このまま待ってください。</p>
+  <div class="note fail" id="fail" role="alert" hidden>
+    <b>原因の確かめ方</b>
+    <ol>
+      <li>もう一度確かめる（起動に時間がかかっているだけのことがあります）</li>
+      <li><code>Start.vbs</code> の横の <code>program</code> フォルダにある <code>start.bat</code>（診断起動）をダブルクリックすると、原因（Python・Flask・ポート）が表示されます</li>
+      <li>記録: <code id="logs">%LOCALAPPDATA%\Inventor3DTool\logs</code>（launcher.log・app.log・server_console.log）</li>
+    </ol>
+    <div class="acts"><button type="button" class="primary" id="retry">もう一度確かめる</button><button type="button" id="copy">記録の場所をコピー</button></div>
+  </div>
+  <div class="foot"><span class="elapsed" id="elapsed">経過 0:00</span>
+    <span>切り替わらないときは <a id="manual" href="http://127.0.0.1:57840/">アプリを開く</a></span></div>
+</main>
+<script>
+(function () {
+  "use strict";
+  var APP_ID = "Inventor3DTool";
+  var port = (/port=(\d+)/.exec(location.hash) || [])[1] || "57840";
+  var APP = "http://127.0.0.1:" + port + "/";
+  var SLOW_S = 20, FAIL_S = 120, POLL_MS = 400;
+  var t0 = Date.now(), finished = false, failed = false, timer = null;
+  var $ = function (id) { return document.getElementById(id); };
+  $("manual").href = APP;
+
+  function secs() { return Math.floor((Date.now() - t0) / 1000); }
+  function clock(s) { return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); }
+  function step(id, cls, detail) {
+    $(id).className = "step " + cls;
+    if (detail != null) $(id + "-d").textContent = detail;
+    if (cls === "ok" || cls === "bad") $(id + "-w").textContent = clock(secs());
+  }
+  function tick() {
+    var s = secs();
+    $("elapsed").textContent = "経過 " + clock(s);
+    if (finished || failed) return;
+    $("slow").hidden = s < SLOW_S;
+    if (s >= FAIL_S) fail();
+  }
+  function fail() {
+    failed = true;
+    clearTimeout(timer);
+    $("card").classList.add("fail");
+    $("slow").hidden = true;
+    $("fail").hidden = false;
+    step("s-app", "bad", "応答がありません");
+    $("title").textContent = "起動を確かめられませんでした";
+    $("lead").textContent = FAIL_S + " 秒待っても、アプリが応答しませんでした。";
+  }
+  function ready() {
+    finished = true;
+    clearTimeout(timer);
+    $("slow").hidden = true;
+    step("s-app", "ok", "応答しました");
+    step("s-open", "now");
+    $("card").classList.add("done");
+    $("title").textContent = "準備ができました";
+    $("lead").textContent = "アプリの画面に切り替えます…";
+    location.replace(APP);
+  }
+  function poll() {
+    if (finished || failed) return;
+    fetch(APP + "api/instance?_=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        // 前の版のサーバー（指紋が違う・stale）には進まない。起動の係が止めて起動し直すのを待つ（古い画面に新しい JavaScript が混ざらないように）
+        if (d && d.app === APP_ID && d.build && !d.stale) ready();
+        else {
+          if (d && d.app === APP_ID) step("s-app", "now", "前の版のアプリを止めて、新しい版で起動し直しています");
+          timer = setTimeout(poll, POLL_MS);
+        }
+      })
+      .catch(function () { timer = setTimeout(poll, POLL_MS); });
+  }
+  $("retry").onclick = function () {
+    failed = false; t0 = Date.now();
+    $("card").classList.remove("fail");
+    $("fail").hidden = true;
+    step("s-app", "now", "もう一度確かめています");
+    $("title").textContent = "アプリを起動しています";
+    $("lead").textContent = "準備ができたら、この画面がそのままアプリに切り替わります。";
+    poll();
+  };
+  $("copy").onclick = function () {
+    if (navigator.clipboard) navigator.clipboard.writeText($("logs").textContent).then(function () { $("copy").textContent = "コピーしました"; }, function () {});
+  };
+  setInterval(tick, 250);
+  tick();
+  poll();
+})();
+</script>
+</body>
+</html>
