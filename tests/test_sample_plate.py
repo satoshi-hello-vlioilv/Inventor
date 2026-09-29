@@ -3,13 +3,15 @@
 期待値は Inventor 上のモデル（押し出し1 → 穴1 → フィレット1）と画面キャプチャから読み取れる寸法。
 実行:  python -m unittest discover -s tests
 """
+import math
 import unittest
 from pathlib import Path
 
 from ipt_inspect import build
-from ipt_inspect.brep import SLOTS
+from ipt_inspect.brep import SLOTS, Topology
 from ipt_inspect.container import IptFile
 from ipt_inspect.report import shapes
+from ipt_inspect import scene
 
 SAMPLE = Path(__file__).resolve().parents[1] / "E_Plate_改_Φ54.5.ipt"
 TOL = 1e-6
@@ -108,6 +110,63 @@ class SamplePlateTest(unittest.TestCase):
                     checked += 1
         self.assertGreater(checked, 0)
         self.assertEqual(unverified, [])
+
+    def test_edge_polylines_follow_topology(self):
+        """稜線の点列は始点→終点の順で頂点に一致し、ループ内でコエッジが途切れず閉じること。"""
+        for _, doc in shapes(IptFile(SAMPLE)):
+            topo = Topology(doc)
+            for body in topo.bodies():
+                for face in topo.faces(body):
+                    for loop in topo.loops(face):
+                        runs = []
+                        for coedge in topo.chain(topo.ref(loop, "coedge")):
+                            e = topo.ref(coedge, "edge")
+                            points = topo.edge(e).points
+                            self.assertLess(math.dist(points[0], topo.vertex_point(topo.ref(e, "start"))), TOL)
+                            self.assertLess(math.dist(points[-1], topo.vertex_point(topo.ref(e, "end"))), TOL)
+                            runs.append(points[::-1] if coedge.bools[0] else points)
+                        for run, following in zip(runs, runs[1:] + runs[:1]):
+                            self.assertLess(math.dist(run[-1], following[0]), TOL)
+
+
+class SceneExportTest(unittest.TestCase):
+    """three.js ビューアへ渡すシーン JSON の評価。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.scene = scene.build(IptFile(SAMPLE))
+        cls.body = cls.scene["bodies"][0]
+
+    def test_every_face_is_renderable(self):
+        self.assertEqual(len(self.body["faces"]), 12)
+        self.assertEqual({f["type"] for f in self.body["faces"]}, {"plane", "cylinder"})
+        self.assertEqual(len(self.body["edges"]), 28)
+
+    def test_plane_normals_point_outward(self):
+        # このプレートの平面はすべて外殻なので、法線は外接箱の中心から離れる向きになるはず
+        center = [(lo + hi) / 2 for lo, hi in zip(self.body["summary"]["bbox_min"], self.body["summary"]["bbox_max"])]
+        for f in (f for f in self.body["faces"] if f["type"] == "plane"):
+            p = f["loops"][0][0]
+            self.assertGreater(sum(n * (a - c) for n, a, c in zip(f["normal"], p, center)), 0, f["id"])
+
+    def test_cylinder_ranges(self):
+        cylinders = [f for f in self.body["faces"] if f["type"] == "cylinder"]
+        holes = [f for f in cylinders if not f["outward"]]
+        rounds = [f for f in cylinders if f["outward"]]
+        self.assertEqual((len(holes), len(rounds)), (2, 4))
+        for f in holes:
+            self.assertAlmostEqual(f["theta"][1] - f["theta"][0], 2 * math.pi, delta=1e-6)
+        for f in rounds:
+            self.assertAlmostEqual(f["theta"][1] - f["theta"][0], math.pi / 2, delta=1e-6)
+        for f in cylinders:
+            self.assertAlmostEqual(f["height"][1] - f["height"][0], 2.0, delta=TOL)
+
+    def test_viewer_embeds_scene_safely(self):
+        page = scene.render_viewer({**self.scene, "file": "</script><b>x.ipt"})
+        self.assertNotIn("__SCENE_JSON__", page)
+        self.assertNotIn("</script><b>", page)  # 埋め込み JSON がスクリプトを閉じないこと
+        self.assertTrue(page.startswith("<!doctype html>"))
+        self.assertFalse(scene.render_viewer(self.scene, standalone=False).startswith("<!doctype"))
 
 
 if __name__ == "__main__":

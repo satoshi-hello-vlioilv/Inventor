@@ -1,0 +1,530 @@
+<title>__TITLE__</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+JP:wght@400;500;600&display=swap">
+<style>
+/* レイアウト: 製図台。作業面（3D ビュー）を主役に、右端に検図欄のような仕様パネルを置く */
+:root {
+  --bg: #e8ecf0;
+  --stage-top: #f7f9fb;
+  --stage-bottom: #d6dde5;
+  --panel: #f8fafc;
+  --ink: #16202b;
+  --muted: #566272;
+  --rule: #cdd5de;
+  --accent: #1a62c4;
+  --accent-soft: rgba(26, 98, 196, 0.1);
+  --steel: #b4bbc3;
+  --edge: #26303c;
+  --axis-x: #cc4136;
+  --axis-y: #2b8f45;
+  --axis-z: #2a6ad2;
+  --font-ui: "IBM Plex Sans JP", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141a21; --stage-top: #2b3541; --stage-bottom: #19212a; --panel: #1a2129;
+    --ink: #e5eaf0; --muted: #98a4b2; --rule: #2e3a47; --accent: #5e9dff; --accent-soft: rgba(94, 157, 255, 0.14);
+    --steel: #a9b1ba; --edge: #0f141a; --axis-x: #ff6a5c; --axis-y: #4cc46c; --axis-z: #5e9dff;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #141a21; --stage-top: #2b3541; --stage-bottom: #19212a; --panel: #1a2129;
+  --ink: #e5eaf0; --muted: #98a4b2; --rule: #2e3a47; --accent: #5e9dff; --accent-soft: rgba(94, 157, 255, 0.14);
+  --steel: #a9b1ba; --edge: #0f141a; --axis-x: #ff6a5c; --axis-y: #4cc46c; --axis-z: #5e9dff;
+  color-scheme: dark;
+}
+
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.6 var(--font-ui); }
+.num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+
+.app {
+  box-sizing: border-box; height: 100%;
+  display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px;
+  padding-inline: 16px; padding-block: 16px;
+}
+.stage {
+  position: relative; min-height: 320px; overflow: hidden;
+  border: 1px solid var(--rule); border-radius: 10px;
+  background: linear-gradient(180deg, var(--stage-top), var(--stage-bottom));
+}
+.stage .view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+.stage .message { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; color: var(--muted); text-align: center; }
+
+.toolbar { position: absolute; top: 12px; left: 12px; right: 12px; display: flex; flex-wrap: wrap; gap: 8px; pointer-events: none; }
+.tool-group {
+  display: flex; pointer-events: auto; overflow: hidden;
+  background: var(--panel); border: 1px solid var(--rule); border-radius: 8px;
+}
+.tool-group button {
+  font: 500 12.5px/1 var(--font-ui); color: var(--ink); background: transparent;
+  border: 0; border-inline-end: 1px solid var(--rule); padding: 8px 12px; cursor: pointer;
+}
+.tool-group button:last-child { border-inline-end: 0; }
+.tool-group button:hover { background: var(--accent-soft); }
+.tool-group button[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.gizmo { position: absolute; left: 8px; bottom: 8px; width: 76px; height: 76px; pointer-events: none; }
+.readout {
+  position: absolute; left: 92px; right: 12px; bottom: 14px;
+  display: flex; align-items: center; gap: 8px; min-height: 30px; pointer-events: none;
+  color: var(--muted); font-size: 12.5px;
+}
+.readout.is-live { color: var(--ink); }
+.readout .chip {
+  padding: 4px 10px; border-radius: 6px; background: var(--panel); border: 1px solid var(--rule);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
+}
+.readout.is-live .chip { border-color: var(--accent); }
+
+.sheet { min-width: 0; overflow: auto; display: flex; flex-direction: column; gap: 22px; padding-block: 4px; }
+.sheet header { display: flex; flex-direction: column; gap: 4px; }
+.eyebrow, .sheet h2 { margin: 0; font-size: 11.5px; font-weight: 600; letter-spacing: 0.06em; color: var(--muted); }
+.sheet h1 { margin: 0; font: 500 15px/1.4 var(--font-num); overflow-wrap: anywhere; text-wrap: balance; }
+.meta { margin: 0; font-size: 12px; color: var(--muted); }
+.sheet section { display: flex; flex-direction: column; gap: 10px; }
+.sheet h2 .unit { font-weight: 400; margin-inline-start: 4px; }
+
+.dims { margin: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
+.dims div { padding: 8px 10px; border-inline-end: 1px solid var(--rule); display: flex; flex-direction: column; gap: 2px; }
+.dims div:last-child { border-inline-end: 0; }
+.dims dt { font-size: 11.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.dims dt::before { content: ""; width: 8px; height: 8px; border-radius: 2px; background: var(--axis-color); }
+.dims dd { margin: 0; font: 500 17px/1.3 var(--font-num); font-variant-numeric: tabular-nums; }
+
+.features { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.feature {
+  width: 100%; text-align: start; cursor: default; color: var(--ink); font: inherit;
+  display: grid; grid-template-columns: auto 1fr auto; column-gap: 10px; row-gap: 2px; align-items: baseline;
+  padding: 9px 12px; background: var(--panel); border: 1px solid var(--rule); border-radius: 8px;
+}
+.feature:hover, .feature.is-active { border-color: var(--accent); background: var(--accent-soft); }
+.feature .kind { font-size: 12px; font-weight: 600; color: var(--muted); min-width: 2.5em; }
+.feature .dim { font: 500 16px/1.3 var(--font-num); font-variant-numeric: tabular-nums; }
+.feature .count { font: 500 13px var(--font-num); color: var(--muted); }
+.feature .sub { grid-column: 2 / 4; font-size: 12px; color: var(--muted); }
+.empty { margin: 0; color: var(--muted); font-size: 13px; }
+
+.topology { margin: 0; display: grid; grid-template-columns: auto 1fr; column-gap: 14px; row-gap: 4px; font-size: 13px; }
+.topology dt { color: var(--muted); }
+.topology dd { margin: 0; }
+.hint { margin: 0; margin-block-start: auto; font-size: 12px; color: var(--muted); }
+
+@media (max-width: 760px) {
+  .app { height: auto; grid-template-columns: minmax(0, 1fr); }
+  .stage { height: 62vh; }
+  .readout { left: 88px; }
+}
+</style>
+
+<div class="app">
+  <main class="stage" id="stage" aria-label="3D ビュー">
+    <canvas class="view" id="view"></canvas>
+    <div class="toolbar">
+      <div class="tool-group" role="group" aria-label="視点">
+        <button type="button" data-view="iso" title="等角ビュー（ホーム）">等角</button>
+        <button type="button" data-view="top" title="上から見る">上</button>
+        <button type="button" data-view="front" title="前から見る">前</button>
+        <button type="button" data-view="right" title="右から見る">右</button>
+      </div>
+      <div class="tool-group" role="group" aria-label="表示">
+        <button type="button" id="toggle-edges" aria-pressed="true">稜線</button>
+        <button type="button" id="fit" title="モデル全体が収まるように表示">全体表示</button>
+      </div>
+    </div>
+    <canvas class="gizmo" id="gizmo" width="152" height="152" aria-hidden="true"></canvas>
+    <div class="readout" id="readout" aria-live="polite"><span class="chip">面にカーソルを合わせると、種類と寸法を表示します</span></div>
+  </main>
+
+  <aside class="sheet" aria-label="部品の仕様">
+    <header>
+      <p class="eyebrow">部品ファイル</p>
+      <h1 id="file-name"></h1>
+      <p class="meta" id="file-source"></p>
+    </header>
+    <section>
+      <h2>外形寸法<span class="unit">mm</span></h2>
+      <dl class="dims" id="dims"></dl>
+    </section>
+    <section>
+      <h2>形状要素</h2>
+      <ul class="features" id="features"></ul>
+    </section>
+    <section>
+      <h2>位相</h2>
+      <dl class="topology" id="topology"></dl>
+    </section>
+    <p class="hint">ドラッグで回転、右ドラッグで移動、ホイールで拡大縮小。形状要素にカーソルを合わせると、該当する面が強調されます。</p>
+  </aside>
+</div>
+
+<script type="application/json" id="scene-data">__SCENE_JSON__</script>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+const data = JSON.parse(document.getElementById("scene-data").textContent);
+const $ = (id) => document.getElementById(id);
+const fmt = (v) => v.toFixed(3);
+const token = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const el = (tag, className, text) => {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+};
+const KIND_ORDER = ["hole", "boss", "round", "inner_round"];
+const AXES = [["X", [1, 0, 0]], ["Y", [0, 1, 0]], ["Z", [0, 0, 1]]];
+const VIEWS = { iso: [1, 1, 1], top: [0, 1, 1e-4], front: [0, 0, 1], right: [1, 0, 0] };
+const ARC_STEP = Math.PI / 48;
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+// ---- 面の三角形分割 ---------------------------------------------------------
+const v3 = (p) => new THREE.Vector3(p[0], p[1], p[2]);
+
+function openLoop(loop) {
+  const pts = loop.map(v3);
+  if (pts.length > 1 && pts[0].distanceTo(pts[pts.length - 1]) < 1e-9) pts.pop();
+  return pts;
+}
+
+function planeMesh(face) {
+  const n = v3(face.normal).normalize();
+  const helper = Math.abs(n.x) < 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+  const u = new THREE.Vector3().crossVectors(helper, n).normalize();
+  const v = new THREE.Vector3().crossVectors(n, u);
+  const loops = face.loops.map(openLoop).filter((l) => l.length >= 3);
+  if (!loops.length) return null;
+  const flat = loops.map((l) => l.map((p) => new THREE.Vector2(p.dot(u), p.dot(v))));
+  const area = (l) => Math.abs(THREE.ShapeUtils.area(l));
+  const outer = flat.reduce((best, l, i) => (area(l) > area(flat[best]) ? i : best), 0);
+  const order = [outer, ...flat.keys()].filter((i, k) => k === 0 || i !== outer);
+  const triangles = THREE.ShapeUtils.triangulateShape(flat[outer], order.slice(1).map((i) => flat[i]));
+  const points = order.flatMap((i) => loops[i]);
+  return { points, normals: points.map(() => n), index: triangles.flat() };
+}
+
+function cylinderMesh(face) {
+  const [t0, t1] = face.theta;
+  const [h0, h1] = face.height;
+  const origin = v3(face.origin), axis = v3(face.axis), ref = v3(face.ref);
+  const side = new THREE.Vector3().crossVectors(axis, ref);
+  const sign = face.outward ? 1 : -1;
+  const steps = Math.max(2, Math.ceil((t1 - t0) / ARC_STEP));
+  const points = [], normals = [], index = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = t0 + ((t1 - t0) * i) / steps;
+    const dir = ref.clone().multiplyScalar(Math.cos(t)).addScaledVector(side, Math.sin(t));
+    for (const h of [h0, h1]) {
+      points.push(origin.clone().addScaledVector(axis, h).addScaledVector(dir, face.radius));
+      normals.push(dir.clone().multiplyScalar(sign));
+    }
+    if (i < steps) index.push(2 * i, 2 * i + 2, 2 * i + 1, 2 * i + 1, 2 * i + 2, 2 * i + 3);
+  }
+  return { points, normals, index };
+}
+
+const MESHERS = { plane: planeMesh, cylinder: cylinderMesh };
+
+function toGeometry({ points, normals, index }) {
+  // 三角形の向きを面の法線に揃える（表裏の判定と陰影を正しくするため）
+  const e1 = new THREE.Vector3(), e2 = new THREE.Vector3();
+  for (let k = 0; k < index.length; k += 3) {
+    const [a, b, c] = [index[k], index[k + 1], index[k + 2]];
+    e1.subVectors(points[b], points[a]);
+    e2.subVectors(points[c], points[a]);
+    if (e1.cross(e2).dot(normals[a]) < 0) [index[k + 1], index[k + 2]] = [c, b];
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(points.flatMap((p) => p.toArray()), 3));
+  geometry.setAttribute("normal", new THREE.Float32BufferAttribute(normals.flatMap((p) => p.toArray()), 3));
+  geometry.setIndex(index);
+  return geometry;
+}
+
+// ---- 面の説明と形状要素のグループ -------------------------------------------
+const labels = data.labels;
+const surfaceName = (type) => labels.surfaces[type] ?? type;
+
+function axisName(v) {
+  for (const [name, axis] of AXES) {
+    const d = v[0] * axis[0] + v[1] * axis[1] + v[2] * axis[2];
+    if (Math.abs(Math.abs(d) - 1) < 1e-6) return (d > 0 ? "+" : "−") + name;
+  }
+  return `(${v.map(fmt).join(", ")})`;
+}
+
+function describeBody(body) {
+  const faceInfo = new Map();
+  const groups = new Map();
+  for (const c of body.summary.cylinders) {
+    const label = labels.cylinders[c.kind];
+    const dim = `${label.symbol}${fmt(c[label.field])}`;
+    const key = `${c.kind}:${dim}`;
+    if (!groups.has(key)) groups.set(key, { key, kind: c.kind, name: label.name, dim, items: [] });
+    groups.get(key).items.push(c);
+    for (const id of c.face_ids) {
+      faceInfo.set(id, { group: key, text: `${label.name} ${dim} · 中心 (${c.center.map(fmt).join(", ")})` });
+    }
+  }
+  for (const f of body.faces) {
+    if (faceInfo.has(f.id)) continue;
+    const text = f.type === "plane" ? `${surfaceName("plane")} · 法線 ${axisName(f.normal)}`
+      : MESHERS[f.type] ? surfaceName(f.type) : `${surfaceName(f.type)} · 表示未対応（稜線のみ）`;
+    faceInfo.set(f.id, { group: null, text });
+  }
+  const ordered = [...groups.values()].sort((a, b) => KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind));
+  return { faceInfo, groups: ordered };
+}
+
+// ---- 3D シーン ----------------------------------------------------------------
+const stage = $("stage");
+const canvas = $("view");
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+} catch (err) {
+  stage.append(el("p", "message", "この環境では 3D 表示（WebGL）が使えません。ブラウザのハードウェアアクセラレーション設定を確認してください。"));
+  throw err;
+}
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setClearColor(0x000000, 0);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(28, 1, 0.1, 10000);
+scene.add(camera);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8a939e, 1.6));
+const keyLight = new THREE.DirectionalLight(0xffffff, 1.8);
+keyLight.position.set(1.5, 2.5, 3);
+camera.add(keyLight); // 光源をカメラに固定し、どの向きから見ても陰影が読めるようにする
+
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = false;
+
+const faceMeshes = [];
+const edgeObjects = [];
+const edgeMaterial = new THREE.LineBasicMaterial();
+const bounds = new THREE.Box3();
+const body = data.bodies[0];
+const { faceInfo, groups } = body ? describeBody(body) : { faceInfo: new Map(), groups: [] };
+
+for (const b of data.bodies) {
+  for (const face of b.faces) {
+    const mesher = MESHERS[face.type];
+    const raw = mesher && mesher(face);
+    if (!raw || !raw.index.length) continue;
+    const material = new THREE.MeshStandardMaterial({
+      metalness: 0.25, roughness: 0.55, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
+    });
+    const mesh = new THREE.Mesh(toGeometry(raw), material);
+    mesh.userData.faceId = face.id;
+    scene.add(mesh);
+    faceMeshes.push(mesh);
+  }
+  const segments = b.edges.flatMap((line) => line.slice(1).flatMap((p, i) => [...line[i], ...p]));
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(segments, 3));
+  const lines = new THREE.LineSegments(geometry, edgeMaterial);
+  scene.add(lines);
+  edgeObjects.push(lines);
+  geometry.computeBoundingBox();
+  bounds.union(geometry.boundingBox);
+}
+
+// ---- 描画（操作があった時だけ描く） -------------------------------------------
+let framePending = false;
+function requestRender() {
+  if (framePending) return;
+  framePending = true;
+  requestAnimationFrame(() => {
+    framePending = false;
+    renderer.render(scene, camera);
+    drawGizmo();
+  });
+}
+controls.addEventListener("change", requestRender);
+
+const gizmo = $("gizmo").getContext("2d");
+function drawGizmo() {
+  const size = gizmo.canvas.width, c = size / 2, len = size * 0.3;
+  gizmo.clearRect(0, 0, size, size);
+  const inverse = camera.quaternion.clone().invert();
+  const axes = AXES.map(([name, dir], i) => ({
+    name, color: token(["--axis-x", "--axis-y", "--axis-z"][i]), v: v3(dir).applyQuaternion(inverse),
+  })).sort((a, b) => a.v.z - b.v.z);
+  gizmo.lineWidth = 4;
+  gizmo.lineCap = "round";
+  gizmo.font = `600 ${size * 0.15}px ${token("--font-num")}`;
+  gizmo.textAlign = "center";
+  gizmo.textBaseline = "middle";
+  for (const { name, color, v } of axes) {
+    const x = c + v.x * len, y = c - v.y * len;
+    gizmo.strokeStyle = gizmo.fillStyle = color;
+    gizmo.beginPath(); gizmo.moveTo(c, c); gizmo.lineTo(x, y); gizmo.stroke();
+    gizmo.fillText(name, c + v.x * len * 1.42, c - v.y * len * 1.42);
+  }
+}
+
+// ---- 色（テーマに追従） ------------------------------------------------------
+const highlighted = new Set();
+function applyColors() {
+  const steel = new THREE.Color(token("--steel"));
+  const accent = new THREE.Color(token("--accent"));
+  for (const mesh of faceMeshes) {
+    mesh.material.color.copy(highlighted.has(mesh.userData.faceId) ? steel.clone().lerp(accent, 0.65) : steel);
+  }
+  edgeMaterial.color.set(token("--edge"));
+  requestRender();
+}
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applyColors);
+new MutationObserver(applyColors).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+// ---- 視点 ----------------------------------------------------------------------
+const center = bounds.getCenter(new THREE.Vector3());
+const radius = Math.max(bounds.getSize(new THREE.Vector3()).length() / 2, 1e-3);
+const fitDistance = () => (radius / Math.sin(THREE.MathUtils.degToRad(camera.fov / 2))) * (camera.aspect < 1 ? 1.35 / camera.aspect : 1.15);
+
+let tween = 0;
+function setView(direction, animate = !reduceMotion) {
+  const to = v3(direction).normalize();
+  const from = camera.position.clone().sub(controls.target).normalize();
+  const fromTarget = controls.target.clone();
+  const fromDistance = camera.position.distanceTo(controls.target);
+  const toDistance = fitDistance();
+  const started = performance.now();
+  const id = ++tween;
+  const step = (now) => {
+    if (id !== tween) return;
+    const k = animate ? Math.min(1, (now - started) / 380) : 1;
+    const e = k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2;
+    const dir = from.clone().lerp(to, e).normalize();
+    controls.target.lerpVectors(fromTarget, center, e);
+    camera.position.copy(controls.target).addScaledVector(dir, fromDistance + (toDistance - fromDistance) * e);
+    camera.lookAt(controls.target);
+    controls.update();
+    requestRender();
+    if (k < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+for (const button of document.querySelectorAll("[data-view]")) {
+  button.addEventListener("click", () => setView(VIEWS[button.dataset.view]));
+}
+$("fit").addEventListener("click", () => setView(camera.position.clone().sub(controls.target).toArray()));
+$("toggle-edges").addEventListener("click", (event) => {
+  const on = event.currentTarget.getAttribute("aria-pressed") !== "true";
+  event.currentTarget.setAttribute("aria-pressed", String(on));
+  for (const lines of edgeObjects) lines.visible = on;
+  requestRender();
+});
+
+let fitted = false;
+new ResizeObserver(() => {
+  const { clientWidth: w, clientHeight: h } = stage;
+  if (!w || !h) return;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  if (!fitted) {
+    fitted = true; // 画面の縦横比が決まってから初回の全体表示を行う
+    setView(VIEWS.iso, false);
+  }
+  requestRender();
+}).observe(stage);
+
+// ---- 強調表示（3D ⇄ パネルの双方向） -----------------------------------------
+const readout = $("readout");
+const readoutChip = readout.querySelector(".chip");
+const idleText = readoutChip.textContent;
+const rows = new Map();
+
+function highlight(faceIds, text, groupKey) {
+  highlighted.clear();
+  for (const id of faceIds) highlighted.add(id);
+  readoutChip.textContent = text ?? idleText;
+  readout.classList.toggle("is-live", Boolean(text));
+  for (const [key, row] of rows) row.classList.toggle("is-active", key === groupKey);
+  applyColors();
+}
+
+const raycaster = new THREE.Raycaster();
+const pointer = new THREE.Vector2();
+let hoverPending = false;
+canvas.addEventListener("pointermove", (event) => {
+  if (event.buttons) return; // 回転・移動中は判定しない
+  const rect = canvas.getBoundingClientRect();
+  pointer.set(((event.clientX - rect.left) / rect.width) * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
+  if (hoverPending) return;
+  hoverPending = true;
+  requestAnimationFrame(() => {
+    hoverPending = false;
+    raycaster.setFromCamera(pointer, camera);
+    const hit = raycaster.intersectObjects(faceMeshes, false)[0];
+    const id = hit?.object.userData.faceId;
+    const info = id !== undefined ? faceInfo.get(id) : null;
+    if (info) highlight([id], info.text, info.group);
+    else if (highlighted.size) highlight([]);
+  });
+});
+canvas.addEventListener("pointerleave", () => highlight([]));
+
+// ---- 仕様パネル ----------------------------------------------------------------
+$("file-name").textContent = data.file;
+$("file-source").textContent = data.source ? `${data.source.kernel} · ${data.source.saved_at}` : "";
+
+if (body) {
+  const s = body.summary;
+  AXES.forEach(([name], i) => {
+    const cell = el("div");
+    cell.style.setProperty("--axis-color", `var(--axis-${name.toLowerCase()})`);
+    cell.append(el("dt", null, name), el("dd", null, fmt(s.size[i])));
+    $("dims").append(cell);
+  });
+
+  if (!groups.length) $("features").append(el("li", "empty", "穴・R などの円筒形状はありません"));
+  for (const g of groups) {
+    const lengths = [...new Set(g.items.map((c) => fmt(c.length)))].join(" / ");
+    const sweeps = [...new Set(g.items.map((c) => `${c.sweep_deg}°`))].join(" / ");
+    const button = el("button", "feature");
+    button.type = "button";
+    button.append(el("span", "kind", g.name), el("span", "dim", g.dim), el("span", "count num", `×${g.items.length}`),
+      el("span", "sub", `長さ ${lengths} · ${sweeps}`));
+    const faces = g.items.flatMap((c) => c.face_ids);
+    const text = `${g.name} ${g.dim} × ${g.items.length}`;
+    const on = () => highlight(faces, text, g.key);
+    const off = () => highlight([]);
+    button.addEventListener("pointerenter", on);
+    button.addEventListener("pointerleave", off);
+    button.addEventListener("focus", on);
+    button.addEventListener("blur", off);
+    rows.set(g.key, button);
+    const item = el("li");
+    item.append(button);
+    $("features").append(item);
+  }
+
+  const surfaces = Object.entries(s.surfaces).map(([k, v]) => `${surfaceName(k)} ${v}`).join("・");
+  const topology = [
+    ["面", `${s.faces}（${surfaces}）`],
+    ["稜線 / 頂点", `${s.edges} / ${s.vertices}`],
+    ["貫通穴（種数）", s.genus ?? "—"],
+    ["状態", s.closed ? "閉じたソリッド" : "開いたシート"],
+  ];
+  for (const [k, v] of topology) $("topology").append(el("dt", null, k), el("dd", "num", String(v)));
+} else {
+  stage.append(el("p", "message", "このファイルには表示できる形状（B-rep）が見つかりませんでした。"));
+}
+
+applyColors();
+</script>

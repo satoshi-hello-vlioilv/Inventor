@@ -8,11 +8,12 @@ from . import brep, sab
 from .container import IptFile
 
 _AXES = {(1.0, 0.0, 0.0): "X", (0.0, 1.0, 0.0): "Y", (0.0, 0.0, 1.0): "Z"}
-_CYLINDER_LABEL = {  # kind → (表示名, 寸法の書式)
-    "hole": ("穴", "Φ{diameter:.3f}"),
-    "boss": ("軸", "Φ{diameter:.3f}"),
-    "round": ("角R", "R{radius:.3f}"),
-    "inner_round": ("隅R", "R{radius:.3f}"),
+SURFACE_LABELS = {"plane": "平面", "cylinder": "円筒", "cone": "円錐"}
+CYLINDER_LABELS = {  # kind → 表示名・寸法記号・寸法に使う値（テキスト出力とビューアで共用）
+    "hole": {"name": "穴", "symbol": "Φ", "field": "diameter"},
+    "boss": {"name": "軸", "symbol": "Φ", "field": "diameter"},
+    "round": {"name": "角R", "symbol": "R", "field": "radius"},
+    "inner_round": {"name": "隅R", "symbol": "R", "field": "radius"},
 }
 
 
@@ -101,7 +102,7 @@ def format_text(r: dict) -> str:
 
 def _format_body(b: dict) -> list[str]:
     kind = "ソリッド" if b["closed"] else "シート（開いた面）"
-    surfaces = ", ".join(f"{k} {v}" for k, v in sorted(b["surfaces"].items()))
+    surfaces = "・".join(f"{SURFACE_LABELS.get(k, k)} {v}" for k, v in sorted(b["surfaces"].items()))
     genus = f"  種数 {b['genus']}" if b["genus"] is not None else ""
     out = [
         f"    ボディ#{b['index']}  {kind}  面 {b['faces']}（{surfaces}）"
@@ -110,9 +111,10 @@ def _format_body(b: dict) -> list[str]:
         f"      範囲      {_xyz(b['bbox_min'])} 〜 {_xyz(b['bbox_max'])}",
     ]
     for c in b["cylinders"]:
-        label, dim = _CYLINDER_LABEL[c["kind"]]
+        label = CYLINDER_LABELS[c["kind"]]
+        dim = f"{label['symbol']}{c[label['field']]:.3f}"
         out.append(
-            f"      {label:<4}{dim.format(**c):>10}  長さ {c['length']:.3f}  "
+            f"      {label['name']:<4}{dim:>10}  長さ {c['length']:.3f}  "
             f"{c['sweep_deg']:g}°  軸 {_axis(c['axis'])}  中心 {_xyz(c['center'])}"
         )
     return out

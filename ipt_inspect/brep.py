@@ -11,8 +11,7 @@ from collections import Counter
 from dataclasses import dataclass
 
 from .sab import Entity, SabDocument
-
-Vec = tuple[float, float, float]
+from .vec import Vec, add, cross, dot, length, mul, reject, sub, unit
 
 # ASM 231 における refs の並び。先頭 2 つ (attrib, history) は全エンティティ共通。
 SLOTS = {
@@ -25,47 +24,18 @@ SLOTS = {
     "edge": ("attrib", "history", "start", "end", "coedge", "curve"),
     "vertex": ("attrib", "history", "edge", "point"),
 }
-_ARC_STEP = math.pi / 32  # 円弧のサンプリング刻み（外接箱の算出用）
+_ARC_STEP = math.pi / 32  # 円弧のサンプリング刻み（外接箱・表示用の折れ線）
 _FULL_TURN_DEG = 360.0
 _ANGLE_TOL_DEG = 1e-3
 _ROUND = 6
 
 
-# ---- ベクトル演算 -------------------------------------------------------------
-def _add(a: Vec, b: Vec) -> Vec:
-    return (a[0] + b[0], a[1] + b[1], a[2] + b[2])
-
-
-def _sub(a: Vec, b: Vec) -> Vec:
-    return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
-
-
-def _mul(a: Vec, k: float) -> Vec:
-    return (a[0] * k, a[1] * k, a[2] * k)
-
-
-def _dot(a: Vec, b: Vec) -> float:
-    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-
-
-def _cross(a: Vec, b: Vec) -> Vec:
-    return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
-
-
-def _length(a: Vec) -> float:
-    return math.sqrt(_dot(a, a))
-
-
-def _unit(a: Vec) -> Vec:
-    n = _length(a)
-    return _mul(a, 1.0 / n) if n else a
-
-
+# ---- ベクトル演算の補助 ------------------------------------------------------
 def _canonical_direction(a: Vec) -> Vec:
     """軸の向きを正規化する（符号違いの同一軸を同一視するため）。"""
-    a = _unit(a)
+    a = unit(a)
     first = next((c for c in a if abs(c) > 1e-9), 0.0)
-    return _mul(a, -1.0) if first < 0 else a
+    return mul(a, -1.0) if first < 0 else a
 
 
 def _r(v):
@@ -97,9 +67,9 @@ class Curve:
 
     def point(self, t: float) -> Vec:
         if self.kind == "line":
-            return _add(self.origin, _mul(self.direction, t))
-        minor = _mul(_cross(_unit(self.direction), self.major), self.ratio)
-        return _add(self.origin, _add(_mul(self.major, math.cos(t)), _mul(minor, math.sin(t))))
+            return add(self.origin, mul(self.direction, t))
+        minor = mul(cross(unit(self.direction), self.major), self.ratio)
+        return add(self.origin, add(mul(self.major, math.cos(t)), mul(minor, math.sin(t))))
 
     def sample(self, t0: float, t1: float) -> list[Vec]:
         if self.kind == "line":
@@ -129,17 +99,18 @@ class Surface:
             sin_angle, cos_angle = e.doubles[-3], e.doubles[-2]
             ratio = e.doubles[0]
             kind = "cylinder" if abs(sin_angle) < 1e-12 and abs(ratio - 1.0) < 1e-12 else "cone"
-            return cls(kind, e.positions[0], e.vectors[0], _length(e.vectors[1]), cos_angle >= 0)
+            return cls(kind, e.positions[0], e.vectors[0], length(e.vectors[1]), cos_angle >= 0)
         return cls(e.type)
 
 
 # ---- トポロジ ----------------------------------------------------------------
 @dataclass(frozen=True)
 class Edge:
+    index: int
     curve: Curve
     t0: float
     t1: float
-    points: tuple[Vec, ...]
+    points: tuple[Vec, ...]  # 始点 → 終点の順に並んだ折れ線
 
     @property
     def sweep_deg(self) -> float:
@@ -152,6 +123,7 @@ class Face:
     surface: Surface
     reversed: bool
     edges: tuple[Edge, ...]
+    loops: tuple[tuple[Vec, ...], ...]  # 境界ループ（閉じた折れ線、末尾は先頭と同じ点）
 
     @property
     def concave(self) -> bool | None:
@@ -203,15 +175,31 @@ class Topology:
     def edge(self, e: Entity) -> Edge:
         curve = Curve.of(self.ref(e, "curve"))
         t0, t1 = e.doubles[0], e.doubles[1]
-        if e.bools and e.bools[0]:  # 稜線が曲線と逆向きなら曲線パラメータは符号反転
+        against_curve = bool(e.bools and e.bools[0])
+        if against_curve:  # 稜線が曲線と逆向きなら、曲線上のパラメータは符号反転した区間
             t0, t1 = -t1, -t0
-        ends = [self.vertex_point(self.ref(e, s)) for s in ("start", "end")]
-        points = [p for p in ends if p is not None] + curve.sample(t0, t1)
-        return Edge(curve, t0, t1, tuple(points))
+        points = curve.sample(t0, t1)
+        if against_curve:
+            points.reverse()
+        if not points:  # 解析曲線でない稜線は端点だけで表す
+            ends = (self.vertex_point(self.ref(e, s)) for s in ("start", "end"))
+            points = [p for p in ends if p is not None]
+        return Edge(e.index, curve, t0, t1, tuple(points))
+
+    def loop_polyline(self, loop: Entity) -> tuple[Vec, ...]:
+        """ループを 1 本の閉じた折れ線にする（コエッジが逆向きなら稜線の点列を反転）。"""
+        out: list[Vec] = []
+        for coedge in self.chain(self.ref(loop, "coedge")):
+            points = self.edge(self.ref(coedge, "edge")).points
+            if coedge.bools and coedge.bools[0]:
+                points = points[::-1]
+            out.extend(points[1:] if out else points)
+        return tuple(out)
 
     def face(self, e: Entity) -> Face:
         edges = tuple(self.edge(self.ref(c, "edge")) for c in self.coedges(e))
-        return Face(e.index, Surface.of(self.ref(e, "surface")), bool(e.bools and e.bools[0]), edges)
+        loops = tuple(self.loop_polyline(loop) for loop in self.loops(e))
+        return Face(e.index, Surface.of(self.ref(e, "surface")), bool(e.bools and e.bools[0]), edges, loops)
 
     def is_closed(self, body: Entity) -> bool:
         return all(
@@ -239,7 +227,7 @@ class CylinderFeature:
     center: Vec
     length: float
     sweep_deg: float
-    faces: int
+    face_ids: tuple[int, ...]
 
 
 @dataclass(frozen=True)
@@ -295,7 +283,7 @@ def _summarize_body(topo: Topology, body: Entity, scale: float) -> BodySummary:
         surfaces=dict(Counter(f.surface.kind for f in faces)),
         bbox_min=_r(lo),
         bbox_max=_r(hi),
-        size=_r(_sub(hi, lo)),
+        size=_r(sub(hi, lo)),
         cylinders=tuple(_cylinder_features(faces, scale)),
     )
 
@@ -307,7 +295,7 @@ def _cylinder_features(faces: list[Face], scale: float) -> list[CylinderFeature]
         if s.kind != "cylinder":
             continue
         axis = _canonical_direction(s.direction)
-        foot = _sub(s.origin, _mul(axis, _dot(s.origin, axis)))  # 軸上で原点に最も近い点
+        foot = reject(s.origin, axis)  # 軸上で原点に最も近い点
         key = (round(s.radius, 5), _r(axis), tuple(round(c, 5) for c in foot), f.concave)
         groups.setdefault(key, []).append(f)
 
@@ -315,10 +303,10 @@ def _cylinder_features(faces: list[Face], scale: float) -> list[CylinderFeature]
     for (_, axis, _, concave), members in groups.items():
         surface = members[0].surface
         sweep = min(_FULL_TURN_DEG, sum(max((e.sweep_deg for e in f.edges), default=0.0) for f in members))
-        heights = [_dot(p, axis) for f in members for e in f.edges for p in e.points]
+        heights = [dot(p, axis) for f in members for e in f.edges for p in e.points]
         h0, h1 = min(heights), max(heights)
-        base = _sub(surface.origin, _mul(axis, _dot(surface.origin, axis)))
-        center = _add(base, _mul(axis, (h0 + h1) / 2))
+        base = reject(surface.origin, axis)
+        center = add(base, mul(axis, (h0 + h1) / 2))
         full = sweep >= _FULL_TURN_DEG - _ANGLE_TOL_DEG
         features.append(
             CylinderFeature(
@@ -326,10 +314,10 @@ def _cylinder_features(faces: list[Face], scale: float) -> list[CylinderFeature]
                 diameter=_r(surface.radius * 2 * scale),
                 radius=_r(surface.radius * scale),
                 axis=axis,
-                center=_r(_mul(center, scale)),
+                center=_r(mul(center, scale)),
                 length=_r((h1 - h0) * scale),
                 sweep_deg=_r(sweep),
-                faces=len(members),
+                face_ids=tuple(f.index for f in members),
             )
         )
     return sorted(features, key=lambda c: (c.kind, c.center))

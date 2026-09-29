@@ -1,4 +1,4 @@
-"""使い方:  python -m ipt_inspect FILE.ipt [--json] [--dump DIR]"""
+"""使い方:  python -m ipt_inspect FILE.ipt [--json] [--dump DIR] [--viewer OUT.html]"""
 from __future__ import annotations
 
 import argparse
@@ -6,7 +6,7 @@ import json
 import sys
 from pathlib import Path
 
-from . import report
+from . import report, scene
 from .container import IptFile
 
 
@@ -28,12 +28,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("file", type=Path)
     parser.add_argument("--json", action="store_true", help="結果を JSON で出力する")
     parser.add_argument("--dump", type=Path, metavar="DIR", help="展開したセグメント等を DIR に書き出す")
+    parser.add_argument("--viewer", type=Path, metavar="HTML", help="形状を three.js で表示する HTML を書き出す")
     args = parser.parse_args(argv)
 
     ipt = IptFile(args.file)
     result = report.build(ipt)
     if args.dump:
         dump(ipt, args.dump, result)
+    if args.viewer:
+        args.viewer.write_text(scene.render_viewer(scene.build(ipt)), encoding="utf-8")
     if args.json:
         json.dump(result, sys.stdout, ensure_ascii=False, indent=2)
         print()
