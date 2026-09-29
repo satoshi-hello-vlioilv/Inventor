@@ -1,0 +1,75 @@
+{
+ "format": "inventor-builder",
+ "version": 2,
+ "units": "mm",
+ "source": {
+  "file": "plate_holes.html",
+  "three": "170",
+  "captured_at": "fixture"
+ },
+ "parts": [
+  {
+   "key": "p01",
+   "name": "plate_holes_01_押し出し_四角形_7.5x21x2",
+   "kind": "extrude",
+   "sketch": {
+    "plane": "XY",
+    "loops": [
+     [
+      {
+       "type": "line",
+       "a": [21, 0],
+       "b": [21, 7.5]
+      },
+      {
+       "type": "line",
+       "a": [21, 7.5],
+       "b": [0, 7.5]
+      },
+      {
+       "type": "line",
+       "a": [0, 7.5],
+       "b": [0, 0]
+      },
+      {
+       "type": "line",
+       "a": [0, 0],
+       "b": [21, 0]
+      }
+     ],
+     [
+      {
+       "type": "circle",
+       "center": [4, 3.75],
+       "radius": 2.25
+      }
+     ],
+     [
+      {
+       "type": "circle",
+       "center": [17, 3.75],
+       "radius": 2.25
+      }
+     ]
+    ]
+   },
+   "extrude": {
+    "direction": "Z",
+    "distance": 2
+   },
+   "expect": {
+    "volume": 251.382749,
+    "area": 421.931417
+   },
+   "instances": [
+    {
+     "origin": [0, 0, 1],
+     "x": [1, 0, 0],
+     "y": [0, 1, 0],
+     "z": [0, 0, 1]
+    }
+   ]
+  }
+ ],
+ "skipped": []
+}

@@ -1,0 +1,102 @@
+{
+ "format": "inventor-builder",
+ "version": 2,
+ "units": "mm",
+ "source": {
+  "file": "LS4_parts_viewer.html",
+  "three": "180",
+  "captured_at": "fixture"
+ },
+ "parts": [
+  {
+   "key": "p01",
+   "name": "LS4_parts_viewer_01_押し出し_円φ240.000_240x240x5_C1",
+   "kind": "extrude",
+   "sketch": {
+    "plane": "XY",
+    "loops": [
+     [
+      {
+       "type": "circle",
+       "center": [0, 0],
+       "radius": 120
+      }
+     ],
+     [
+      {
+       "type": "line",
+       "a": [-10.452847, 99.452187],
+       "b": [-10.043822, 99.745285]
+      },
+      {
+       "type": "line",
+       "a": [-10.043822, 99.745285],
+       "b": [-10, 103.854]
+      },
+      {
+       "type": "line",
+       "a": [-10, 103.854],
+       "b": [-9.74, 106]
+      },
+      {
+       "type": "line",
+       "a": [-9.74, 106],
+       "b": [9.74, 106]
+      },
+      {
+       "type": "line",
+       "a": [9.74, 106],
+       "b": [10, 103.854]
+      },
+      {
+       "type": "line",
+       "a": [10, 103.854],
+       "b": [10.043822, 99.745285]
+      },
+      {
+       "type": "line",
+       "a": [10.043822, 99.745285],
+       "b": [10.452847, 99.452187]
+      },
+      {
+       "type": "arc",
+       "a": [10.452847, 99.452187],
+       "b": [-10.452847, 99.452187],
+       "center": [0, 0],
+       "ccw": false
+      }
+     ]
+    ]
+   },
+   "extrude": {
+    "direction": "Z",
+    "distance": 5
+   },
+   "chamfers": [
+    {
+     "loop": 1,
+     "side": "-Z",
+     "distance": 1
+    },
+    {
+     "loop": 1,
+     "side": "+Z",
+     "distance": 1
+    }
+   ],
+   "expect": {
+    "volume": 67856.975337,
+    "area": 33624.266806
+   },
+   "instances": [
+    {
+     "origin": [0, 0, 0],
+     "x": [1, 0, 0],
+     "y": [0, 1, 0],
+     "z": [0, 0, 1]
+    }
+   ]
+  }
+ ],
+ "skipped": []
+}
