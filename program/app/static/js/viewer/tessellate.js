@@ -3,8 +3,12 @@
 //
 // どの面も境界ループ（隣の面と共有する稜線の点列）に沿って分割する。境界上に新しい点を足さないので、
 // 面どうしは隙間なくつながる。円筒・円錐は展開図（角度 θ × 高さ h）の上で分割し、内側だけを細かくしてから曲面に戻す。
+// 自由曲面（B スプライン）はパラメータ (u, v) の平面の上で同じように分割する。
 
+import Constrainautor from "@kninnug/constrainautor";
+import Delaunator from "delaunator";
 import * as THREE from "three";
+import { locateOnSurface, projectToSurface, surfaceDerivs, surfaceDomain } from "../model/nurbs.js";
 
 const ARC_STEP = Math.PI / 32; // 曲面の分割の細かさ（稜線の円弧のサンプリングと同じ刻み）
 const TUBE_STEP = Math.PI / 8; // トーラスの管のまわり（φ）の刻み。弦の誤差は管の半径の 1.9%（首下の R など小さい丸みが多い）
@@ -40,45 +44,77 @@ function withoutSpikes(points) {
 }
 
 /**
- * earcut（THREE.ShapeUtils.triangulateShape）で多角形を三角形に分ける。earcut は耳（切り取れる角）が見つからなくなると
- * 一直線に並ぶ境界の点を省いてやり直す（内部の点（点 1 つの穴）を加えたときに起きる）。省かれた点は、
- * その点を通る境界の辺を持つ三角形に扇形に分け入れて戻す
- * （戻さないと、隣の面と共有する稜線の点が抜けて隙間になり、細分では面積 0 の三角形が分け続けられる）。
- * @param {THREE.Vector2[][]} rings  外周と穴（点 1 つの穴は内部の点）。返す番号はこれらを連結した並び
- * @returns {number[][]}
+ * 制約付き Delaunay 三角形分割（Delaunator + Constrainautor。判定は丸め誤差の無い robust-predicates）。
+ * 輪（外周と穴）の辺を必ず三角形の辺にし、多角形の内側の三角形だけを、平面で反時計回りにして返す。
+ * 内側かどうかは、外から輪の辺を何回越えるかの偶奇で決める（穴の中は 2 回で外側）。
+ * 点が数千の細長い面（ねじ山・ローレットの B スプライン面など）でも、境界の点を省かず、面全体にまたがる細い三角形も作らない。
+ * @param {THREE.Vector2[]} uv  全ての点（輪の点を連結した並びの後に、内部の点）
+ * @param {number[]} sizes      輪ごとの点の数（先頭が外周）
+ * @returns {number[][] | null}  分割できない（輪が交わるなど）ときは null
  */
-function triangulate(rings) {
-  const triangles = THREE.ShapeUtils.triangulateShape(rings[0], rings.slice(1));
-  const used = new Set(triangles.flat());
-  /** 境界の辺 a → b の途中に run の点を戻す */
-  const restore = (a, b, run) => {
-    const t = triangles.findIndex((tri) => tri.includes(a) && tri.includes(b));
-    if (t < 0) return;
-    const tri = triangles[t], c = tri.find((v) => v !== a && v !== b);
-    const forward = tri[(tri.indexOf(a) + 1) % 3] === b; // 元の三角形の向き（a → b → c）を保つ
-    const chain = [a, ...run, b];
-    const fan = chain.slice(1).map((v, i) => (forward ? [chain[i], v, c] : [v, chain[i], c]));
-    triangles.splice(t, 1, ...fan);
-  };
+function triangulate(uv, sizes) {
+  const coords = new Float64Array(uv.length * 2);
+  uv.forEach((p, i) => {
+    coords[2 * i] = p.x;
+    coords[2 * i + 1] = p.y;
+  });
+  let del;
+  try {
+    del = new Delaunator(coords);
+  } catch {
+    return null; // 全ての点が一直線に並ぶ
+  }
+  // 同じ座標の点は Delaunator が 1 つだけ使う。使われなかった点は、同じ座標の使われた点に置き換える
+  const used = new Uint8Array(uv.length);
+  for (const v of del.triangles) used[v] = 1;
+  const byPlace = new Map();
+  uv.forEach((p, i) => used[i] && byPlace.set(`${p.x},${p.y}`, i));
+  const alias = (i) => (used[i] ? i : byPlace.get(`${uv[i].x},${uv[i].y}`) ?? -1);
+  const edges = [];
   let base = 0;
-  for (const ring of rings) {
-    const n = ring.length;
-    const first = ring.findIndex((_, i) => used.has(base + i));
-    if (first >= 0) {
-      let a = first, run = [];
-      for (let s = 1; s <= n; s++) {
-        const i = (first + s) % n;
-        if (!used.has(base + i)) {
-          if (ring[i].distanceTo(ring[a]) > 0) run.push(base + i); // 重なる点は戻さない（面積 0 の三角形になる）
-          continue;
-        }
-        if (run.length) restore(base + a, base + i, run);
-        [a, run] = [i, []];
-      }
+  for (const n of sizes) {
+    for (let i = 0; i < n; i++) {
+      const [a, b] = [alias(base + i), alias(base + ((i + 1) % n))];
+      if (a < 0 || b < 0) return null;
+      if (a !== b) edges.push([a, b]);
     }
     base += n;
   }
-  return triangles;
+  let con;
+  try {
+    con = new Constrainautor(del, edges);
+  } catch {
+    return null;
+  }
+  // 外（凸包の外）から、輪の辺を越えるたびに 1 増える深さ（0-1 BFS）。奇数が内側
+  const { triangles, halfedges } = del;
+  const count = triangles.length / 3;
+  const depth = new Int32Array(count).fill(-1);
+  const deque = [];
+  const reach = (t, d, front) => {
+    if (depth[t] >= 0 && depth[t] <= d) return;
+    depth[t] = d;
+    if (front) deque.unshift(t);
+    else deque.push(t);
+  };
+  halfedges.forEach((adj, e) => adj < 0 && reach(Math.floor(e / 3), con.isConstrained(e) ? 1 : 0, !con.isConstrained(e)));
+  while (deque.length) {
+    const t = deque.shift();
+    for (let k = 0; k < 3; k++) {
+      const e = 3 * t + k, adj = halfedges[e];
+      if (adj < 0) continue;
+      const crossing = con.isConstrained(e) ? 1 : 0;
+      reach(Math.floor(adj / 3), depth[t] + crossing, !crossing);
+    }
+  }
+  const out = [];
+  for (let t = 0; t < count; t++) {
+    if (depth[t] % 2 !== 1) continue;
+    const [a, b, c] = [triangles[3 * t], triangles[3 * t + 1], triangles[3 * t + 2]];
+    const orient = (uv[b].x - uv[a].x) * (uv[c].y - uv[a].y) - (uv[b].y - uv[a].y) * (uv[c].x - uv[a].x);
+    out.push(orient < 0 ? [a, c, b] : [a, b, c]);
+  }
+  return out;
 }
 
 function plane(face) {
@@ -93,7 +129,8 @@ function plane(face) {
   const area = (l) => Math.abs(THREE.ShapeUtils.area(l));
   const outer = flat.reduce((best, l, i) => (area(l) > area(flat[best]) ? i : best), 0);
   const order = [outer, ...flat.keys()].filter((i, k) => k === 0 || i !== outer);
-  const triangles = triangulate(order.map((i) => flat[i]));
+  const triangles = triangulate(order.flatMap((i) => flat[i]), order.map((i) => flat[i].length));
+  if (!triangles) return null;
   const points = order.flatMap((i) => loops[i]);
   return { points, normals: points.map(() => n), index: triangles.flat() };
 }
@@ -235,7 +272,10 @@ function layout(loops, frame) {
     // 面の中で閉じたループだけ（部分円筒など）。展開図の面積が最大のものが外周
     const area = (l) => Math.abs(THREE.ShapeUtils.area(l.verts.map((v) => new THREE.Vector2(v.t, v.h))));
     const outer = inside.reduce((a, b) => (area(b) > area(a) ? b : a));
-    const center = meanT(outer.verts);
+    // 穴は、外周の θ の範囲の中央から ±π の中へ移す。範囲は 2π 以下なので、中の穴は必ずそこに入る。
+    // 点の平均を中央にすると、点の密な側（B スプラインの交線など）に寄り、範囲の端の穴が 1 周外へ出る
+    const ts = outer.verts.map((v) => v.t);
+    const center = (Math.min(...ts) + Math.max(...ts)) / 2;
     const holes = inside.filter((l) => l !== outer).map((l) => shifted(l.verts, TAU * Math.round((center - meanT(l.verts)) / TAU)));
     return { outer: outer.verts, holes, cuts: [] };
   }
@@ -249,52 +289,6 @@ function layout(loops, frame) {
   const holes = inside.map((l) => shifted(l.verts, TAU * Math.ceil((t0 - meanT(l.verts)) / TAU))); // θ0 〜 θ0 + 2π の中へ
   // 継ぎ目（外周の 1 周目の末尾 → 戻りの先頭、戻りの末尾 → 先頭）は稜線ではない。分割してよい
   return { outer: [...start, ...back], holes, cuts: [start.length - 1, start.length + back.length - 1] };
-}
-
-/**
- * earcut の結果（面積は正しいが、細長い三角形や面積 0 の三角形を含む）を、境界の辺を保ったまま
- * 辺の入れ替え（Lawson の方法）で制約付き Delaunay 三角形分割にする。
- * 円は展開図で一直線に並ぶので、そのままだと一直線上の点どうしを結ぶ三角形ができ、細分の結果が乱れる。
- * @param {THREE.Vector2[]} uv  展開図の座標（縦横の尺度をそろえたもの）
- */
-function delaunay(uv, triangles, fixedEdge) {
-  const orient = (a, b, c) => (uv[b].x - uv[a].x) * (uv[c].y - uv[a].y) - (uv[b].y - uv[a].y) * (uv[c].x - uv[a].x);
-  const size2 = (a, b) => uv[a].distanceToSquared(uv[b]);
-  const flat = (a, b, c) => Math.abs(orient(a, b, c)) <= 1e-12 * Math.max(size2(a, b), size2(b, c), size2(c, a));
-  /** d が反時計回りの三角形 abc の外接円の内側にあれば正 */
-  const inCircle = (a, b, c, d) => {
-    const [ax, ay, bx, by, cx, cy] = [a, b, c].flatMap((v) => [uv[v].x - uv[d].x, uv[v].y - uv[d].y]);
-    const det = (ax * ax + ay * ay) * (bx * cy - cx * by) - (bx * bx + by * by) * (ax * cy - cx * ay) + (cx * cx + cy * cy) * (ax * by - bx * ay);
-    const scale = Math.max(size2(a, d), size2(b, d), size2(c, d));
-    return det > 1e-9 * scale * scale;
-  };
-  const tris = triangles.map(([a, b, c]) => (orient(a, b, c) < 0 ? [a, c, b] : [a, b, c]));
-  const owner = new Map(); // 向きのある辺 → その辺を持つ三角形
-  const own = (t) => {
-    const [a, b, c] = tris[t];
-    owner.set(edgeKey(a, b), t).set(edgeKey(b, c), t).set(edgeKey(c, a), t);
-  };
-  tris.forEach((_, t) => own(t));
-  const stack = [...owner.keys()];
-  for (let guard = 4 * tris.length * tris.length + 1000; stack.length && guard > 0; guard--) { // 収束までの入れ替えは最悪で三角形数の 2 乗
-    const key = stack.pop();
-    const t1 = owner.get(key);
-    const i = Math.floor(key / KEY), j = key % KEY;
-    const t2 = owner.get(edgeKey(j, i));
-    if (t1 === undefined || t2 === undefined || fixedEdge(i, j)) continue;
-    const k = tris[t1].find((v) => v !== i && v !== j), l = tris[t2].find((v) => v !== i && v !== j);
-    // 四角形 i, l, j, k の対角線を i–j から k–l に替える。替えた後の 2 つの三角形が裏返らないことが条件
-    if (orient(i, l, k) <= 0 || orient(l, j, k) <= 0 || flat(i, l, k) || flat(l, j, k)) continue;
-    if (!(flat(i, j, k) || flat(j, i, l) || inCircle(i, j, k, l))) continue;
-    owner.delete(key);
-    owner.delete(edgeKey(j, i));
-    tris[t1] = [i, l, k];
-    tris[t2] = [l, j, k];
-    own(t1);
-    own(t2);
-    stack.push(edgeKey(i, l), edgeKey(l, j), edgeKey(j, k), edgeKey(k, i));
-  }
-  return tris;
 }
 
 /**
@@ -382,10 +376,8 @@ function meshChart(rings, cuts, inner, chart) {
     base += ring.length;
   });
   const isFixed = (i, j) => fixed.has(undirected(i, j));
-  // 点 1 つの穴は earcut で内部の点（Steiner 点）になる。番号は verts と同じ並び
-  const shape = triangulate([...rings, ...inner.map((v) => [v])].map((ring) => ring.map(chart.uv)));
-  const triangles = delaunay(verts.map(chart.uv), shape, isFixed);
-  return { verts, triangles: refine(verts, triangles, isFixed, chart) };
+  const triangles = triangulate(verts.map(chart.uv), rings.map((ring) => ring.length));
+  return triangles && { verts, triangles: refine(verts, triangles, isFixed, chart) };
 }
 
 function revolved(face) {
@@ -421,7 +413,8 @@ function revolved(face) {
       const t = (a.t + b.t) / 2, h = (a.h + b.h) / 2;
       return { p: frame.point(t, h), t, h };
     },
-  });
+  }) ?? {};
+  if (!triangles) return null;
   return { points: verts.map((v) => v.p), normals: verts.map((v) => frame.normal(v.t, v.h)), index: triangles.flat() };
 }
 
@@ -451,17 +444,158 @@ function apexCone(face, frame) {
     // 先端を通る辺は母線（曲面の上の直線）なので分けない。それ以外は先端から見た角度の幅で分ける
     width: (a, b) => (isTip(a) || isTip(b) ? 0 : Math.abs(wrapAngle(b.t - a.t)) / ARC_STEP),
     midpoint: (a, b) => frame.lift((a.x + b.x) / 2, (a.y + b.y) / 2),
-  });
+  }) ?? {};
+  if (!triangles) return null;
   return { points: verts.map((v) => v.p), normals: verts.map((v) => (isTip(v) ? frame.tipNormal : frame.normal(v.t, v.h))), index: triangles.flat() };
 }
 
-export const MESHERS = { plane, cylinder: revolved, cone: revolved, torus: revolved };
+// ---- 自由曲面（B スプライン）------------------------------------------------------
+// 境界の点をパラメータ (u, v) に写し（最近点）、その平面で分割してから、辺に沿って面の法線が回る角度が
+// 円弧の刻み ARC_STEP 以下になるまで細分する（円筒・円錐と同じ細かさ）。
+// 境界の点は元の座標のまま使う（隣の面と同じ点）。u・v の向きに閉じた曲面は、継ぎ目の上の点を前の点と同じ側に置く。
+
+const ON_SURFACE = 1e-6; // 最近点が境界の点とこの比（面の大きさに対する）以内なら、曲面の上とみなす
+
+/** 閉じた向き（最初と最後の制御点の列が一致する向き）: [u が閉じている, v が閉じている] */
+function closedDirections(s) {
+  const same = (a, b) => a.every((p, i) => Math.hypot(p[0] - b[i][0], p[1] - b[i][1], p[2] - b[i][2]) < SAME_POINT);
+  const columns = (j) => s.points.map((row) => row[j]);
+  return [same(s.points[0], s.points.at(-1)), same(columns(0), columns(s.points[0].length - 1))];
+}
+
+/** ループの点をパラメータに写す。閉じた曲面を継ぎ目なしに 1 周するループ（継ぎ目の稜線の無い筒の縁など）は扱わない（null） */
+function surfaceLoop(face, loop, domain, closed, size) {
+  const points = openLoop(loop).filter((p, i, all) => i === 0 || p.distanceTo(all[i - 1]) >= SAME_POINT);
+  const out = [];
+  for (const p of points) {
+    const q = p.toArray();
+    const prev = out.at(-1);
+    let hit = prev ? projectToSurface(face, q, [prev.u, prev.v], domain) : null;
+    if (!hit || hit.distance > ON_SURFACE * size) hit = locateOnSurface(face, q, domain);
+    const uv = [hit.u, hit.v];
+    // 継ぎ目の上の点（範囲の端）は、前の点に近い側の端にする
+    for (const k of [0, 1]) {
+      const [lo, hi] = domain[k], span = hi - lo, at = uv[k];
+      if (!closed[k] || !prev) continue;
+      const before = k ? prev.v : prev.u;
+      if (Math.abs(at - lo) < 1e-9 * span && before - lo > span / 2) uv[k] = hi;
+      else if (Math.abs(at - hi) < 1e-9 * span && hi - before > span / 2) uv[k] = lo;
+    }
+    out.push({ p, u: uv[0], v: uv[1] });
+  }
+  if (out.length < 3) return null;
+  // 閉じた向きに半周を超えて跳ぶ区間があれば、継ぎ目をまたいで 1 周している
+  const around = out.some((a, i) => {
+    const b = out[(i + 1) % out.length];
+    return [a.u - b.u, a.v - b.v].some((d, k) => closed[k] && Math.abs(d) > (domain[k][1] - domain[k][0]) / 2);
+  });
+  return around ? null : out;
+}
+
+function bspline(face) {
+  const domain = surfaceDomain(face);
+  const closed = closedDirections(face);
+  const box = new THREE.Box3().setFromPoints(face.points.flat().map(v3));
+  const size = box.getSize(new THREE.Vector3()).length() || 1;
+  const rings = face.loops.map((loop) => surfaceLoop(face, loop, domain, closed, size));
+  if (!rings.length || rings.some((r) => !r)) return null;
+  // パラメータの平面の縦横の尺度を、曲面の上の長さにそろえる（∂S/∂u・∂S/∂v の長さの平均）。Delaunay 分割の形をよくするため
+  const grid = [0.1, 0.3, 0.5, 0.7, 0.9];
+  const mean = (k) => grid.reduce((sum, a) => sum + grid.reduce((t, b) => {
+    const { du, dv } = surfaceDerivs(face, domain[0][0] + a * (domain[0][1] - domain[0][0]), domain[1][0] + b * (domain[1][1] - domain[1][0]));
+    return t + Math.hypot(...(k ? dv : du));
+  }, 0), 0) / grid.length ** 2 || 1;
+  const scale = [mean(0), mean(1)];
+  // 片方の向きだけが直線（次数 1。線織面）なら、円筒の高さと同じく、その向きの範囲全体を境界の点の間隔ほどに縮める。
+  // Delaunay 分割が直線の向きに沿う（もう一方のパラメータの差が小さい）辺を選び、細分のいらない分割になる
+  const straight = face.degree.map((d) => d === 1);
+  if (straight[0] !== straight[1]) {
+    const k = straight[0] ? 0 : 1, other = 1 - k, key = ["u", "v"];
+    const gaps = rings.flatMap((ring) => ring.map((a, i) => Math.abs(ring[(i + 1) % ring.length][key[other]] - a[key[other]]) * scale[other])).filter((g) => g > 0).sort((a, b) => a - b);
+    const range = domain[k][1] - domain[k][0];
+    if (gaps.length) scale[k] = Math.min(scale[k], gaps[gaps.length >> 1] / range);
+  }
+  const uv = (v) => new THREE.Vector2(v.u * scale[0], v.v * scale[1]);
+  const area = (ring) => Math.abs(THREE.ShapeUtils.area(ring.map(uv)));
+  rings.sort((a, b) => area(b) - area(a)); // 面積が最大のループが外周
+  const at = (u, v) => v3(surfaceDerivs(face, u, v).p);
+  // 辺がまたぐノット区間の数（曲面の曲がりはノット区間ごとに変わりうるので、垂れは区間ごとに 4 点以上で調べる）
+  const knots = face.knots.map((k) => [...new Set(k)]);
+  const below = (list, t) => { // t より小さいノットの数
+    let lo = 0, hi = list.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (list[mid] < t) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  };
+  const crossed = (k, a, b) => {
+    const [lo, hi] = a < b ? [a, b] : [b, a];
+    return Math.max(0, below(knots[k], hi) - below(knots[k], lo) - (knots[k].includes(lo) ? 1 : 0)) + 1;
+  };
+  // 辺の幅 = 辺に沿って面の法線が回る角度の和 / ARC_STEP（円筒の |Δθ| / ARC_STEP と同じ尺度）。
+  // 波打つ面も、波ごとの曲がりを足すので平らな三角形 1 枚で覆わない
+  const normalAt = (u, v) => {
+    const { du, dv } = surfaceDerivs(face, u, v);
+    return new THREE.Vector3(...du).cross(new THREE.Vector3(...dv)).normalize();
+  };
+  const turning = (a, b) => {
+    if (a.p.distanceTo(b.p) < SAME_POINT) return 0;
+    const n = 4 * (crossed(0, a.u, b.u) + crossed(1, a.v, b.v) - 1);
+    let sum = 0, prev = normalAt(a.u, a.v);
+    for (let i = 1; i <= n; i++) {
+      const f = i / n, next = normalAt(a.u + (b.u - a.u) * f, a.v + (b.v - a.v) * f);
+      sum += prev.angleTo(next) || 0;
+      prev = next;
+    }
+    return sum / ARC_STEP;
+  };
+  const cache = new Map(); // 点 → (点 → 幅)。細分は同じ辺の幅を何度も尋ねる
+  const { verts, triangles } = meshChart(rings, [], [], {
+    uv,
+    width(a, b) {
+      if (!cache.has(a)) cache.set(a, new Map());
+      if (!cache.get(a).has(b)) {
+        const w = turning(a, b);
+        cache.get(a).set(b, w);
+        if (!cache.has(b)) cache.set(b, new Map());
+        cache.get(b).set(a, w);
+      }
+      return cache.get(a).get(b);
+    },
+    midpoint(a, b) {
+      const u = (a.u + b.u) / 2, v = (a.v + b.v) / 2;
+      return { p: at(u, v), u, v };
+    },
+  }) ?? {};
+  if (!triangles) return null;
+  // 法線 = ∂S/∂u × ∂S/∂v（面の向きが逆なら裏返す）。特異点（極）では範囲の中央へ少し寄せた点の法線を使う
+  const center = domain.map(([lo, hi]) => (lo + hi) / 2);
+  const normal = ({ u, v }) => {
+    for (const f of [0, 1e-6, 1e-3]) {
+      const { du, dv } = surfaceDerivs(face, u + (center[0] - u) * f, v + (center[1] - v) * f);
+      const n = new THREE.Vector3(...du).cross(new THREE.Vector3(...dv));
+      if (n.lengthSq() > 0) return n.normalize().multiplyScalar(face.flip ? -1 : 1);
+    }
+    return new THREE.Vector3();
+  };
+  // 三角形は展開図（u・v とも正の尺度）で反時計回りなので、3D では ∂S/∂u × ∂S/∂v の向きを向く。
+  // 向きは法線との比較では決めない（ねじれた線織面の細長い三角形は、垂れが小さくても面の傾きが定まらない）
+  const index = triangles.flatMap(([a, b, c]) => (face.flip ? [a, c, b] : [a, b, c]));
+  return { points: verts.map((v) => v.p), normals: verts.map(normal), index, oriented: true };
+}
+
+export const MESHERS = { plane, cylinder: revolved, cone: revolved, torus: revolved, bspline };
 export const isRenderable = (face) => face.type in MESHERS;
 
-/** 三角形の向きを頂点法線に揃えてから BufferGeometry にする（表裏の判定と陰影を正しくするため）。 */
-function toGeometry({ points, normals, index }) {
+/**
+ * 三角形の向きを頂点法線に揃えてから BufferGeometry にする（表裏の判定と陰影を正しくするため）。
+ * oriented … 分割が向きをそろえて返した（展開図の向きから決まる）ので、揃え直さない
+ */
+function toGeometry({ points, normals, index, oriented = false }) {
   const e1 = new THREE.Vector3(), e2 = new THREE.Vector3();
-  for (let k = 0; k < index.length; k += 3) {
+  for (let k = 0; !oriented && k < index.length; k += 3) {
     const [a, b, c] = [index[k], index[k + 1], index[k + 2]];
     e1.subVectors(points[b], points[a]);
     e2.subVectors(points[c], points[a]);

@@ -15,6 +15,8 @@ Inventor API の長さの単位は cm、角度はラジアン。mm → cm の換
 from __future__ import annotations
 
 import math
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -34,6 +36,11 @@ K_JOIN = 20481  # PartFeatureOperationEnum.kJoinOperation
 K_SYMMETRIC = 20995  # PartFeatureExtentDirectionEnum.kSymmetricExtentDirection
 XY_PLANE = 3  # 原点の作業平面: 1 = YZ, 2 = XZ, 3 = XY
 Y_AXIS = 2  # 原点の作業軸: 1 = X, 2 = Y, 3 = Z
+
+PROG_ID = "Inventor.Application"
+# Inventor が起動中・処理中で呼び出しを受け付けない（COM の RPC_E_CALL_REJECTED・RPC_E_SERVERCALL_RETRYLATER）。待ってやり直す
+BUSY_HRESULTS = (-2147418111, -2147417846)
+READY_TIMEOUT = 300.0  # 秒。起動を待つ上限（ライセンスの確認などで数分かかることがある）
 
 KIND_LABEL = {"revolve": "回転体", "extrude": "押し出し", "mesh": "近似"}
 SEGMENT_LABEL = {"line": "直線", "arc": "円弧", "circle": "円"}
@@ -154,17 +161,20 @@ class Builder:
         return selected
 
     def add_chamfers(self, definition, part: Part) -> None:
-        body = definition.SurfaceBodies.Item(1)
+        """同じ大きさの面取りを 1 つのフィーチャにする。稜線は大きさごとに、その時点のボディから選び直す
+        （フィーチャを足すと形が作り直され、前に取り出した稜線は使えなくなる）"""
         by_distance: dict[float, list] = {}
         for chamfer in part.chamfers:
-            edges = self.cap_edges(body, part, chamfer)
-            if not edges:
-                raise RuntimeError(f"面取りする稜線が見つかりません（{chamfer.label}）")
-            by_distance.setdefault(chamfer.distance, []).extend(edges)
-        for distance, edges in by_distance.items():
+            by_distance.setdefault(chamfer.distance, []).append(chamfer)
+        for distance, chamfers in by_distance.items():
+            body = definition.SurfaceBodies.Item(1)
             collection = self.app.TransientObjects.CreateEdgeCollection()
-            for edge in edges:
-                collection.Add(edge)
+            for chamfer in chamfers:
+                edges = self.cap_edges(body, part, chamfer)
+                if not edges:
+                    raise RuntimeError(f"面取りする稜線が見つかりません（{chamfer.label}）")
+                for edge in edges:
+                    collection.Add(edge)
             definition.Features.ChamferFeatures.AddUsingDistance(collection, cm(distance))
 
     # ---- 部品 -------------------------------------------------------------------
@@ -229,23 +239,29 @@ class Builder:
         """作れた部品を、取り込んだシーンと同じ位置に配置した組立を作る。(配置数, エラー) を返す。"""
         doc = None
         placed = 0
+        failures: list[str] = []  # 置けなかった出現（1 か所の失敗で組立全体を捨てない）
         try:
             doc = self.app.Documents.Add(K_ASSEMBLY_DOCUMENT, self.assembly_template, True)
             occurrences = doc.ComponentDefinition.Occurrences
             for result in results:
                 if result.path is None:
                     continue
-                for frame in result.part.instances:
-                    matrix = self.tg.CreateMatrix()
-                    matrix.SetCoordinateSystem(
-                        self.tg.CreatePoint(*(cm(v) for v in frame.origin)),
-                        self.tg.CreateVector(*frame.x),
-                        self.tg.CreateVector(*frame.y),
-                        self.tg.CreateVector(*frame.z),
-                    )
-                    occurrences.Add(str(result.path), matrix)
-                    placed += 1
+                for n, frame in enumerate(result.part.instances, start=1):
+                    try:
+                        matrix = self.tg.CreateMatrix()
+                        matrix.SetCoordinateSystem(
+                            self.tg.CreatePoint(*(cm(v) for v in frame.origin)),
+                            self.tg.CreateVector(*frame.x),
+                            self.tg.CreateVector(*frame.y),
+                            self.tg.CreateVector(*frame.z),
+                        )
+                        occurrences.Add(str(result.path), matrix)
+                        placed += 1
+                    except Exception as error:  # noqa: BLE001
+                        failures.append(f"{result.part.name}:{n}（{com_error_text(error)}）")
             doc.SaveAs(str(path), False)
+            if failures:
+                return placed, f"{len(failures)} か所を置けませんでした: " + "、".join(failures[:3]) + ("…" if len(failures) > 3 else "")
             return placed, None
         except Exception as error:  # noqa: BLE001
             return placed, com_error_text(error)
@@ -257,15 +273,85 @@ class Builder:
                     pass
 
 
-def connect(visible: bool = True):
-    """起動中の Inventor に接続する（起動していなければ起動する）。"""
+def is_busy(error: Exception) -> bool:
+    """Inventor が起動中・処理中で呼び出しを断った（待てば受け付ける）か"""
+    code = getattr(error, "hresult", None)
+    if code is None and getattr(error, "args", None):
+        code = error.args[0]
+    return code in BUSY_HRESULTS
+
+
+def when_ready(call, timeout: float = READY_TIMEOUT, pause: float = 0.5, clock=time.monotonic, sleep=time.sleep):
+    """call() を、Inventor が呼び出しを断る間は待ってやり直す。timeout 秒を過ぎても断られれば、その例外を出す"""
+    end = clock() + timeout
+    while True:
+        try:
+            return call()
+        except Exception as error:  # noqa: BLE001
+            if not is_busy(error) or clock() >= end:
+                raise
+        sleep(pause)
+
+
+def _wait_until_started(app, timeout: float = READY_TIMEOUT, pause: float = 0.5, clock=time.monotonic, sleep=time.sleep) -> None:
+    """起動したばかりの Inventor が準備を終える（Application.Ready が真になる）まで待つ"""
+    end = clock() + timeout
+    while not when_ready(lambda: app.Ready, max(0.0, end - clock()), pause, clock, sleep):
+        if clock() >= end:
+            raise RuntimeError(f"Inventor の起動が {timeout:.0f} 秒たっても終わりません。Inventor の画面にダイアログが出ていないか確かめてください")
+        sleep(pause)
+
+
+def _dispatch(active: bool):
+    """Inventor の Application（遅延バインディング）。active なら起動中のものだけ（無ければ例外）。
+    遅延バインディングにするのは、この PC に pywin32 の型ライブラリのキャッシュ（makepy）があっても同じ動きにするため
+    （キャッシュがあると Documents.Add が汎用の Document を返し、部品の ComponentDefinition を読めない）"""
     try:
-        import win32com.client  # noqa: PLC0415 — Windows でだけ必要
+        import pythoncom  # noqa: PLC0415 — Windows でだけ必要
+        import pywintypes  # noqa: PLC0415
+        from win32com.client import dynamic  # noqa: PLC0415
     except ImportError as error:
         raise RuntimeError("pywin32 が見つかりません。コマンドプロンプトで  pip install pywin32  を実行してください。") from error
     try:
-        app = win32com.client.GetActiveObject("Inventor.Application")
-    except Exception:  # noqa: BLE001
-        app = win32com.client.Dispatch("Inventor.Application")
-    app.Visible = visible
+        running = pythoncom.GetActiveObject(pywintypes.IID(PROG_ID))
+        return dynamic.Dispatch(running.QueryInterface(pythoncom.IID_IDispatch))
+    except pythoncom.com_error:
+        if active:
+            raise
+        return dynamic.Dispatch(PROG_ID)
+
+
+def connect(visible: bool = True):
+    """起動中の Inventor に接続する（起動していなければ起動し、準備が終わるまで待つ）。"""
+    app = _dispatch(active=False)
+    _wait_until_started(app)
+    when_ready(lambda: setattr(app, "Visible", visible))
     return app
+
+
+def restore_normal(app) -> None:
+    """画面の更新とダイアログを、Inventor のふだんの状態（更新する・ダイアログを出す）に戻す。
+    作る前の値ではなく、ふだんの状態に戻す（前の実行が途中で止められていると、作る前の値が「止めたまま」になっている）"""
+    when_ready(lambda: setattr(app, "ScreenUpdating", True), timeout=30.0)
+    when_ready(lambda: setattr(app, "SilentOperation", False), timeout=30.0)
+
+
+@contextmanager
+def quiet(app):
+    """作る間だけ、画面の更新を止め、ダイアログを出さない（速く・止まらずに作る）。終われば必ずふだんの状態に戻す"""
+    app.ScreenUpdating, app.SilentOperation = False, True
+    try:
+        yield app
+    finally:
+        restore_normal(app)
+
+
+def restore_running_inventor() -> bool:
+    """起動中の Inventor の画面の更新とダイアログを、ふだんの状態に戻す（作る係を強制的に止めた後の片付け）。
+    起動していなければ何もしない（新しく起動はしない）。戻したら True"""
+    try:
+        app = _dispatch(active=True)
+    except Exception:  # noqa: BLE001 — pywin32 が無い・Inventor が起動していない
+        return False
+    restore_normal(app)
+    return True

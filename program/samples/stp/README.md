@@ -18,3 +18,10 @@
 | ファイル | 内容 |
 |---|---|
 | `Assembly_全体_Φ54.5.stp` | `samples/iam/Assembly_全体_Φ54.5.iam` を Inventor 2026 で書き出した STEP（AP214）。部品 10 種類・39 か所 |
+| `Assembly_X2.stp`・`Assembly_Y2.stp` | Inventor 2026 の組立（部品 1 つ・1 か所）。側面に穴のある円筒（Part3_A_X・Part3_A_Y）。アプリは部品として開く |
+| `Assembly_XY2.stp` | Inventor 2026 の組立。部品 4 種類・22 か所（円筒 2 種類・板・M4 × 6 のボルト 12 本） |
+| `Plate.stp` | Inventor 2026 の部品（組立なし）。アプリの STEP の書き方を、Inventor の部品の書き方と照らし合わせるのにも使う |
+| `探索Part1.stp` | Inventor **2022** の部品。自由曲面（B スプライン曲面。細かいのこぎり歯の面）を含む。元のデータに、4 つの面が 1 本の線で接するくびれがある（OpenCascade も自己交差と判定する） |
+
+部品の体積の厳密値（OpenCascade の誤差を保証する積分）などの、ファイルごとの事実は `tests/js/assembly.test.mjs` の `STEP_FACTS` にある。
+表に無い STEP を置いても、形式によらない確かめ（閉じたソリッド・稜線・ボルトと穴・部品表）はする。

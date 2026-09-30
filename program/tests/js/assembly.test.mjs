@@ -1,6 +1,6 @@
 // 組立（.iam）と STEP の評価。
-//   STEP … 読み取り（書式・単位・構造）、全ての部品が閉じたソリッドとして描けること、同じ部品の .ipt の解析結果と一致すること、
-//          ボルトの軸が組み付け先の穴の軸と一致すること（配置の変換が正しいことを、形から独立に確かめる）
+//   STEP … 読み取り（書式・単位・構造）、全ての部品が閉じたソリッドとして描けること、体積が OpenCascade の厳密値と一致すること、
+//          同じ部品の .ipt の解析結果と一致すること、ボルトの軸が組み付け先の穴の軸と一致すること（配置の変換を、形から独立に確かめる）
 //   .iam … 参照・出現・配置が、同じ組立を書き出した STEP と一致すること。参照先の部品を samples/ipt から解決できること
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
@@ -37,24 +37,69 @@ describe("STEP の書式（ISO 10303-21）", () => {
   });
 });
 
+// サンプルの STEP ごとの事実（Inventor が書き出した内容）。parts … 部品名 → [出現の数, 体積 mm³]。
+// 体積は OpenCascade の誤差を保証する積分（tools/check_step.py）で求めた厳密値。アプリの体積は表示用の三角形から求めるので、
+// 円弧を折れ線にした分だけ小さい（外接箱の体積の VOLUME_TOL 以内で比べる）。ipt … 同じ名前の .ipt（samples/ipt）がある部品の数。
+// 表の無いサンプルも、形式によらない確かめ（閉じたソリッド・稜線・材質・ボルトと穴・部品表）はする
+const STEEL = ["鋼、軟鋼", 0.00785];
+const STEP_FACTS = {
+  "Assembly_全体_Φ54.5.stp": {
+    root: "Assembly_全体_Φ54.5", system: "Autodesk Inventor 2026", material: STEEL, ipt: 8, screws: 20,
+    parts: {
+      "A3_円筒_両切欠き＋片ネジ_Φ54.5_M4あり": [1, 75459.92], "A1_円筒_両切欠き＋片ネジ_Φ54.5": [2, 74144.851],
+      "A2_円筒_両切欠き＋両ネジ_Φ54.5_側面穴2つ": [1, 73574.138], "F_円筒_片切欠き＋両ネジ_100㎜_Φ54.5_M4あり": [1, 97667.154],
+      "C2_円板_切欠きあり＋スリットあり＋ネジなし_Φ54.5_M4ボルト穴": [1, 2800.125], "C1_円板_切欠きあり＋スリットあり＋ネジなし_Φ54.5": [4, 2690.279],
+      "D_円板_切欠きなし＋スリットなし＋ネジなし_Φ54.5_M4ボルト穴": [1, 3228.061], "E_Plate_改_Φ54.5": [8, 230.352],
+      "JIS B 1176 - M4 x 8 - 0.7": [18, 234.041], "JIS B 1176 - M4 x 40 - 0.7": [2, 636.165],
+    },
+  },
+  "Assembly_X2.stp": { root: "Assembly_X2", system: "Autodesk Inventor 2026", material: STEEL, parts: { Part3_A_X: [1, 86636.812] } },
+  "Assembly_XY2.stp": {
+    root: "Assembly_XY2", system: "Autodesk Inventor 2026", material: STEEL, screws: 12,
+    parts: { Part3_A_X: [2, 86636.812], Part3_A_Y: [2, 88257.55], Plate: [6, 83.676], "JIS B 1176 - M4 x 6 - 0.7": [12, 208.908] },
+  },
+  "Assembly_Y2.stp": { root: "Assembly_Y2", system: "Autodesk Inventor 2026", material: STEEL, parts: { Part3_A_Y: [1, 88257.55] } },
+  "Plate.stp": { root: null, system: "Autodesk Inventor 2026", material: STEEL, parts: { Plate: [1, 83.676] } },
+  "探索Part1.stp": {
+    root: null, system: "Autodesk Inventor 2022", material: ["一般", 0.001], parts: { 探索Part1: [1, 108555.967] },
+    // 元のデータに、同じ 2 頂点を結ぶ別々の稜線（#173・#187）があり、4 つの面が 1 本の線で接する（くびれ）。
+    // 位置で溶接すると、その線を 4 枚の三角形が使う（重なった辺 2）。OpenCascade も自己交差と判定する。アプリの読み取りの誤りではない
+    defects: { open: 0, duplicated: 2 },
+  },
+};
+const isScrew = (name) => name.startsWith("JIS B 1176");
+
 for (const name of sampleSteps()) {
   describe(name, () => {
     const { scene } = parseStepFile(new TextDecoder().decode(readSampleFile("stp", name)), name);
+    const facts = STEP_FACTS[name];
     const partName = (inst) => scene.parts[inst.part].name;
 
-    test("組立の構造: 部品 10 種類・39 か所（部品表の個数）", () => {
-      assert.equal(scene.root, "Assembly_全体_Φ54.5");
-      assert.equal(scene.parts.length, 10);
-      assert.deepEqual(tally(scene.instances.map(partName)), {
-        "A3_円筒_両切欠き＋片ネジ_Φ54.5_M4あり": 1, "A1_円筒_両切欠き＋片ネジ_Φ54.5": 2, "A2_円筒_両切欠き＋両ネジ_Φ54.5_側面穴2つ": 1,
-        "F_円筒_片切欠き＋両ネジ_100㎜_Φ54.5_M4あり": 1, "C2_円板_切欠きあり＋スリットあり＋ネジなし_Φ54.5_M4ボルト穴": 1,
-        "C1_円板_切欠きあり＋スリットあり＋ネジなし_Φ54.5": 4, "D_円板_切欠きなし＋スリットなし＋ネジなし_Φ54.5_M4ボルト穴": 1,
-        "E_Plate_改_Φ54.5": 8, "JIS B 1176 - M4 x 8 - 0.7": 18, "JIS B 1176 - M4 x 40 - 0.7": 2,
+    if (facts) {
+      test("構造: 組立の名前・書き出したソフト・部品の種類と個数", () => {
+        assert.equal(scene.root, facts.root);
+        assert.equal(scene.source.system, facts.system);
+        assert.deepEqual(tally(scene.instances.map(partName)), Object.fromEntries(Object.entries(facts.parts).map(([k, [n]]) => [k, n])));
       });
-    });
+
+      test("部品の体積が、OpenCascade の厳密値と一致する（円弧を折れ線にした分の差まで）", () => {
+        for (const p of scene.parts) {
+          const s = p.bodies[0].summary, exact = facts.parts[p.name][1];
+          const volume = partGeometry(p.bodies).volume;
+          assert.ok(Math.abs(volume - exact) <= VOLUME_TOL * s.size[0] * s.size[1] * s.size[2], `${p.name}: ${volume} / ${exact}`);
+        }
+      });
+
+      test("材質と密度（単位つきで g/cm³ → g/mm³）", () => {
+        for (const p of scene.parts) {
+          assert.equal(p.material, facts.material[0], p.name);
+          assert.ok(Math.abs(p.density_g_per_mm3 - facts.material[1]) < 1e-12, `${p.name}: ${p.density_g_per_mm3}`);
+        }
+      });
+    }
 
     test("ボルトの軸と頭は全周の円筒（STEP が頂点で分けて持つ円弧も、同じ円なら足して数える）", () => {
-      for (const p of scene.parts.filter((x) => x.name.startsWith("JIS B 1176"))) {
+      for (const p of scene.parts.filter((x) => isScrew(x.name))) {
         const cyl = p.bodies[0].summary.cylinders;
         assert.deepEqual(cyl.map((c) => [c.diameter, c.sweep_deg]).sort((a, b) => a[0] - b[0]), [[4, 360], [7, 360]], p.name);
       }
@@ -73,15 +118,8 @@ for (const name of sampleSteps()) {
             });
           }
         }
-        const seams = p.bodies[0].edges.filter((line) => facesOf.get(key(line[0], line[1]))?.size !== 2);
+        const seams = p.bodies[0].edges.filter((line) => (facesOf.get(key(line[0], line[1]))?.size ?? 0) < 2);
         assert.equal(seams.length, 0, `${p.name}: 境界でない稜線 ${seams.length} 本`);
-      }
-    });
-
-    test("材質と密度（単位つきで g/cm³ → g/mm³）", () => {
-      for (const p of scene.parts) {
-        assert.equal(p.material, "鋼、軟鋼", p.name);
-        assert.ok(Math.abs(p.density_g_per_mm3 - 0.00785) < 1e-12, `${p.name}: ${p.density_g_per_mm3}`);
       }
     });
 
@@ -92,14 +130,14 @@ for (const name of sampleSteps()) {
         const { triangles, missing, largest } = bodyMesh(part.bodies);
         assert.deepEqual(missing, []);
         assert.ok(largest <= FACE_TRIANGLE_LIMIT, `1 面の三角形 ${largest}`);
-        assert.deepEqual(edgeDefects(triangles), { open: 0, duplicated: 0 });
+        assert.deepEqual(edgeDefects(triangles), facts?.defects ?? { open: 0, duplicated: 0 });
         assert.ok(signedVolume(triangles) > 0);
         const worst = surfaceDeviation(triangles);
         assert.ok(worst <= DEVIATION_LIMIT, `設計上の弦の誤差の ${worst.toFixed(2)} 倍`);
       });
     }
 
-    test("同じ部品の .ipt と、外形・座標の範囲・円筒・円錐・面の数・種数・材質・体積が一致する", () => {
+    test("同じ名前の .ipt と、外形・座標の範囲・円筒・円錐・面の数・種数・材質・体積が一致する", () => {
       let compared = 0;
       for (const part of scene.parts) {
         const file = sampleIpts().find((n) => stem(n) === part.name);
@@ -119,7 +157,7 @@ for (const name of sampleSteps()) {
         assert.ok(Math.abs(va - vb) <= VOLUME_TOL * envelope, `${part.name} 体積 ${va} / ${vb}`);
         compared += 1;
       }
-      assert.equal(compared, 8, "自作の部品 8 種類を照合する");
+      assert.equal(compared, facts?.ipt ?? compared, "同じ名前の .ipt がある部品を全て照合する");
     });
 
     test("全てのボルトの軸が、組み付け先の部品の穴の軸と一直線になる（配置の変換の検証）", () => {
@@ -135,10 +173,9 @@ for (const name of sampleSteps()) {
         const diff = [0, 1, 2].map((k) => b.at[k] - a.at[k]);
         return len(cross(a.dir, b.dir)) < 1e-9 && len(cross(diff, a.dir)) < AXIS_TOL;
       };
-      const isScrew = (inst) => partName(inst).startsWith("JIS B 1176");
-      const holes = scene.instances.filter((i) => !isScrew(i)).flatMap((inst) => scene.parts[inst.part].bodies[0].summary.cylinders.filter((c) => c.kind === "hole").map((c) => line(inst, c)));
-      const screws = scene.instances.filter(isScrew);
-      assert.equal(screws.length, 20);
+      const screws = scene.instances.filter((i) => isScrew(partName(i)));
+      const holes = scene.instances.filter((i) => !isScrew(partName(i))).flatMap((inst) => scene.parts[inst.part].bodies[0].summary.cylinders.filter((c) => c.kind === "hole").map((c) => line(inst, c)));
+      assert.equal(screws.length, facts?.screws ?? screws.length);
       for (const inst of screws) {
         const shank = scene.parts[inst.part].bodies[0].summary.cylinders[0];
         assert.ok(holes.some((h) => coaxial(line(inst, shank), h)), `${inst.name} の軸に一致する穴がない`);
@@ -148,8 +185,8 @@ for (const name of sampleSteps()) {
     test("組立の説明: 部品表・外形・質量（全ての部品の密度が分かる）", () => {
       const volumes = scene.parts.map((p) => partGeometry(p.bodies).volume);
       const d = describeAssembly(scene, volumes);
-      assert.equal(d.groups.length, 10);
-      assert.equal(d.groups.reduce((n, g) => n + g.count, 0), 39);
+      assert.equal(d.groups.length, scene.parts.length);
+      assert.equal(d.groups.reduce((n, g) => n + g.count, 0), scene.instances.length);
       assert.ok(d.totals.massComplete && d.totals.mass > 0);
       // 外形（稜線の点を組立の座標にして囲んだもの）が、表示用の三角形の頂点を囲んだものと一致する（弦の近似の分だけ差がありうる）
       const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
@@ -162,6 +199,11 @@ for (const name of sampleSteps()) {
     });
   });
 }
+
+test("STEP の事実の表: 表にあるサンプルは全て samples/stp にある（名前の書き間違いを防ぐ）", () => {
+  const present = new Set(sampleSteps());
+  for (const name of Object.keys(STEP_FACTS)) assert.ok(present.has(name), name);
+});
 
 for (const name of sampleIams()) {
   describe(name, () => {

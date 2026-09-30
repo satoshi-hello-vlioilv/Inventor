@@ -8,16 +8,19 @@ import io
 import json
 import math
 import tempfile
+import threading
 import unittest
 from contextlib import redirect_stdout
+from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
 import tests  # noqa: F401 — program フォルダの ipt_build を import できるようにする
-from ipt_build import SpecError, load_spec
+from ipt_build import SpecError, load_spec, runner
 from ipt_build import inventor as inventor_module
 from ipt_build.__main__ import main
-from ipt_build.inventor import K_JOIN, K_SYMMETRIC, Builder
+from ipt_build.inventor import K_JOIN, K_SYMMETRIC, Builder, when_ready
+from ipt_build.spec import Chamfer, source_stem
 from tests.fake_inventor import FakeComError, FakeInventor
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "builder"
@@ -150,6 +153,18 @@ class ChamferTest(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertGreater(result.volume_diff, 1e-3)
 
+    def test_two_chamfer_sizes_pick_their_edges_from_the_body_after_the_first_chamfer(self):
+        # 本物の Inventor と同じく、代替オブジェクトもフィーチャを足すと前の稜線を使えなくする。
+        # 大きさごとに、その時点のボディから稜線を選び直さないと、2 つ目の面取りで失敗する
+        app = FakeInventor()
+        [blade] = spec_of("blade").parts
+        part = replace(blade, chamfers=(*blade.chamfers, Chamfer(loop=0, side=1, distance=2.0)))
+        with tempfile.TemporaryDirectory() as tmp:
+            result = Builder(app).build_part(part, Path(tmp))
+        self.assertIsNone(result.error)
+        chamfers = [entry for entry in app.documents[0].ComponentDefinition.log if entry[0] == "chamfer"]
+        self.assertEqual(chamfers, [("chamfer", 0.1, [(1, -1), (1, 1)]), ("chamfer", 0.2, [(0, 1)])])
+
     def test_description_mentions_the_chamfer(self):
         from ipt_build.inventor import describe
 
@@ -206,6 +221,87 @@ class AssemblyTest(unittest.TestCase):
         self.assertEqual(system[1:], (frame.x, frame.y, frame.z))
 
 
+    def test_an_occurrence_that_cannot_be_placed_does_not_discard_the_assembly(self):
+        app = FakeInventor()
+        spec = spec_of("finger")
+        with tempfile.TemporaryDirectory() as tmp:
+            builder = Builder(app)
+            results = [builder.build_part(p, Path(tmp)) for p in spec.parts]
+            parts = [replace(results[0], part=replace(results[0].part, instances=results[0].part.instances * 3)),
+                     replace(results[0], path=Path(tmp) / "無い部品.ipt")]
+            placed, error = builder.build_assembly(parts, Path(tmp) / "finger.iam")
+            saved = (Path(tmp) / "finger.iam").exists()
+        self.assertEqual(placed, 3)
+        self.assertTrue(saved, "置けた出現だけで組立を保存する")
+        self.assertRegex(error, r"^1 か所を置けませんでした: .+:1（ファイルがありません")
+
+
+class InventorSessionTest(unittest.TestCase):
+    """Inventor の状態（画面の更新・ダイアログ）と、中止・起動待ち"""
+
+    def run_build(self, app, **options):
+        with tempfile.TemporaryDirectory() as tmp:
+            return runner.build(spec_of("reel"), Path(tmp), connect=lambda: app, **options)
+
+    def test_restores_normal_screen_updating_and_dialogs_even_if_an_earlier_run_was_killed(self):
+        # 前の実行が強制的に止められ、画面の更新が止まったまま・ダイアログを出さないまま残っていても、ふだんの状態に戻す
+        app = FakeInventor(screen_updating=False, silent=True)
+        run = self.run_build(app)
+        self.assertTrue(run.ok)
+        self.assertEqual((app.ScreenUpdating, app.SilentOperation), (True, False))
+
+    def test_restores_the_settings_when_building_fails(self):
+        app = FakeInventor()
+        with mock.patch.object(Builder, "build_assembly", side_effect=RuntimeError("組立で失敗")):
+            run = self.run_build(app)
+        self.assertEqual(run.inventor_error, "組立で失敗")
+        self.assertEqual((app.ScreenUpdating, app.SilentOperation), (True, False))
+
+    def test_cancel_stops_between_parts_and_restores_the_settings(self):
+        app, cancel = FakeInventor(), threading.Event()
+
+        def progress(event, run, result=None):
+            if event == "part" and len(run.results) == 2:
+                cancel.set()
+
+        run = self.run_build(app, progress=progress, cancel=cancel)
+        self.assertEqual(len(run.results), 2, "作りかけの部品を終えたところで止まる")
+        self.assertIsNone(run.assembly_path, "組立は作らない")
+        self.assertTrue(all(d.closed for d in app.documents))
+        self.assertEqual((app.ScreenUpdating, app.SilentOperation), (True, False))
+
+    def test_waits_while_inventor_rejects_calls_and_gives_up_after_the_timeout(self):
+        class Busy(Exception):
+            hresult = -2147418111  # RPC_E_CALL_REJECTED
+
+        now = [0.0]
+        clock, sleep = (lambda: now[0]), (lambda s: now.__setitem__(0, now[0] + s))
+        answers = iter([Busy(), Busy(), 42])
+
+        def call():
+            answer = next(answers)
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+
+        self.assertEqual(when_ready(call, timeout=10, clock=clock, sleep=sleep), 42)
+        with self.assertRaises(Busy):
+            when_ready(lambda: (_ for _ in ()).throw(Busy()), timeout=5, clock=clock, sleep=sleep)
+        with self.assertRaises(ValueError, msg="断られたのではない失敗は、待たずに出す"):
+            when_ready(lambda: (_ for _ in ()).throw(ValueError("別の失敗")), timeout=5, clock=clock, sleep=sleep)
+
+    def test_waits_until_a_starting_inventor_is_ready(self):
+        app = FakeInventor()
+        states = iter([False, False, True])
+        type(app).Ready = property(lambda self: next(states), lambda self, v: None)
+        try:
+            inventor_module._wait_until_started(app, timeout=10, pause=0, sleep=lambda s: None)
+        finally:
+            del type(app).Ready
+        with self.assertRaises(StopIteration):
+            next(states)
+
+
 class ExtentTest(unittest.TestCase):
     """変換データから計算する外接箱（外形の照合の期待値）の評価。"""
 
@@ -245,6 +341,18 @@ def _sample(s, n=720):
 
     a0, sweep, r = arc_angles(s)
     return [(s.center[0] + r * math.cos(a0 + sweep * i / n), s.center[1] + r * math.sin(a0 + sweep * i / n)) for i in range(n + 1)]
+
+
+class SourceNameTest(unittest.TestCase):
+    def test_names_come_from_the_source_file_even_when_it_is_missing_or_unsafe(self):
+        self.assertEqual(source_stem({"file": None}), "変換データ")
+        self.assertEqual(source_stem({}), "変換データ")
+        self.assertEqual(source_stem({"file": "a:b?.html"}), "a_b_")
+        spec = replace(spec_of("finger"), source={"file": None})
+        with tempfile.TemporaryDirectory() as tmp:
+            run = runner.build(spec, Path(tmp), inventor=False)
+            self.assertIsNone(run.step_error)
+            self.assertTrue((Path(tmp) / "変換データ.stp").exists())
 
 
 class SpecTest(unittest.TestCase):

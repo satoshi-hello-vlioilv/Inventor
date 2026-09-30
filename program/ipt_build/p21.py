@@ -144,20 +144,28 @@ class P21Writer:
             "ENDSEC;",
             "DATA;",
         ]
-        body = [_wrap(f"#{i}={record};") for i, record in enumerate(self._records, start=1)]
-        return NEWLINE.join(header + body + ["ENDSEC;", "END-ISO-10303-21;", ""])
+        body = [f"#{i}={record};" for i, record in enumerate(self._records, start=1)]
+        return NEWLINE.join([_wrap(line) for line in header + body] + ["ENDSEC;", "END-ISO-10303-21;", ""])
 
 
 def _wrap(line: str) -> str:
-    """長い行を、文字列の外の区切り（,）の後で改行する"""
-    if len(line) <= LINE_LIMIT:
-        return line
-    out, start, quoted = [], 0, False
+    """長い行を、文字列の外の字句の切れ目で改行する: 区切り（,）の後と、複合実体の構成要素の間（)NAME( の ) の後）。
+    1 行に収まる最後の切れ目で改行する（収まる切れ目が無ければ、次の切れ目で）。長い文字列（日本語の名前など）は 1 行に置く。
+    Inventor（ST-Developer）は文字列の途中でも改行するが、読み手によっては文字列の改行を嫌うので、文字列の中では改行しない"""
+    breaks, quoted = [], False
     for i, ch in enumerate(line):
         if ch == "'":
             quoted = not quoted
-        elif ch == "," and not quoted and i - start >= LINE_LIMIT - 16:
-            out.append(line[start : i + 1])
-            start = i + 1
+        elif not quoted and (ch == "," or (ch == ")" and i + 1 < len(line) and line[i + 1].isalpha())):
+            breaks.append(i + 1)
+    out, start = [], 0
+    while len(line) - start > LINE_LIMIT:
+        fits = [b for b in breaks if start < b <= start + LINE_LIMIT]
+        later = [b for b in breaks if b > start + LINE_LIMIT]
+        cut = fits[-1] if fits else later[0] if later else None
+        if cut is None or cut >= len(line):
+            break
+        out.append(line[start:cut])
+        start = cut
     out.append(line[start:])
     return NEWLINE.join(out)

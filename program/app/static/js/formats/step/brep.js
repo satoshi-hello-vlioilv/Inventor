@@ -1,7 +1,7 @@
 // STEP の B-rep を、Inventor の B-rep（formats/ipt/brep.js）と同じ「中立な面」の形にする。
 // 面の要約（外接箱・穴・円錐）と表示（三角形分割）は ipt と共通の処理を使う。
 //   面: { index, surface, reversed, concave, edges, loops, threads }
-//   曲面: plane / cylinder / cone / torus（それ以外は型名のまま。表示は稜線だけ）
+//   曲面: plane / cylinder / cone / torus / bspline（有理を含む B スプライン曲面。それ以外は型名のまま。表示は稜線だけ）
 //   稜線: 直線・円・楕円・B スプライン（有理を含む）。曲面上の曲線（SURFACE_CURVE など）は 3 次元の曲線を使う
 
 import { curvePoint, sampleCurve } from "../../model/curves.js";
@@ -136,8 +136,24 @@ export class StepGeometry {
       case "CONICAL_SURFACE": return revolved("cone", a[2], Math.tan(a[3] * this.radian));
       case "TOROIDAL_SURFACE": return revolved("torus", a[2], 0, { minor: a[3] });
       case "SPHERICAL_SURFACE": return revolved("sphere", a[2], 0);
-      default: return { kind: (e.type || e.parts.map((p) => p.type).join("+")).toLowerCase() };
+      default: return this.splineSurface(e) ?? { kind: (e.type || e.parts.map((p) => p.type).join("+")).toLowerCase() };
     }
+  }
+
+  /** B_SPLINE_SURFACE_WITH_KNOTS（単純・複合・有理）→ { kind: "bspline", degree: [p, q], knots: [U, V], points, weights } */
+  splineSurface(e) {
+    const simple = e.type === "B_SPLINE_SURFACE_WITH_KNOTS" ? e.args : null;
+    const base = simple ? simple.slice(1, 8) : argsOf(e, "B_SPLINE_SURFACE");
+    const knotArgs = simple ? simple.slice(8, 12) : argsOf(e, "B_SPLINE_SURFACE_WITH_KNOTS");
+    if (!base || !knotArgs) return null;
+    const [p, q, rows] = base;
+    const [um, vm, uk, vk] = knotArgs;
+    const expand = (mults, values) => values.flatMap((k, i) => Array(mults[i]).fill(k));
+    const knots = [expand(um, uk), expand(vm, vk)];
+    const points = rows.map((row) => row.map((r) => this.point(r)));
+    const weights = argsOf(e, "RATIONAL_B_SPLINE_SURFACE")?.[0] ?? null;
+    if (knots[0].length !== points.length + p + 1 || knots[1].length !== points[0].length + q + 1) return null;
+    return { kind: "bspline", degree: [p, q], knots, points, weights };
   }
 
   /** 稜線（EDGE_CURVE）→ { index, curve, t0, t1, points }。点列は始点の頂点 → 終点の頂点の向き */

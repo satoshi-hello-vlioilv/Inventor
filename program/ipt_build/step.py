@@ -85,8 +85,10 @@ def write_step(spec: Spec, path: str | Path, name: str | None = None, assembly: 
     name = name or path.stem
     w = P21Writer()
     context = _context(w)
-    app = w.add("APPLICATION_CONTEXT", "core data for automotive mechanical design processes")
-    w.add("APPLICATION_PROTOCOL_DEFINITION", "international standard", "automotive_design", 2010, app)  # AP214 第 3 版（FILE_SCHEMA と同じ）
+    # 文脈の名前と年は Inventor 2026・2022 が書く値（規格の本文の語「core data for automotive mechanical design processes」、
+    # 第 3 版の年 2010 ではない）
+    app = w.add("APPLICATION_CONTEXT", "Core Data for Automotive Mechanical Design Process")
+    w.add("APPLICATION_PROTOCOL_DEFINITION", "international standard", "automotive_design", 2009, app)
     product_context = w.add("PRODUCT_CONTEXT", "part definition", app, "mechanical")
     definition_context = w.add("PRODUCT_DEFINITION_CONTEXT", "part definition", app, "design")
 
@@ -99,7 +101,7 @@ def write_step(spec: Spec, path: str | Path, name: str | None = None, assembly: 
         brep_shape = w.add("ADVANCED_BREP_SHAPE_REPRESENTATION", part.name, (solid,), context)
         origin = _placement(topo, (0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
         shape = w.add("SHAPE_REPRESENTATION", part.name, (origin,), context)
-        w.add("SHAPE_REPRESENTATION_RELATIONSHIP", "", "", shape, brep_shape)
+        w.add("SHAPE_REPRESENTATION_RELATIONSHIP", "SRR", "None", shape, brep_shape)  # 名前・説明も Inventor と同じ
         definition = _product(w, app, product_context, definition_context, part.key, part.name)
         w.add("SHAPE_DEFINITION_REPRESENTATION", w.add("PRODUCT_DEFINITION_SHAPE", "", "", definition), shape)
         shapes.append((part, definition, shape, origin, topo))

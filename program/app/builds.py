@@ -15,7 +15,6 @@ from __future__ import annotations
 import copy
 import json
 import os
-import re
 import subprocess
 import sys
 import threading
@@ -25,7 +24,7 @@ from typing import Callable
 import settings
 from ipt_build import libraries, parse_spec
 from ipt_build.runner import BuildRun
-from ipt_build.spec import SpecError
+from ipt_build.spec import SpecError, safe_name, source_stem  # noqa: F401 — safe_name は評価からも使う
 
 RUNNING = ("installing", "step", "connecting", "building", "assembly")
 TARGETS = ("inventor", "step")  # Inventor で作る（STEP・.ipt・.iam）／STEP だけ作る
@@ -33,15 +32,12 @@ TARGETS = ("inventor", "step")  # Inventor で作る（STEP・.ipt・.iam）／S
 STATE_OF = {"step": "connecting", "connecting": "connecting", "start": "building", "part": "building", "assembly": "assembly", "done": "done"}
 PROGRESS = ("out_dir", "parts", "assembly", "good", "total", "step", "inventor", "inventor_error")  # 画面に渡す進み具合
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-UNSAFE = re.compile(r'[\\/:*?"<>|\x00-\x1f]+')  # Windows のファイル名に使えない文字
+CANCEL_GRACE = 20.0  # 秒。中止を頼んでから待つ時間（作りかけの 1 部品を終えて Inventor を元に戻すまで）
+IN_INVENTOR = ("connecting", "building", "assembly")  # Inventor を操作している状態
 
 
 class BuildBusy(RuntimeError):
     pass
-
-
-def safe_name(text: str) -> str:
-    return UNSAFE.sub("_", text).strip(" .") or "変換データ"
 
 
 def unique_dir(path: Path) -> Path:
@@ -63,10 +59,11 @@ def open_folder(path: Path) -> None:
 
 class Builds:
     def __init__(self, root: Path, command: Callable[[list], list] | None = None, install: Callable[[], list] | None = None,
-                 opener: Callable[[Path], None] = open_folder):
+                 opener: Callable[[Path], None] = open_folder, cancel_grace: float = CANCEL_GRACE):
         self.root = Path(root)
         self.command = command or (lambda args: [sys.executable, "-X", "utf8", "-m", "ipt_build", *args])
         self.install_command = install or libraries.install_command
+        self.cancel_grace = cancel_grace  # 中止を頼んでから、止まらなければ強制的に止めるまでの秒数
         self.opener = opener
         self.console = settings.LOG_DIR / "builder_console.log"  # 作る係のエラー出力（途中で終わったときの理由）
         self._lock = threading.Lock()
@@ -102,7 +99,7 @@ class Builds:
         with self._lock:
             if self._job["state"] in RUNNING:
                 raise BuildBusy(f"「{self._job['name']}」を作っています。終わってから、もう一度押してください")
-            name = safe_name(Path(str(spec.source.get("file") or "変換データ")).stem)
+            name = source_stem(spec.source)
             out_dir = unique_dir(self.root / f"{name}_cad")
             out_dir.mkdir(parents=True)
             spec_path = out_dir / f"{name}.inventor.json"
@@ -114,14 +111,38 @@ class Builds:
         return self.status()
 
     def cancel(self) -> dict:
+        """中止する。作る係には標準入力で中止を頼む（作りかけの部品を終えたところで止まり、Inventor の画面の更新と
+        ダイアログをふだんの状態に戻して終わる）。cancel_grace 秒たっても止まらなければ強制的に止め、
+        Inventor を操作していたなら、別のプロセスで Inventor をふだんの状態に戻す（強制的に止めると、作る係は戻せない）。"""
         with self._lock:
             if self._job["state"] not in RUNNING:
                 return copy.deepcopy(self._job)
             self._cancelled = True
             proc = self._proc
         if proc and proc.poll() is None:
-            proc.terminate()
+            try:
+                proc.stdin.write("cancel\n")
+                proc.stdin.flush()
+            except (OSError, ValueError, AttributeError):  # 既に終わった・標準入力が無い
+                pass
+            threading.Thread(target=self._stop_after_grace, args=(proc,), name="cad-build-cancel", daemon=True).start()
         return self.status()
+
+    def _stop_after_grace(self, proc: subprocess.Popen) -> None:
+        try:
+            proc.wait(self.cancel_grace)
+            return
+        except subprocess.TimeoutExpired:
+            pass
+        in_inventor = self._job["state"] in IN_INVENTOR
+        proc.terminate()
+        if in_inventor:
+            try:
+                subprocess.run(self.command(["--restore-inventor"]), cwd=str(settings.LOCAL_ROOT), env=settings.child_env(),
+                               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                               timeout=60, creationflags=CREATE_NO_WINDOW)
+            except (OSError, subprocess.SubprocessError):  # Inventor が応答しない・Python を起こせない。画面の案内に任せる
+                pass
 
     def open_output(self) -> bool:
         """いまの（直前の）仕事の保存先を開く。仕事の保存先のほかは開かない。"""
@@ -136,7 +157,7 @@ class Builds:
         with self._lock:
             if self._cancelled:
                 raise InterruptedError
-            self._proc = subprocess.Popen(args, cwd=str(settings.LOCAL_ROOT), env=settings.child_env(), stdin=subprocess.DEVNULL,
+            self._proc = subprocess.Popen(args, cwd=str(settings.LOCAL_ROOT), env=settings.child_env(), stdin=subprocess.PIPE,
                                           stdout=subprocess.PIPE, stderr=stdout, text=True, encoding="utf-8", errors="replace",
                                           creationflags=CREATE_NO_WINDOW)
             return self._proc

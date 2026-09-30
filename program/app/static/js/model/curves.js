@@ -4,12 +4,14 @@
 //   spline  … { kind: "spline", degree, knots, points, weights, period, reversed }（有理 B スプライン。knots は標準の形）
 
 import { divide, extent } from "../core/numbers.js";
-import { add, cross, mul, unit } from "../core/vec.js";
+import { add, cross, mul, sub, unit } from "../core/vec.js";
+import { basis } from "./nurbs.js";
 
 const ARC_STEP = Math.PI / 32; // 円弧のサンプリング刻み（外接箱・表示用の折れ線）
-const SPLINE_STEPS = 4; // B スプラインの 1 区間（ノット間）の分割数
+const SPLINE_STEPS = 4; // B スプラインの 1 区間（ノット間）の最初の分割数
+const SPLINE_DEPTH = 6; // 曲がりが刻みを超える区間を二等分する回数の上限（1 区間あたり最大 4 × 2⁶ 点）
 
-/** B スプライン上の点（de Boor 法。有理なら同次座標で計算する）。周期的なら t を 1 周期の範囲に戻す。 */
+/** B スプライン上の点（基底関数は曲面と共用。有理なら同次座標で計算する）。周期的なら t を 1 周期の範囲に戻す。 */
 function splinePoint(c, t) {
   const { degree: p, knots: u, points, weights } = c;
   if (c.period) {
@@ -17,23 +19,16 @@ function splinePoint(c, t) {
     if (r < 0) r += c.period;
     t = u[0] + r;
   }
-  let k = p;
-  while (k < points.length - 1 && t >= u[k + 1]) k++;
-  const d = [];
-  for (let j = 0; j <= p; j++) {
-    const [x, y, z] = points[k - p + j], w = weights[k - p + j];
-    d.push([x * w, y * w, z * w, w]);
-  }
-  for (let r = 1; r <= p; r++) {
-    for (let j = p; j >= r; j--) {
-      const i = k - p + j;
-      const span = u[i + p - r + 1] - u[i];
-      const a = span === 0 ? 0 : (t - u[i]) / span;
-      d[j] = [0, 1, 2, 3].map((m) => (1 - a) * d[j - 1][m] + a * d[j][m]);
-    }
-  }
-  const [x, y, z, w] = d[p];
-  return [x / w, y / w, z / w];
+  const { span, N } = basis(u, p, points.length, t);
+  const sum = [0, 0, 0, 0];
+  N.forEach((n, j) => {
+    const [x, y, z] = points[span - p + j], w = n * weights[span - p + j];
+    sum[0] += x * w;
+    sum[1] += y * w;
+    sum[2] += z * w;
+    sum[3] += w;
+  });
+  return [sum[0] / sum[3], sum[1] / sum[3], sum[2] / sum[3]];
 }
 
 export function curvePoint(c, t) {
@@ -58,7 +53,24 @@ export function sampleCurve(c, t0, t1) {
     } else shifts.push(0);
     const inside = shifts.flatMap((d) => base.map((k) => k + d)).filter((t) => t > lo && t < hi);
     const breaks = [t0, ...inside.sort((a, b) => (t1 >= t0 ? a - b : b - a)), t1];
-    return breaks.slice(1).flatMap((b, i) => divide(breaks[i], b, SPLINE_STEPS).slice(i ? 1 : 0)).map((t) => curvePoint(c, t));
+    const ts = breaks.slice(1).flatMap((b, i) => divide(breaks[i], b, SPLINE_STEPS).slice(i ? 1 : 0));
+    // 急に曲がる所（ねじ山・ローレットの角を丸めた部分など）は、円弧と同じく曲がりが ARC_STEP 以下になるまで二等分する
+    const out = [[ts[0], curvePoint(c, ts[0])]];
+    ts.slice(1).forEach((t, i) => out.push(...refineSpan(c, out.at(-1), [t, curvePoint(c, t)], SPLINE_DEPTH)));
+    return out.map(([, p]) => p);
   }
   return [];
+}
+
+const angleBetween = (a, b) => {
+  const la = Math.hypot(...a), lb = Math.hypot(...b);
+  return la && lb ? Math.acos(Math.min(1, Math.max(-1, (a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) / (la * lb)))) : 0;
+};
+
+/** 区間 a → b（[t, 点]）を、前半と後半の弦の向きの差（曲がりの半分）が ARC_STEP / 2 以下になるまで二等分した点列（a を除く） */
+function refineSpan(c, a, b, depth) {
+  const tm = (a[0] + b[0]) / 2, m = [tm, curvePoint(c, tm)];
+  const bend = angleBetween(sub(m[1], a[1]), sub(b[1], m[1]));
+  if (depth <= 0 || bend <= ARC_STEP / 2) return [b];
+  return [...refineSpan(c, a, m, depth - 1), ...refineSpan(c, m, b, depth - 1)];
 }

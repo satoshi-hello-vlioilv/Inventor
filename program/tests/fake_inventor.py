@@ -226,6 +226,7 @@ class Edge:
     def __init__(self, loop: int, entity, side: int, z: float):
         self.loop, self.entity, self.side = loop, entity, side
         self.PointOnEdge = Point(*_midpoint(entity), z)
+        self.valid = True  # フィーチャを足して形が作り直されると、前に取り出した稜線は使えなくなる（本物の Inventor と同じ）
 
 
 class Face:
@@ -257,6 +258,13 @@ class Body:
         caps = {side: [Edge(i, e, side, side * distance / 2) for i, loop in enumerate(loops) for e in loop.entities] for side in (1, -1)}
         sides = [Face([e for side in (1, -1) for e in caps[side] if e.loop == i]) for i in range(len(loops))]
         self.Faces = Collection([Face(caps[1]), Face(caps[-1]), *sides])
+
+    def rebuilt(self) -> "Body":
+        """フィーチャを足した後のボディ（稜線は新しいもの。前の稜線は使えない）。面取りの形そのものは持たない"""
+        for face in self.Faces:
+            for edge in face.Edges:
+                edge.valid = False
+        return Body(self.loops, self.distance)
 
 
 class MassProperties:
@@ -316,6 +324,8 @@ class Features:
                 for edge in edges:
                     if not isinstance(edge, Edge):
                         raise FakeComError("稜線ではないものが選ばれています")
+                    if not edge.valid:
+                        raise FakeComError("パラメータが正しくありません（形が作り直される前に取り出した稜線）")
                     groups.setdefault((edge.loop, edge.side), set()).add(id(edge.entity))
                 if not 0 < distance < body.distance / 2:
                     raise FakeComError("面取りの大きさが不正です")
@@ -327,6 +337,7 @@ class Features:
                     cut_volume, cut_face = polygon_chamfer(points, distance, loop != largest)
                     mass.Volume -= cut_volume
                     mass.Area += (math.sqrt(2) - 1) * cut_face - _polygon_integrals(points)[2] * distance
+                owner.SurfaceBodies = Collection([body.rebuilt()])
                 log.append(("chamfer", distance, sorted(groups)))
 
         self.RevolveFeatures, self.ExtrudeFeatures, self.ChamferFeatures = Revolves(), Extrudes(), Chamfers()
@@ -449,13 +460,14 @@ def read_faceted_step(path) -> tuple[float, float, list]:
 
 
 class FakeInventor:
-    def __init__(self):
+    def __init__(self, screen_updating: bool = True, silent: bool = False):
         self.TransientGeometry = TransientGeometry()
         self.TransientObjects = TransientObjects()
         self.documents: list[Document] = []
-        self.ScreenUpdating = True
-        self.SilentOperation = False
+        self.ScreenUpdating = screen_updating  # 前の実行が強制的に止められると、False のまま残る
+        self.SilentOperation = silent
         self.Visible = False
+        self.Ready = True
         outer = self
 
         class FileManager:

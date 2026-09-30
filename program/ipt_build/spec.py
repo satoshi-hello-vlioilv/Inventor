@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -18,8 +19,21 @@ Point2 = tuple[float, float]
 Vec3 = tuple[float, float, float]
 
 
+UNSAFE = re.compile(r'[\\/:*?"<>|\x00-\x1f]+')  # Windows のファイル名に使えない文字
+
+
 class SpecError(ValueError):
     pass
+
+
+def safe_name(text: str) -> str:
+    """ファイル・フォルダの名前にできる文字列（使えない文字は _ に。空なら「変換データ」）"""
+    return UNSAFE.sub("_", text).strip(" .") or "変換データ"
+
+
+def source_stem(source: dict) -> str:
+    """変換データの元のファイルの名前（拡張子を除く）。保存先・STEP・組立の名前に使う（名前が無い・null でもよい）"""
+    return safe_name(Path(str(source.get("file") or "")).stem)
 
 
 @dataclass(frozen=True)
