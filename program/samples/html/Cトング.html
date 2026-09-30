@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <title>Cトング 3Dモデル (フック押出成形・回転版)</title>
+    <meta charset="utf-8">
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #f5f7fa; }
+        canvas { display: block; }
+    </style>
+</head>
+<body>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // 1. シーン、カメラ、レンダラーの基本設定
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xf5f7fa);
+        scene.fog = new THREE.Fog(0xf5f7fa, 20, 70);
+
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 4, 18);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        document.body.appendChild(renderer.domElement);
+
+        // 2. 照明の設定
+        scene.add(new THREE.AmbientLight(0xffffff, 1.8));
+        const keyLight = new THREE.DirectionalLight(0xffffff, 3.5);
+        keyLight.position.set(-15, 20, 10);
+        keyLight.castShadow = true;
+        keyLight.shadow.mapSize.set(4096, 4096);
+        keyLight.shadow.camera.near = 1;
+        keyLight.shadow.camera.far = 50;
+        scene.add(keyLight);
+
+        // 3. コントロールの設定
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.target.set(0, 1.0, 0);
+
+        // 4. 共通マテリアルと設定
+        const yellowMaterial = new THREE.MeshStandardMaterial({
+            color: 0xFFE135,
+            metalness: 0.6,
+            roughness: 0.2,
+        });
+
+        const frameDepth = 1.2; // フレームの奥行き
+
+        function applyShadowSettings(mesh) {
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+        }
+
+        const bevelSettings = { 
+            depth: frameDepth, 
+            bevelEnabled: true, 
+            bevelThickness: 0.04, 
+            bevelSize: 0.04, 
+            bevelSegments: 3 
+        };
+
+        // 5. Cトングフレーム生成 (フック押出成形・回転版)
+        function createCTongFrame() {
+            const cTongGroup = new THREE.Group();
+            const shape = new THREE.Shape();
+
+            // パラメータ定義
+            const frameThickness = 1.44;
+            const innerWidth = 7.2;
+            const innerHeight = 3.9;
+            const cornerRadius = 0.8;
+            const bottomArmLength = innerWidth + 1.0;
+            const topArmLength = innerWidth + 0.5;
+            const bottomArmTipThickness = frameThickness * 0.5;
+            const bottomArmTipRadius = 0.12;
+
+            // 2Dシェイプを反時計回りで描画
+            shape.moveTo(bottomArmLength, 0);
+            shape.lineTo(cornerRadius, 0);
+            shape.quadraticCurveTo(0, 0, 0, cornerRadius);
+            shape.lineTo(0, innerHeight - cornerRadius);
+            shape.quadraticCurveTo(0, innerHeight, cornerRadius, innerHeight);
+            shape.lineTo(topArmLength, innerHeight);
+            shape.quadraticCurveTo(topArmLength + 0.3, innerHeight, topArmLength + 0.3, innerHeight + (frameThickness/2));
+            shape.quadraticCurveTo(topArmLength + 0.3, innerHeight + frameThickness, topArmLength, innerHeight + frameThickness);
+            shape.lineTo(-frameThickness, innerHeight + frameThickness);
+            shape.quadraticCurveTo(-frameThickness - cornerRadius, innerHeight + frameThickness, -frameThickness - cornerRadius, innerHeight + frameThickness - cornerRadius);
+            shape.lineTo(-frameThickness - cornerRadius, cornerRadius);
+            shape.quadraticCurveTo(-frameThickness - cornerRadius, -frameThickness, -frameThickness, -frameThickness);
+            const startX = -frameThickness;
+            const startY = -frameThickness;
+            const endX = bottomArmLength;
+            const endY = -bottomArmTipThickness;
+            const controlX1 = startX + (endX - startX) * 0.2;
+            const controlY1 = startY;
+            const controlX2 = startX + (endX - startX) * 0.8;
+            const controlY2 = endY;
+            shape.bezierCurveTo(controlX1, controlY1, controlX2, controlY2, endX, endY);
+            const tipTopY = 0;
+            const tipBottomY = endY;
+            const tipX = endX;
+            shape.quadraticCurveTo(tipX + bottomArmTipRadius, tipBottomY, tipX + bottomArmTipRadius, (tipTopY + tipBottomY) / 2);
+            shape.quadraticCurveTo(tipX + bottomArmTipRadius, tipTopY, tipX, tipTopY);
+            
+            const cTongGeometry = new THREE.ExtrudeGeometry(shape, bevelSettings);
+            const cTongMesh = new THREE.Mesh(cTongGeometry, yellowMaterial);
+            applyShadowSettings(cTongMesh);
+            
+            // ▼▼▼【改善】ここからフックを押出方式で生成し、回転させます ▼▼▼
+
+            // 1. コの字型のパスを定義
+            const hookHeight = 1.2;
+            const hookWidth = 2.0;
+            const hookTubeRadius = 0.25;
+
+            // パスを構成する3つの直線を定義
+            const hookPath = new THREE.CatmullRomCurve3([
+                new THREE.Vector3(0, 0, -hookWidth / 2),     // 始点 (柱の根本1)
+                new THREE.Vector3(0, hookHeight, -hookWidth / 2), // 角1 (柱の先端1)
+                new THREE.Vector3(0, hookHeight, hookWidth / 2),  // 角2 (柱の先端2)
+                new THREE.Vector3(0, 0, hookWidth / 2)       // 終点 (柱の根本2)
+            ]);
+
+            // 2. パスに沿ってチューブジオメトリを生成
+            // TubeGeometry(パス, パスに沿った分割数, チューブの半径, 円周の分割数, 閉じるか)
+            const hookGeometry = new THREE.TubeGeometry(hookPath, 64, hookTubeRadius, 12, false);
+            const hook = new THREE.Mesh(hookGeometry, yellowMaterial);
+            applyShadowSettings(hook);
+
+            // 3. フックをY軸周りに90度回転
+            // これにより、コの字の開いている方向がCトングの長手方向と一致します
+            hook.rotation.y = Math.PI / 2;
+
+            // 4. フックを上部フレームの上面中央に配置
+            const topArmCenterX = (-frameThickness + topArmLength) / 2;
+            const topArmCenterY = innerHeight + frameThickness; // 上部フレームの上面
+            const topArmCenterZ = frameDepth / 2; // Cトングの奥行きの中心
+            hook.position.set(topArmCenterX, topArmCenterY, topArmCenterZ);
+
+            // 本体とフックをグループに追加
+            cTongGroup.add(cTongMesh);
+            cTongGroup.add(hook);
+            
+            // ▲▲▲【改善】フックの修正はここまでです ▲▲▲
+
+            // グループ全体の中心を調整
+            cTongGroup.position.set(-3.2, -1.9, -frameDepth / 2);
+            
+            return cTongGroup;
+        }
+
+        // 6. シーンへのオブジェクト追加
+        const cTong = createCTongFrame();
+        scene.add(cTong);
+
+        // 地面
+        const ground = new THREE.Mesh(
+            new THREE.PlaneGeometry(100, 100),
+            new THREE.MeshStandardMaterial({ color: 0xc8d6e5, roughness: 0.8 })
+        );
+        ground.rotation.x = -Math.PI / 2;
+        ground.position.y = -4.0;
+        ground.receiveShadow = true;
+        scene.add(ground);
+
+        // 7. アニメーションループとリサイズ対応
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+    </script>
+</body>
+</html>

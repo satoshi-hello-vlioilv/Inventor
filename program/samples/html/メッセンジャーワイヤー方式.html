@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <title>Three.js 高度な電線シミュレータ</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+    <style>
+        body { margin: 0; overflow: hidden; font-family: sans-serif; color: #fff; }
+        canvas { display: block; cursor: grab; }
+        canvas:active { cursor: grabbing; }
+        #controls-panel { position: absolute; top: 15px; right: 15px; padding: 15px; background-color: rgba(0, 0, 0, 0.65); border-radius: 8px; width: 320px; }
+        .control-row { margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; }
+        .control-row label { margin-right: 10px; flex-shrink: 0;}
+        .control-row input[type="range"] { width: 150px; }
+        .control-row span { width: 55px; text-align: right; }
+        h3 { margin-top: 0; margin-bottom: 15px; border-bottom: 1px solid #555; padding-bottom: 5px; }
+    </style>
+</head>
+<body>
+    <div id="controls-panel">
+        <h3>シミュレーション設定</h3>
+        <div class="control-row">
+            <label for="blackWireSag">黒電線のたるみ係数</label>
+            <input type="range" id="blackWireSag" min="1.1" max="5.0" value="1.6" step="0.1">
+            <span id="blackWireSagValue">1.6</span>
+        </div>
+        <div class="control-row">
+            <label for="segmentLength">フック間線分長さ</label>
+            <input type="range" id="segmentLength" min="5" max="30" value="10" step="0.5">
+            <span id="segmentLengthValue">10.0m</span>
+        </div>
+        <div class="control-row">
+            <label for="numHooks">フックの数</label>
+            <input type="range" id="numHooks" min="1" max="30" value="10" step="1">
+            <span id="numHooksValue">10</span>
+        </div>
+    </div>
+
+    <script type="importmap">
+    { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/" } }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        let scene, camera, renderer, controls;
+        let pole1, pole2, endpointHandle;
+        let blackWireGroup = new THREE.Group(), yellowWireGroup = new THREE.Group();
+        let mainCurve;
+
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        let isDragging = false, draggedObject = null;
+        const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+        const intersection = new THREE.Vector3();
+
+        const params = {
+            basePoleHeight: 12,
+            poleRadius: 0.3,
+            numHooks: 10,
+            segmentLength: 10.0, // フック間の線分長さ（一定）
+            blackWireSag: 1.6,
+            yellowEndpointT: 0.75,
+            wireAttachHeight: 0 // 計算済みの電線取り付け高さを保持
+        };
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87ceeb);
+            scene.add(blackWireGroup, yellowWireGroup);
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 15, 40);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            document.body.appendChild(renderer.domElement);
+
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+
+            scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+            const light = new THREE.DirectionalLight(0xffffff, 1.0);
+            light.position.set(20, 40, 15);
+            light.castShadow = true;
+            scene.add(light);
+
+            const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ color: 0x228B22 }));
+            ground.rotation.x = -Math.PI / 2;
+            ground.receiveShadow = true;
+            scene.add(ground);
+
+            pole1 = createPole(new THREE.Vector3(-15, 0, 0));
+            pole2 = createPole(new THREE.Vector3(15, 0, 0));
+            
+            endpointHandle = new THREE.Mesh(new THREE.SphereGeometry(0.35, 16, 16), new THREE.MeshStandardMaterial({ color: 0x666666, roughness: 0.4 }));
+            scene.add(endpointHandle);
+
+            setupUI();
+            setupMouseEvents();
+            updateScene();
+            animate();
+        }
+
+        function createPole(position) {
+            const pole = new THREE.Mesh(new THREE.CylinderGeometry(params.poleRadius, params.poleRadius, params.basePoleHeight, 24), new THREE.MeshStandardMaterial({ color: 0x696969 }));
+            pole.position.copy(position);
+            pole.position.y = params.basePoleHeight / 2;
+            pole.castShadow = true;
+            scene.add(pole);
+            return pole;
+        }
+
+        /**
+         * 数値積分による正確な曲線長計算
+         */
+        function calculateCurveLength(p1, p2, sag, steps = 100) {
+            let length = 0;
+            const dx = (p2.x - p1.x) / steps;
+            
+            for (let i = 0; i < steps; i++) {
+                const x1 = p1.x + i * dx;
+                const x2 = p1.x + (i + 1) * dx;
+                
+                // 2次ベジェ曲線の式: y = ax² + bx + c
+                const midX = (p1.x + p2.x) / 2;
+                const a = (4 * sag) / Math.pow(p2.x - p1.x, 2);
+                const b = -a * (p1.x + p2.x);
+                const c = p1.y + a * p1.x * p1.x + b * p1.x;
+                
+                const y1 = a * x1 * x1 + b * x1 + c;
+                const y2 = a * x2 * x2 + b * x2 + c;
+                
+                // 微小線分の長さ
+                const segmentLength = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
+                length += segmentLength;
+            }
+            
+            return length;
+        }
+
+        /**
+         * 高精度なたるみ量計算（積分ベース）
+         */
+        function findSagForLength(distance, targetLength) {
+            if (targetLength <= distance) return 0;
+
+            let low = 0;
+            let high = Math.max(distance, targetLength - distance); // より適切な上限設定
+            
+            // より高精度な二分探索
+            for (let i = 0; i < 30; i++) {
+                const midSag = (low + high) / 2;
+                
+                // 数値積分による正確な長さ計算
+                const p1 = new THREE.Vector3(0, 0, 0);
+                const p2 = new THREE.Vector3(distance, 0, 0);
+                const currentLength = calculateCurveLength(p1, p2, midSag, 200);
+                
+                if (Math.abs(currentLength - targetLength) < 0.001) break;
+                
+                if (currentLength < targetLength) {
+                    low = midSag;
+                } else {
+                    high = midSag;
+                }
+            }
+            return (low + high) / 2;
+        }
+
+        /**
+         * 黄色電線の各セグメントの長さを固定に設定
+         */
+        function calculateYellowWireSegments() {
+            if (params.yellowEndpointT <= 0.01) return [];
+            
+            const numSegments = params.numHooks + 1;
+            const segments = [];
+            
+            // 各セグメントの直線距離を計算し、全て同じ目標長さを設定
+            for (let i = 0; i < numSegments; i++) {
+                const t_start = (i / numSegments) * params.yellowEndpointT;
+                const t_end = ((i + 1) / numSegments) * params.yellowEndpointT;
+                
+                const pStartLocal = mainCurve.getPointAt(t_start);
+                const pEndLocal = mainCurve.getPointAt(t_end);
+                const straightDistance = pStartLocal.distanceTo(pEndLocal);
+                
+                segments.push({
+                    t_start,
+                    t_end,
+                    straightDistance,
+                    targetLength: params.segmentLength // 全てのセグメントで同じ長さ
+                });
+            }
+            
+            return segments;
+        }
+
+        function updateScene() {
+            while(blackWireGroup.children.length > 0) { blackWireGroup.remove(blackWireGroup.children[0]); }
+            while(yellowWireGroup.children.length > 0) { yellowWireGroup.remove(yellowWireGroup.children[0]); }
+
+            const poleDistance = pole1.position.distanceTo(pole2.position);
+            const poleDirection = new THREE.Vector3().subVectors(pole2.position, pole1.position).normalize();
+
+            // 電線取り付け高さを初回のみ計算し、以降は保持
+            if (params.wireAttachHeight === 0) {
+                params.wireAttachHeight = params.basePoleHeight * 0.9;
+            }
+            
+            const A = poleDistance * params.blackWireSag;
+            const x_end = poleDistance / 2;
+            const y_catenary_end = (A / 2) * (Math.exp(x_end / A) + Math.exp(-x_end / A));
+            const y_offset = params.wireAttachHeight - y_catenary_end;
+            
+            const points = Array.from({length: 101}, (_, i) => {
+                const x_local = -poleDistance / 2 + (poleDistance * i) / 100;
+                const y_local = (A / 2) * (Math.exp(x_local / A) + Math.exp(-x_local / A)) + y_offset;
+                return new THREE.Vector3(x_local, y_local, 0);
+            });
+            
+            mainCurve = new THREE.CatmullRomCurve3(points);
+            
+            const mainWireMesh = new THREE.Mesh(new THREE.TubeGeometry(mainCurve, 64, 0.05, 8, false), new THREE.MeshStandardMaterial({ color: 0x111111 }));
+            const center = new THREE.Vector3().addVectors(pole1.position, pole2.position).multiplyScalar(0.5);
+            center.y = 0; // 電線の中心は常に水平位置を基準とする
+            mainWireMesh.position.copy(center);
+            mainWireMesh.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), poleDirection);
+            mainWireMesh.castShadow = true;
+            blackWireGroup.add(mainWireMesh);
+
+            // 電柱の高さを調整（ドラッグ操作時は高さを保持）
+            const targetPoleHeight = params.wireAttachHeight * 1.2;
+            [pole1, pole2].forEach(pole => {
+                if (!isDragging || draggedObject !== pole) {
+                    pole.scale.y = targetPoleHeight / params.basePoleHeight;
+                    pole.position.y = targetPoleHeight / 2;
+                }
+            });
+
+            // 黄色電線の生成（長さ一定）
+            const hookLength = 0.5;
+            const yellowSegments = calculateYellowWireSegments();
+            
+            yellowSegments.forEach((segment, i) => {
+                const pStartWorld = mainCurve.getPointAt(segment.t_start).applyMatrix4(mainWireMesh.matrixWorld);
+                const pEndWorld = mainCurve.getPointAt(segment.t_end).applyMatrix4(mainWireMesh.matrixWorld);
+
+                // フックの生成（最初のセグメント以外）
+                if (i > 0) {
+                    const hook = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, hookLength, 8), new THREE.MeshStandardMaterial({ color: 0x555555 }));
+                    hook.position.set(pStartWorld.x, pStartWorld.y - hookLength / 2, pStartWorld.z);
+                    hook.castShadow = true;
+                    yellowWireGroup.add(hook);
+                }
+                
+                // 電線セグメントの生成
+                const wireStart = pStartWorld.clone().setY(pStartWorld.y - hookLength);
+                const wireEnd = pEndWorld.clone().setY(pEndWorld.y - hookLength);
+                const straightDistance = wireStart.distanceTo(wireEnd);
+                
+                // 目標長さに応じたたるみ量を計算
+                const sag = findSagForLength(straightDistance, segment.targetLength);
+                
+                // デバッグ情報（一時的）
+                if (i === 0) {
+                    const debugInfo = `セグメント${i}: 直線距離=${straightDistance.toFixed(2)}m, 目標長さ=${segment.targetLength.toFixed(2)}m, たるみ=${sag.toFixed(2)}m`;
+                    document.title = debugInfo; // タイトルバーにデバッグ情報を表示
+                }
+                
+                const midPoint = new THREE.Vector3().addVectors(wireStart, wireEnd).multiplyScalar(0.5);
+                midPoint.y -= sag;
+                
+                const segmentCurve = new THREE.CatmullRomCurve3([wireStart, midPoint, wireEnd]);
+                const yellowSegment = new THREE.Mesh(new THREE.TubeGeometry(segmentCurve, 20, 0.03, 8, false), new THREE.MeshStandardMaterial({ color: 0xffd700 }));
+                yellowSegment.castShadow = true;
+                yellowWireGroup.add(yellowSegment);
+            });
+
+            endpointHandle.position.copy(mainCurve.getPointAt(params.yellowEndpointT).applyMatrix4(mainWireMesh.matrixWorld));
+        }
+        
+        function setupUI() {
+            document.getElementById('blackWireSag').addEventListener('input', (e) => {
+                params.blackWireSag = parseFloat(e.target.value);
+                document.getElementById('blackWireSagValue').textContent = params.blackWireSag.toFixed(1);
+                updateScene();
+            });
+            document.getElementById('segmentLength').addEventListener('input', (e) => {
+                params.segmentLength = parseFloat(e.target.value);
+                document.getElementById('segmentLengthValue').textContent = `${params.segmentLength.toFixed(1)}m`;
+                updateScene();
+            });
+            document.getElementById('numHooks').addEventListener('input', (e) => {
+                params.numHooks = parseInt(e.target.value);
+                document.getElementById('numHooksValue').textContent = params.numHooks;
+                updateScene();
+            });
+        }
+        
+        function setupMouseEvents() {
+            renderer.domElement.addEventListener('mousedown', onMouseDown);
+            renderer.domElement.addEventListener('mousemove', onMouseMove);
+            renderer.domElement.addEventListener('mouseup', onMouseUp);
+        }
+
+        function onMouseDown(event) {
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            if (raycaster.intersectObject(endpointHandle).length > 0) draggedObject = endpointHandle;
+            else if (raycaster.intersectObject(pole2).length > 0) draggedObject = pole2;
+            if (draggedObject) { isDragging = true; controls.enabled = false; }
+        }
+
+        function onMouseMove(event) {
+            if (!isDragging) return;
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+
+            if (draggedObject === pole2) {
+                if (raycaster.ray.intersectPlane(dragPlane, intersection)) {
+                    // 電柱の高さは固定し、X, Z座標のみ変更
+                    const currentHeight = pole2.position.y;
+                    pole2.position.set(intersection.x, currentHeight, intersection.z);
+                    updateScene();
+                }
+            } else if (draggedObject === endpointHandle) {
+                const mainWireMesh = blackWireGroup.children[0];
+                if (!mainWireMesh) return;
+                
+                let minDistanceSq = Infinity;
+                let closestT = 0;
+                const worldPoints = mainCurve.getPoints(100);
+                for (let i = 0; i < worldPoints.length; i++) {
+                    const worldPoint = worldPoints[i].clone().applyMatrix4(mainWireMesh.matrixWorld);
+                    const distanceSq = raycaster.ray.distanceSqToPoint(worldPoint);
+                    if (distanceSq < minDistanceSq) {
+                        minDistanceSq = distanceSq;
+                        closestT = i / (worldPoints.length - 1);
+                    }
+                }
+                params.yellowEndpointT = closestT;
+                updateScene();
+            }
+        }
+
+        function onMouseUp() { isDragging = false; draggedObject = null; controls.enabled = true; }
+        function animate() { requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); }
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        init();
+    </script>
+</body>
+</html>
