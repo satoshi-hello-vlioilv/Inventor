@@ -285,3 +285,87 @@ export function chamferIntegrals(loop, d, isHole) {
   for (let i = 0; i + 1 < cuts.length; i++) volume += integrate(removed, cuts[i], cuts[i + 1]);
   return { volume, face: removed(d), loop: full.loop };
 }
+
+// ---- 断面の自己交差 --------------------------------------------------------------------
+
+/** 2 本の線分の交点（端点を除く内側で交わるときだけ） */
+function crossPoint(p1, p2, p3, p4) {
+  const d = (p2[0] - p1[0]) * (p4[1] - p3[1]) - (p2[1] - p1[1]) * (p4[0] - p3[0]);
+  if (Math.abs(d) < EPS) return null;
+  const t = ((p3[0] - p1[0]) * (p4[1] - p3[1]) - (p3[1] - p1[1]) * (p4[0] - p3[0])) / d;
+  const u = ((p3[0] - p1[0]) * (p2[1] - p1[1]) - (p3[1] - p1[1]) * (p2[0] - p1[0])) / d;
+  return t > 1e-9 && t < 1 - 1e-9 && u > 1e-9 && u < 1 - 1e-9 ? [p1[0] + t * (p2[0] - p1[0]), p1[1] + t * (p2[1] - p1[1])] : null;
+}
+
+export const KINK_SPAN = 4; // 取り除く小さな輪: 交わる 2 本の直線の間にある部分の数の上限
+
+/**
+ * 断面の小さな自己交差（2〜4 本先の直線どうしが交わってできる蝶ネクタイ形の輪。元のメッシュの折れ）を取り除く。
+ * 交わる 2 本を交点で継ぎ、間の部分を捨てる。
+ * @returns {{ loop: object[], removed: number, deviation: number }}  deviation: 捨てた頂点と、継いだ 2 本との距離の最大（元の形との差）
+ */
+export function untangleLoop(loop) {
+  let out = loop, removed = 0, deviation = 0;
+  for (let changed = true; changed;) {
+    changed = false;
+    search: for (let i = 0; i < out.length; i++) {
+      if (out[i].type !== "line") continue;
+      for (let k = 2; k <= KINK_SPAN && k < out.length - 1; k++) {
+        const j = (i + k) % out.length;
+        if (out[j].type !== "line") continue;
+        const x = crossPoint(out[i].a, out[i].b, out[j].a, out[j].b);
+        if (!x) continue;
+        const rotated = [...out.slice(i), ...out.slice(0, i)]; // i を先頭に
+        const kept = [{ type: "line", a: rotated[0].a, b: x }, { type: "line", a: x, b: rotated[k].b }];
+        for (const s of rotated.slice(1, k)) for (const p of [s.a, s.b]) deviation = Math.max(deviation, Math.min(...kept.map((t) => distanceToSegment(p, t))));
+        out = [...kept, ...rotated.slice(k + 1)];
+        removed += 1;
+        changed = true;
+        break search;
+      }
+    }
+  }
+  return { loop: out, removed, deviation };
+}
+
+/** 断面（複数のループ）が自分と交わるか（円弧は折れ線にして調べる）。交わる所の数 */
+export function selfCrossings(loops) {
+  const edges = [];
+  loops.forEach((loop, li) => loop.forEach((s, si) => {
+    const pts = s.type === "line" ? [s.a, s.b] : sampleSegment(s, 16);
+    for (let k = 0; k + 1 < pts.length; k++) edges.push({ a: pts[k], b: pts[k + 1], li, si, n: loop.length });
+  }));
+  // 格子（辺の長さの中央値の 2 倍）で近い辺だけを調べる
+  const lengths = edges.map((e) => Math.hypot(e.b[0] - e.a[0], e.b[1] - e.a[1])).sort((x, y) => x - y);
+  const size = Math.max(2 * lengths[lengths.length >> 1], 1e-9);
+  const cells = new Map();
+  edges.forEach((e, idx) => {
+    for (let x = Math.floor(Math.min(e.a[0], e.b[0]) / size); x <= Math.floor(Math.max(e.a[0], e.b[0]) / size); x++) {
+      for (let y = Math.floor(Math.min(e.a[1], e.b[1]) / size); y <= Math.floor(Math.max(e.a[1], e.b[1]) / size); y++) {
+        const key = `${x},${y}`;
+        if (!cells.has(key)) cells.set(key, []);
+        cells.get(key).push(idx);
+      }
+    }
+  });
+  const seen = new Set();
+  for (const list of cells.values()) {
+    for (let p = 0; p < list.length; p++) {
+      for (let q = p + 1; q < list.length; q++) {
+        const [A, B] = [edges[list[p]], edges[list[q]]];
+        const near = A.li === B.li && [0, 1, A.n - 1].includes((((A.si - B.si) % A.n) + A.n) % A.n); // 同じ部分・隣の部分は継ぎ目で接するだけ
+        if (near) continue;
+        const x = crossPoint(A.a, A.b, B.a, B.b);
+        if (x) seen.add(x.map((v) => v.toFixed(6)).join(","));
+      }
+    }
+  }
+  return seen.size;
+}
+
+/** 円・円弧を n 等分した点（端を含む） */
+function sampleSegment(s, n) {
+  if (s.type === "circle") return Array.from({ length: n + 1 }, (_, k) => [s.center[0] + s.radius * Math.cos((TAU * k) / n), s.center[1] + s.radius * Math.sin((TAU * k) / n)]);
+  const { a0, sweep, radius } = arcAngles(s);
+  return Array.from({ length: n + 1 }, (_, k) => [s.center[0] + radius * Math.cos(a0 + (sweep * k) / n), s.center[1] + radius * Math.sin(a0 + (sweep * k) / n)]);
+}

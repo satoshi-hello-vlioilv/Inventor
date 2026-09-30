@@ -22,10 +22,12 @@ export function setSpec(next, sourceName = "") {
   fileName = `${sourceName.replace(/(\.inventor)?\.[^.]+$/, "")}.inventor.json`;
   const kinds = spec?.parts.length ?? 0;
   const placed = spec?.parts.reduce((n, p) => n + p.instances.length, 0) ?? 0;
-  const skipped = spec?.skipped.reduce((n, s) => n + s.count, 0) ?? 0;
+  const approx = spec?.parts.filter((p) => p.kind === "mesh").length ?? 0;
+  const skipped = spec?.skipped.reduce((n, s) => n + s.count, 0) ?? 0; // 版 2 までの変換データ
   $("convert-summary").textContent = !spec ? "取り込むと、作れる部品の数を表示します"
-    : kinds ? `部品 ${kinds} 種類・配置 ${placed} か所を作ります${placed > 1 ? "（組立も作ります）" : ""}${skipped ? `。近似の ${skipped} 個は作りません` : ""}`
-      : "正確に認識できた部品がないため、作れません";
+    : kinds ? `部品 ${kinds} 種類・配置 ${placed} か所を作ります${placed > 1 ? "（組立も作ります）" : ""}` +
+      `${approx ? `。うち近似の ${approx} 種類は三角形のまま` : ""}${skipped ? `。近似の ${skipped} 個は作りません` : ""}`
+      : "作れる形がありません";
   $("save-spec").disabled = $("copy-spec").disabled = !kinds;
   note("");
   setBuildSpec(kinds ? spec : null);

@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 FORMAT = "inventor-builder"
-VERSIONS = (1, 2)  # 2: 押し出しの面取り（chamfers）を追加
+VERSIONS = (1, 2, 3)  # 2: 押し出しの面取り（chamfers）、3: 近似の部品（kind: mesh）と STEP 用の三角形（mesh）
 SAMPLES_PER_TURN = 16384  # 面取りの計算で円弧を折れ線にする細かさ（1 周の分割数）
 
 Point2 = tuple[float, float]
@@ -61,10 +61,18 @@ class Frame:
 
 
 @dataclass(frozen=True)
+class Mesh:
+    """三角形のままの形（部品のローカル座標、mm）。三角形は外向き（反時計回り）にそろっている。"""
+
+    positions: tuple[Vec3, ...]
+    triangles: tuple[tuple[int, int, int], ...]
+
+
+@dataclass(frozen=True)
 class Part:
     key: str
     name: str
-    kind: str  # revolve | extrude
+    kind: str  # revolve | extrude | mesh
     loops: tuple[tuple[Segment, ...], ...]
     angle_deg: float | None  # revolve: Y 軸まわりの回転角（360 未満は XY 平面に対して対称）
     distance: float | None  # extrude: Z 方向の押し出し量（XY 平面に対して対称）
@@ -72,6 +80,8 @@ class Part:
     expect_area: float
     instances: tuple[Frame, ...]
     chamfers: tuple[Chamfer, ...] = ()
+    mesh: Mesh | None = None  # 近似の部品の形。面取り付きの押し出しでは STEP 用の代わりの形
+    notes: tuple[str, ...] = ()  # アプリが見つけた注意（元の形が自分と交わる、など）
 
     @property
     def full_revolve(self) -> bool:
@@ -108,11 +118,38 @@ def _segment(raw: dict, where: str) -> Segment:
     raise SpecError(f"{where}: 未知の種類 {kind!r}")
 
 
+def _mesh(raw, key: str) -> Mesh | None:
+    if raw is None:
+        return None
+    where = f"{key} の三角形"
+    positions, triangles = raw.get("positions") if isinstance(raw, dict) else None, raw.get("triangles") if isinstance(raw, dict) else None
+    if not (isinstance(positions, list) and isinstance(triangles, list) and len(positions) % 3 == 0 and len(triangles) % 3 == 0 and triangles):
+        raise SpecError(f"{where}: positions（x, y, z の並び）と triangles（頂点番号 3 つずつの並び）を指定してください")
+    if not all(isinstance(v, (int, float)) for v in positions):
+        raise SpecError(f"{where}: 座標は数値で指定してください")
+    count = len(positions) // 3
+    if not all(isinstance(i, int) and 0 <= i < count for i in triangles):
+        raise SpecError(f"{where}: 頂点番号は 0 から {count - 1} までの整数で指定してください")
+    return Mesh(
+        tuple((float(positions[3 * i]), float(positions[3 * i + 1]), float(positions[3 * i + 2])) for i in range(count)),
+        tuple((triangles[k], triangles[k + 1], triangles[k + 2]) for k in range(0, len(triangles), 3)),
+    )
+
+
 def _part(raw: dict) -> Part:
     key = str(raw.get("key", "?"))
     kind = raw.get("kind")
-    if kind not in ("revolve", "extrude"):
-        raise SpecError(f"{key}: 種類 {kind!r} は作れません（revolve / extrude のみ）")
+    if kind not in ("revolve", "extrude", "mesh"):
+        raise SpecError(f"{key}: 種類 {kind!r} は作れません（revolve / extrude / mesh のみ）")
+    instances = tuple(Frame(*(_vec3(inst[k], f"{key} の配置") for k in ("origin", "x", "y", "z"))) for inst in raw.get("instances", []))
+    expect = raw.get("expect", {})
+    if kind == "mesh":
+        mesh = _mesh(raw.get("mesh"), key)
+        if mesh is None:
+            raise SpecError(f"{key}: 近似の部品に三角形（mesh）がありません")
+        return Part(key=key, name=str(raw.get("name", key)), kind=kind, loops=(), angle_deg=None, distance=None,
+                    expect_volume=float(expect["volume"]), expect_area=float(expect["area"]), instances=instances, mesh=mesh,
+                    notes=_notes(raw))
     loops = tuple(
         tuple(_segment(s, f"{key} のループ {i}") for s in loop)
         for i, loop in enumerate(raw.get("sketch", {}).get("loops", []))
@@ -135,12 +172,17 @@ def _part(raw: dict) -> Part:
         loops=loops,
         angle_deg=float(raw["revolve"]["angle_deg"]) if kind == "revolve" else None,
         distance=float(raw["extrude"]["distance"]) if kind == "extrude" else None,
-        expect_volume=float(raw["expect"]["volume"]),
-        expect_area=float(raw["expect"]["area"]),
-        instances=tuple(
-            Frame(*(_vec3(inst[k], f"{key} の配置") for k in ("origin", "x", "y", "z"))) for inst in raw.get("instances", [])
-        ),
+        expect_volume=float(expect["volume"]),
+        expect_area=float(expect["area"]),
+        instances=instances,
+        mesh=_mesh(raw.get("mesh"), key),
+        notes=_notes(raw),
     )
+
+
+def _notes(raw: dict) -> tuple[str, ...]:
+    notes = raw.get("notes", [])
+    return tuple(str(n) for n in notes) if isinstance(notes, list) else ()
 
 
 def _chamfer(raw: dict, key: str, kind: str, loops, part: dict) -> Chamfer:
@@ -277,5 +319,18 @@ def properties(kind: str, loops, angle_deg: float | None = None, distance: float
     return volume, area
 
 
+def mesh_properties(mesh: Mesh) -> tuple[float, float]:
+    """三角形の体積（外向きなら正）と表面積。"""
+    volume = area = 0.0
+    for i, j, k in mesh.triangles:
+        (ax, ay, az), (bx, by, bz), (cx, cy, cz) = mesh.positions[i], mesh.positions[j], mesh.positions[k]
+        volume += (ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx)) / 6
+        ux, uy, uz, vx, vy, vz = bx - ax, by - ay, bz - az, cx - ax, cy - ay, cz - az
+        area += math.sqrt((uy * vz - uz * vy) ** 2 + (uz * vx - ux * vz) ** 2 + (ux * vy - uy * vx) ** 2) / 2
+    return volume, area
+
+
 def part_properties(part: Part) -> tuple[float, float]:
+    if part.kind == "mesh":
+        return mesh_properties(part.mesh)
     return properties(part.kind, part.loops, part.angle_deg, part.distance, part.chamfers)

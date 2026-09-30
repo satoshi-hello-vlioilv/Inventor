@@ -90,9 +90,13 @@
       <div class="tally" id="spec-tally"></div>
     </section>
     <section data-mode="html spec" hidden>
-      <h2>Inventor へ変換</h2>
+      <h2>CAD ファイルを作る</h2>
       <p class="convert-summary" id="convert-summary">取り込むと、作れる部品の数を表示します</p>
-      <button type="button" class="primary" id="build" disabled>Inventor で作る</button>
+      <div class="build-actions">
+        <button type="button" class="primary" id="build" disabled>Inventor で作る<small>.ipt・.iam・.stp</small></button>
+        <button type="button" class="secondary" id="build-step" disabled>STEP を作る<small>.stp・Inventor 不要</small></button>
+      </div>
+      <p class="build-hint" id="build-hint" hidden></p>
       <p class="build-dest" id="build-dest"></p>
       <div class="build-ask" id="build-ask" role="alert" hidden>
         <p>Inventor の操作に使う Python のライブラリ（pywin32）が、この PC に入っていません。インターネットから入れてから作ります（1 分ほど）。</p>
@@ -112,8 +116,8 @@
         </div>
       </div>
       <details class="convert-more" data-mode="html" hidden>
-        <summary>Inventor の無い PC では（変換データを保存）</summary>
-        <p class="convert-hint">変換データ（.inventor.json）は、取り込んだ形を Inventor で作るための設計図です（部品ごとの断面・回転／押し出し・配置と、照合に使う体積・表面積）。保存して Inventor のある PC に持っていき、このアプリで開く（画面か Start.vbs にドロップ）と、そこで「Inventor で作る」を押せます。</p>
+        <summary>あとで別の PC で作るとき（変換データを保存）</summary>
+        <p class="convert-hint">変換データ（.inventor.json）は、取り込んだ形を作るための設計図です（部品ごとの断面・回転／押し出し・配置、近似の部品の三角形と、照合に使う体積・表面積）。保存して別の PC（Inventor のある PC など）に持っていき、このアプリで開く（画面か Start.vbs にドロップ）と、そこで作れます。</p>
         <div class="convert-actions">
           <button type="button" class="secondary" id="save-spec" disabled>変換データを保存</button>
           <button type="button" class="secondary" id="copy-spec" disabled>コピー</button>
@@ -199,14 +203,14 @@
       </section>
     </div>
     <section class="start-flow">
-      <h2>Inventor の部品にするまでの流れ</h2>
+      <h2>CAD ファイル（.stp・.ipt・.iam）にするまでの流れ</h2>
       <ol class="flow">
         <li><b>開く</b><span>.html（three.js）をドロップ</span></li>
-        <li><b>確かめる</b><span>形状・寸法と、作れる部品の数</span></li>
-        <li><b>Inventor で作る</b><span>パネルのボタンを押す（Inventor のある PC で）</span></li>
+        <li><b>確かめる</b><span>単位（実物の大きさ）・形状・寸法と、作れる部品の数</span></li>
+        <li><b>作る</b><span>「STEP を作る」（Inventor 不要）か「Inventor で作る」（.ipt・.iam も）</span></li>
         <li><b>照合する</b><span>部品ごとに、体積・表面積が一致したかを表示</span></li>
       </ol>
-      <p class="flow-note">Inventor の無い PC で取り込んだときは、変換データ（.inventor.json）を保存し、Inventor のある PC でこのアプリに開いて作ります。</p>
+      <p class="flow-note">STEP は Inventor で開けば .ipt・.iam になります。Inventor で作ると、回転体・押し出しは寸法を編集できる部品になります。</p>
     </section>
   </div>
 </dialog>

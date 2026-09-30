@@ -1,5 +1,7 @@
 // 認識結果を画面の言葉にする: 部品ごとの説明文と、同じ形状の部品をまとめたグループ。DOM に依存しない。
 
+import { selfIntersectionNote } from "../convert/recognize/intersect.js";
+
 const fmt = (v) => v.toFixed(3);
 
 export const TONE = { revolve: "exact", prism: "exact", mesh: "approx" };
@@ -43,7 +45,8 @@ const REPAIR_NOTE = {
 /** 1 部品の説明（見出しの寸法・補足・注意・種類）。 */
 export function describePart(p) {
   const d = describeShape(p);
-  const note = [d.note, REPAIR_NOTE[p.repair]].filter(Boolean).join("。");
+  const untangled = p.untangled && `断面の小さな重なり ${p.untangled.count} か所（元のメッシュの折れ。最大 ${p.untangled.deviation.toFixed(3)} mm）を取り除いた`;
+  const note = [d.note, REPAIR_NOTE[p.repair], untangled, p.intersections && selfIntersectionNote(p.intersections)].filter(Boolean).join("。");
   return { ...d, note: note || null };
 }
 

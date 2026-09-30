@@ -1,12 +1,15 @@
 // 殻（convert/recognize/shells.js）と、開いた面から立体を作る処理の評価。
 //   つながり: 1 つのジオメトリに重ねた形は別々の殻になる / 向き: 裏返しの形も外向きの閉じた立体になる / 厚みのない殻は立体にしない
 //   縫い合わせ: 開いた円筒の壁とリングで作った筒 → 1 つの立体 / 塞ぐ: 管・端の開いた円筒は塞ぐ、表面に重ねた短く太い帯は塞がない
+//   自己交差: 近似の部品の元の形が自分と交わる所を数える / 断面の小さな蝶ネクタイ形の輪は取り除き、差を示す
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import * as THREE from "three";
 import { recognizeSnapshot } from "../../app/static/js/convert/recognize/index.js";
 import { transformPoints, weldTriangles } from "../../app/static/js/convert/recognize/mesh.js";
 import { buildShells, closeOpenShells } from "../../app/static/js/convert/recognize/shells.js";
+import { selfCrossings, untangleLoop } from "../../app/static/js/convert/recognize/geometry2d.js";
+import { describePart } from "../../app/static/js/html/describe.js";
 
 const TOL = 1e-3;
 const I = new THREE.Matrix4().elements;
@@ -118,5 +121,41 @@ describe("開いた面から立体を作る", () => {
     assert.equal(solids.length, 1);
     assert.deepEqual([...solids[0].members.keys()].sort(), [0, 1, 2, 3]);
     assert.deepEqual(open, []);
+  });
+});
+
+describe("元の形の自己交差（近似の部品で知らせる）", () => {
+  const tube = (points, radius) => new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points.map((p) => new THREE.Vector3(...p)), false, "catmullrom", 0), 96, radius, 16, false);
+  test("急に曲がる管（曲がりの半径より太い）→ 交わる所を数え、説明に書く", () => {
+    const [p] = recognizeSnapshot(scene(tube([[0, 0, 0], [100, 0, 0], [0, 10, 0]], 8))).parts;
+    assert.equal(p.kind, "mesh");
+    assert.ok(p.intersections > 0, `${p.intersections}`);
+    assert.match(describePart(p).note, /元の形が自分と交わる所がある/);
+  });
+  test("ゆるく曲がる管（半径 100 の円弧に沿う太さ 5 の管）・箱 → 交わりなし", () => {
+    const arc = Array.from({ length: 9 }, (_, i) => [100 * Math.cos((Math.PI * i) / 16), 100 * Math.sin((Math.PI * i) / 16), 0]);
+    const [p] = recognizeSnapshot(scene(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(arc.map((q) => new THREE.Vector3(...q))), 96, 5, 16, false))).parts;
+    assert.equal(p.intersections, undefined);
+    const [box] = recognizeSnapshot(scene(new THREE.BoxGeometry(10, 20, 30))).parts;
+    assert.equal(box.intersections, undefined);
+  });
+});
+
+describe("断面の自己交差", () => {
+  const line = (a, b) => ({ type: "line", a, b });
+  const polygon = (...pts) => pts.map((p, i) => line(p, pts[(i + 1) % pts.length]));
+  test("小さな蝶ネクタイ形の輪（2 本先の直線が交わる）→ 交点で継いで取り除き、元の形との差を返す", () => {
+    // 四角形の下辺に、1 mm ほどの折れ（下辺 → 戻る → また進む）
+    const loop = polygon([0, 0], [10, 0], [9, -0.5], [9.5, 0.5], [20, 0], [20, 10], [0, 10]);
+    assert.equal(selfCrossings([loop]), 1);
+    const { loop: clean, removed, deviation } = untangleLoop(loop);
+    assert.equal(removed, 1);
+    assert.equal(selfCrossings([clean]), 0);
+    assert.ok(deviation > 0.4 && deviation < 1.2, `${deviation}`);
+    assert.equal(clean.length, loop.length - 1, "交わる 2 本の間の 1 本を捨てる");
+  });
+  test("交わらない断面・穴のある断面 → 0", () => {
+    assert.equal(selfCrossings([polygon([0, 0], [10, 0], [10, 10], [0, 10]), polygon([3, 3], [3, 6], [6, 6], [6, 3])]), 0);
+    assert.equal(untangleLoop(polygon([0, 0], [10, 0], [10, 10], [0, 10])).removed, 0);
   });
 });

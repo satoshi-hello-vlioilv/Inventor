@@ -42,6 +42,9 @@ def loop_bounds(loop) -> tuple[float, float, float, float]:
 
 def expected_bbox(part: Part) -> Box:
     """部品のローカル座標系での外接箱（mm）。"""
+    if part.kind == "mesh":
+        points = part.mesh.positions
+        return tuple(min(p[k] for p in points) for k in range(3)), tuple(max(p[k] for p in points) for k in range(3))
     bounds = [loop_bounds(loop) for loop in part.loops]
     xmin, xmax = min(b[0] for b in bounds), max(b[1] for b in bounds)
     ymin, ymax = min(b[2] for b in bounds), max(b[3] for b in bounds)

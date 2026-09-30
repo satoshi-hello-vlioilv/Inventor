@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import os
 import sys
 from pathlib import Path
 
@@ -22,3 +23,17 @@ def ready() -> bool:
 
 def install_command(python: str = sys.executable) -> list[str]:
     return [python, "-m", "pip", "install", "-r", str(REQUIREMENTS)]
+
+
+def inventor_installed() -> bool:
+    """この PC に Inventor が入っているか（COM の登録 Inventor.Application があるか。Windows だけ。ライブラリは要らない）。
+    画面が、Inventor の無い PC では「STEP を作る」を先に勧めるのに使う。"""
+    if os.name != "nt":
+        return False
+    import winreg  # noqa: PLC0415 — Windows だけにある
+
+    try:
+        with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, r"Inventor.Application\CLSID"):
+            return True
+    except OSError:
+        return False

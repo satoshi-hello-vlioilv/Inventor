@@ -1,6 +1,6 @@
 {
  "format": "inventor-builder",
- "version": 2,
+ "version": 3,
  "units": "mm",
  "source": {
   "file": "LS4_parts_viewer.html",

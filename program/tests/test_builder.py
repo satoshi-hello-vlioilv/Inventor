@@ -21,7 +21,7 @@ from ipt_build.inventor import K_JOIN, K_SYMMETRIC, Builder
 from tests.fake_inventor import FakeComError, FakeInventor
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "builder"
-NAMES = ["spacer-t50", "finger", "blade", "reel", "plate-holes"]
+NAMES = ["spacer-t50", "finger", "blade", "reel", "plate-holes", "wire"]
 
 
 def spec_of(name):
@@ -215,6 +215,11 @@ class ExtentTest(unittest.TestCase):
         for name in NAMES:
             for part in spec_of(name).parts:
                 with self.subTest(name=name, part=part.key):
+                    if part.kind == "mesh":  # 三角形の部品の外接箱は頂点の範囲
+                        lo, hi = expected_bbox(part)
+                        for k in range(3):
+                            self.assertEqual((lo[k], hi[k]), (min(p[k] for p in part.mesh.positions), max(p[k] for p in part.mesh.positions)))
+                        continue
                     points = []
                     for loop in part.loops:
                         for s in loop:
@@ -257,7 +262,7 @@ class SpecTest(unittest.TestCase):
         thick["parts"][0]["chamfers"][0]["distance"] = 2.5
         wrong_side = json.loads(json.dumps(blade))
         wrong_side["parts"][0]["chamfers"][0]["side"] = "Z"
-        for label, data in {"revolve": revolve, "thick": thick, "side": wrong_side, "version": {**blade, "version": 3}}.items():
+        for label, data in {"revolve": revolve, "thick": thick, "side": wrong_side, "version": {**blade, "version": 4}}.items():
             with self.subTest(label=label), self.assertRaises(SpecError):
                 load_spec(self.write(data))
 
@@ -297,7 +302,7 @@ class CommandTest(unittest.TestCase):
 
 
 class EventsTest(unittest.TestCase):
-    """--events: アプリの「Inventor で作る」が読む進み具合（1 行 1 つの JSON）。"""
+    """--events: アプリの「CAD ファイルを作る」が読む進み具合（1 行 1 つの JSON）。"""
 
     def run_events(self, spec_path, connect):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(inventor_module, "connect", side_effect=connect), \
@@ -311,8 +316,9 @@ class EventsTest(unittest.TestCase):
         code, events = self.run_events(FIXTURES / "reel.inventor.json", lambda: FakeInventor())
         self.assertEqual(code, 0)
         kinds = [e["event"] for e in events]
-        self.assertEqual(kinds, ["connecting", "start"] + ["part"] * 25 + ["assembly", "done"])
+        self.assertEqual(kinds, ["step", "connecting", "start"] + ["part"] * 25 + ["assembly", "done"])
         first, last = events[0], events[-1]
+        self.assertEqual(first["step"]["file"], "spool_reel_assembly_v2.stp", "STEP を最初に書く")
         self.assertEqual([p["verdict"] for p in first["parts"]], [None] * 25, "まだ作っていない部品も並べる")
         self.assertEqual((last["good"], last["total"]), (25, 25))
         self.assertTrue(all(p["verdict"] == "ok" and p["file"].endswith(".ipt") for p in last["parts"]))
@@ -337,8 +343,9 @@ class EventsTest(unittest.TestCase):
         def refuse():
             raise FakeComError("Inventor のライセンスが見つかりません")
         code, events = self.run_events(FIXTURES / "finger.inventor.json", refuse)
-        self.assertEqual((code, [e["event"] for e in events]), (2, ["connecting", "error"]))
-        self.assertEqual(events[-1]["message"], "Inventor のライセンスが見つかりません", "COM の説明をそのまま伝える")
+        self.assertEqual((code, [e["event"] for e in events]), (1, ["step", "connecting", "done"]), "STEP は書いてから知らせる")
+        self.assertEqual(events[-1]["inventor_error"], "Inventor のライセンスが見つかりません", "COM の説明をそのまま伝える")
+        self.assertEqual(events[-1]["step"]["file"], "LS4_parts_viewer.stp")
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@ import secrets
 from flask import Flask, abort, request
 
 import app_build
+from ipt_build import libraries
 import settings
 
 # 返す種類（Content-Type）。Windows ではレジストリの設定で .js が text/plain の PC があり、
@@ -39,6 +40,7 @@ def create_app(test_config: dict | None = None) -> Flask:
     )
     if test_config:
         app.config.update(test_config)
+    app.config.setdefault("INVENTOR_INSTALLED", libraries.inventor_installed)  # この PC に Inventor があるか（評価では差し替える）
     if "BUILDS" not in app.config:
         from .builds import Builds  # noqa: PLC0415
 

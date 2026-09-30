@@ -8,6 +8,8 @@ import { pointAt, tolerance, transformPoints, weldTriangles } from "./mesh.js";
 import { detectPrism } from "./prism.js";
 import { detectRevolve } from "./revolve.js";
 import { describeSegments, fitSegments } from "./segments.js";
+import { selfCrossings, untangleLoop } from "./geometry2d.js";
+import { selfIntersections } from "./intersect.js";
 import { buildShells, closeOpenShells } from "./shells.js";
 import { featureOf, maxDeviation, reverseDeviation } from "../inventor.js";
 
@@ -42,10 +44,25 @@ function bbox(points, tris) {
   return { min: lo, max: hi, size: hi.map((v, k) => v - lo[k]) };
 }
 
+/**
+ * 断面の小さな自己交差（元のメッシュの折れでできた蝶ネクタイ形の輪）を取り除く。取り除いた数と、元の形との差を記録する
+ * @returns {{ loops: object[][], untangled: { count: number, deviation: number } | null }}
+ */
+function untangle(loops) {
+  let count = 0, deviation = 0;
+  const out = loops.map((loop) => {
+    const r = untangleLoop(loop);
+    count += r.removed;
+    deviation = Math.max(deviation, r.deviation);
+    return r.loop;
+  });
+  return { loops: out, untangled: count ? { count, deviation } : null };
+}
+
 /** 回転体として認識できたら寸法をまとめる。 */
 function summarizeRevolve(fit, tol) {
   const r = fit.profile.map((p) => p[0]), h = fit.profile.map((p) => p[1]);
-  const segments = fitSegments(fit.profile, true, tol);
+  const { loops: [segments], untangled } = untangle([fitSegments(fit.profile, true, tol)]);
   const inner = Math.min(...r);
   return {
     kind: "revolve",
@@ -54,6 +71,7 @@ function summarizeRevolve(fit, tol) {
     length: Math.max(...h) - Math.min(...h),
     sweepDeg: fit.sector ? (fit.sector.span * 180) / Math.PI : 360,
     segments,
+    untangled,
     profileText: describeSegments(segments),
   };
 }
@@ -61,7 +79,7 @@ function summarizeRevolve(fit, tol) {
 /** 押し出しとして認識できたら寸法をまとめる。 */
 function summarizePrism(fit) {
   const us = fit.outer.map((p) => p[0]), vs = fit.outer.map((p) => p[1]);
-  const { outer, holes } = fit.segments;
+  const { loops: [outer, ...holes], untangled } = untangle([fit.segments.outer, ...fit.segments.holes]);
   const lines = outer.filter((s) => s.type === "line").length;
   const shape = outer.length === 1 && outer[0].type === "circle" ? `円 φ${(2 * outer[0].radius).toFixed(3)}`
     : lines === outer.length && lines === 4 ? "四角形" : lines === outer.length ? `${lines} 角形` : describeSegments(outer);
@@ -72,7 +90,8 @@ function summarizePrism(fit) {
     height: Math.max(...vs) - Math.min(...vs),
     shape,
     holes: holes.length,
-    segments: fit.segments,
+    segments: { outer, holes },
+    untangled,
     chamfers: fit.chamfers,
     profileText: describeSegments(outer) + (holes.length ? `／穴 ${holes.length}` : ""),
   };
@@ -112,13 +131,27 @@ const VERIFY_TOL = 4; // 元の形との差の許容（長さの許容差の倍�
  * 安全網: 認識した寸法から作る形（変換データの形。寸法の丸めを含む）と元のメッシュが一致するかを、両方向で確かめる。
  *   元 → 作る形: 元の全ての頂点が、作る形の面の上にある（maxDeviation）
  *   作る形 → 元: 作る形の角に元の頂点があり、元の端面の縁が作る形の輪郭の上にある（reverseDeviation。作る形が広がっていないか）
- * 差が許容（許容差の 4 倍。面取りの角は、作り方の違いとして示した差を加える）を超えたら、正確な形とせず近似にする。
+ * 差が許容（許容差の 4 倍。面取りの角・取り除いた断面の重なりは、示した差を加える）を超えたら、正確な形とせず近似にする。
+ * 断面が自分と交わる（元の形が重なっている）ものは、立体にできないので近似にし、理由を示す。
  * 認識の判定を通り抜けた誤り（丸めの誤り、判定の見落とし）を、作る前に止める。
  */
 export function verify(part) {
+  const checked = verifyExact(part);
+  // 近似の部品（三角形のまま）: 元の形が自分と交わる所を数える（CAD の立体として正しくないので知らせる）
+  if (checked.kind !== "mesh") return checked;
+  const intersections = selfIntersections(checked.points, checked.tris, checked.tol);
+  return intersections ? { ...checked, intersections } : checked;
+}
+
+function verifyExact(part) {
   if (part.kind !== "revolve" && part.kind !== "prism") return part;
+  const loops = part.kind === "revolve" ? [part.segments] : [part.segments.outer, ...part.segments.holes];
+  const crossings = selfCrossings(loops);
+  if (crossings) {
+    return { ...part, kind: "mesh", fit: null, feature: null, reason: `断面が自分と ${crossings} か所で交わる（元の形が重なっていて、立体にできない）` };
+  }
   const corner = Math.max(0, ...(part.chamfers ?? []).map((c) => c.cornerDeviation));
-  const allowed = VERIFY_TOL * part.tol + corner;
+  const allowed = VERIFY_TOL * part.tol + corner + (part.untangled?.deviation ?? 0); // 取り除いた重なりは、示した差まで許す
   let feature = null, deviation = Infinity;
   try {
     feature = featureOf(part);
@@ -178,7 +211,9 @@ export function recognizeSnapshot(snapshot, { unit = 1 } = {}) {
       const tol = tolerance(mesh.positions, matrix, unit, TOL);
       const { points, tris, source } = weldTriangles(transformPoints(mesh.positions, matrix, unit), mesh.index, tol);
       const origin = [matrix[12] * unit, matrix[13] * unit, matrix[14] * unit];
-      const context = { meshIndex, name: mesh.name, path: mesh.path, geometryType: mesh.geometryType, color: mesh.color, localAxes: localAxes(matrix), tol };
+      // placement: 元のメッシュの位置と向き（mm）。近似の部品を、元のメッシュの座標系で変換データに書くのに使う
+      const placement = { origin, axes: localAxes(matrix) };
+      const context = { meshIndex, name: mesh.name, path: mesh.path, geometryType: mesh.geometryType, color: mesh.color, localAxes: placement.axes, placement, tol };
       for (const shell of buildShells(points, tris, tol)) {
         const sources = [{ mesh: meshIndex, instance, triangles: Int32Array.from(shell.source, (t) => source[t]) }];
         const base = { ...context, sources, caps: 0, repair: null, triangles: shell.tris.length / 3, bbox: bbox(points, shell.tris), points, tris: shell.tris };

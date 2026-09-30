@@ -1,6 +1,6 @@
 {
  "format": "inventor-builder",
- "version": 2,
+ "version": 3,
  "units": "mm",
  "source": {
   "file": "spool_reel_assembly_v2.html",

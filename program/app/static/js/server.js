@@ -54,12 +54,16 @@ export async function claimLaunch() {
 }
 
 /**
- * 「Inventor で作る」（program/app/builds.py）。答えはどれも、いまの状態（state・部品ごとの結果・保存先 out_dir など）と、
- * ライブラリ（pywin32）が入っているか（ready）・保存先の親フォルダ（root）。
+ * 「STEP を作る」「Inventor で作る」（program/app/builds.py）。答えはどれも、いまの状態（state・部品ごとの結果・STEP の結果 step・
+ * 保存先 out_dir など）と、ライブラリ（pywin32）が入っているか（ready）・この PC に Inventor があるか（inventor_installed）・
+ * 保存先の親フォルダ（root）。
  */
 export const buildStatus = async () => (await request("/api/build")).json();
-/** 作り始める。ライブラリが無ければ始めずに needs_install を返す（install: true で、入れてから作る） */
-export const startBuild = (spec, install = false) => post("/api/build", { spec, install });
+/**
+ * 作り始める。target: "inventor"（STEP と .ipt・.iam）か "step"（STEP だけ。Inventor を使わない）。
+ * Inventor で作るときライブラリが無ければ、始めずに needs_install を返す（install: true で、入れてから作る）
+ */
+export const startBuild = (spec, { install = false, target = "inventor" } = {}) => post("/api/build", { spec, install, target });
 export const cancelBuild = () => post("/api/build/cancel");
 /** 保存先をエクスプローラーで開く */
 export const openBuildFolder = () => post("/api/build/open");

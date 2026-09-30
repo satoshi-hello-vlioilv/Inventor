@@ -1,8 +1,8 @@
 // 右側の仕様パネル。4 つの表示を持つ。
 //   ipt  … 部品（.ipt・STEP の部品・組立の中の部品）: 寸法・形状要素・位相・材質と質量・ファイル構造
 //   asm  … 組立（.iam・STEP）: 外形寸法・部品表・見つからない部品・構成
-//   html … three.js の HTML: 取り込み結果・Inventor へ変換・部品・除外したもの
-//   spec … 変換データ（.inventor.json）: 中身の数・Inventor へ変換・部品
+//   html … three.js の HTML: 取り込み結果（単位）・CAD ファイルを作る・部品・除外したもの
+//   spec … 変換データ（.inventor.json）: 中身の数・CAD ファイルを作る・部品
 
 import { AXES, fmt, fmtMass, fmtSize } from "../viewer/describe.js";
 
@@ -204,10 +204,11 @@ export function renderHtmlPanel({ describe }, handlers) {
 export function renderSpecPanel({ describe }, handlers) {
   const { counts } = describe;
   const tally = [
-    ["exact", "作る部品", `${counts.parts} 種類`, "回転体・押し出しとして寸法が書かれた部品"],
+    ["exact", "作る部品", `${counts.parts} 種類`, "回転体・押し出し（寸法で作る部品）と近似の部品（三角形のまま作る部品）"],
     ["exact", "配置", `${counts.placed} か所`, "組立の中の部品の数（2 か所以上なら組立も作る）"],
   ];
-  if (counts.skipped) tally.push(["approx", "作らない", `${counts.skipped} 個`, "取り込んだときに近似（三角形のまま）だった部品"]);
+  if (counts.approx) tally.push(["approx", "うち近似", `${counts.approx} 種類`, "三角形のまま作る部品（円は多角形）"]);
+  if (counts.skipped) tally.push(["approx", "作らない", `${counts.skipped} 個`, "取り込んだときに近似（三角形のまま）だった部品（版 2 までの変換データ）"]);
   renderTally("spec-tally", tally);
   return renderRows("parts", describe.groups,
     (g) => ({ kind: g.label, dim: g.main, count: g.ids.length, sub: g.sub, note: g.note, tone: g.tone, title: g.name }), handlers,
