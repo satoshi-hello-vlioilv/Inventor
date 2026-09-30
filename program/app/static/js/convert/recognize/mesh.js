@@ -30,23 +30,29 @@ export function tolerance(positions, m, scale, base) {
 
 export const pointAt = (points, i) => [points[3 * i], points[3 * i + 1], points[3 * i + 2]];
 
-/** 距離 tol 以内の頂点を 1 つにまとめる（格子ハッシュで近傍 27 セルを探す）。 */
-export function weld(points, tol) {
+/**
+ * 距離 tol 以内の頂点を 1 つにまとめる（格子ハッシュで近傍 27 セルを探す）。
+ * 頂点ごとの許容差 tols（元のメッシュごとの float32 の精度）を渡すと、2 点は大きい方の許容差でまとめる（tol はその最大）。
+ * 座標の大きな遠くの板（床など）の粗い許容差で、細かい形の近い頂点をまとめてしまわないように。
+ * @returns {{ points: Float64Array, map: Int32Array, tols: Float64Array|null }}  tols はまとめた頂点ごとの許容差
+ */
+export function weld(points, tol, tols = null) {
   const n = points.length / 3;
   const cells = new Map();
-  const unique = [];
+  const unique = [], uniqueTol = [];
   const map = new Int32Array(n);
   const cell = (v) => Math.floor(v / tol);
   for (let i = 0; i < n; i++) {
     const [x, y, z] = pointAt(points, i);
     const [cx, cy, cz] = [cell(x), cell(y), cell(z)];
+    const own = tols ? tols[i] : tol;
     let found = -1;
     search: for (let dx = -1; dx <= 1; dx++) {
       for (let dy = -1; dy <= 1; dy++) {
         for (let dz = -1; dz <= 1; dz++) {
           for (const j of cells.get(`${cx + dx},${cy + dy},${cz + dz}`) ?? []) {
-            const k = 3 * j;
-            if (Math.abs(unique[k] - x) <= tol && Math.abs(unique[k + 1] - y) <= tol && Math.abs(unique[k + 2] - z) <= tol) {
+            const k = 3 * j, limit = Math.max(own, uniqueTol[j]);
+            if (Math.abs(unique[k] - x) <= limit && Math.abs(unique[k + 1] - y) <= limit && Math.abs(unique[k + 2] - z) <= limit) {
               found = j;
               break search;
             }
@@ -57,13 +63,16 @@ export function weld(points, tol) {
     if (found < 0) {
       found = unique.length / 3;
       unique.push(x, y, z);
+      uniqueTol.push(own);
       const key = `${cx},${cy},${cz}`;
       if (!cells.has(key)) cells.set(key, []);
       cells.get(key).push(found);
+    } else {
+      uniqueTol[found] = Math.max(uniqueTol[found], own);
     }
     map[i] = found;
   }
-  return { points: Float64Array.from(unique), map };
+  return { points: Float64Array.from(unique), map, tols: tols ? Float64Array.from(uniqueTol) : null };
 }
 
 /** 三角形の頂点番号列（index が無ければ 3 頂点ずつ順に並んだものとみなす）。 */
