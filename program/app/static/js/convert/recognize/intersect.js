@@ -57,17 +57,16 @@ export function selfIntersections(points, tris, tol, limit = 100) {
       grid.get(key).push(t);
     }
   });
-  const checked = new Set();
   let count = 0;
-  for (const list of grid.values()) {
+  for (const [key, list] of grid) {
+    const here = key.split(",").map(Number);
     for (let i = 0; i < list.length; i++) {
       for (let j = i + 1; j < list.length; j++) {
-        const [s, t] = list[i] < list[j] ? [list[i], list[j]] : [list[j], list[i]];
-        const key = s * m + t;
-        if (checked.has(key)) continue;
-        checked.add(key);
+        const s = list[i], t = list[j];
         const A = boxes[s], B = boxes[t];
         if ([0, 1, 2].some((k) => A.lo[k] > B.hi[k] || B.lo[k] > A.hi[k])) continue;
+        // 同じ組を 2 度調べない: 2 つの箱の重なりの最小の角がある升目でだけ調べる
+        if ([0, 1, 2].some((k) => Math.floor(Math.max(A.lo[k], B.lo[k]) / cell) !== here[k])) continue;
         const shared = [0, 1, 2].some((a) => [0, 1, 2].some((b) => tris[3 * s + a] === tris[3 * t + b]));
         if (shared) continue;
         const hit = [[0, 1], [1, 2], [2, 0]].some(([u, v]) => segmentHitsTriangle(A.p[u], A.p[v], ...B.p, tol)) ||

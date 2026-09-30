@@ -86,31 +86,61 @@ export function detectPrism(points, tris, origin, dir, tol) {
       adjacency.get(x).add(y);
     }
   };
+  // 側壁の三角形が投影で覆う線分の途中に、ほかの柱が乗っていれば、そこで分けてつなぐ（側壁の途中の高さまでしか無い頂点。
+  // 分割の違う面の継ぎ目をそろえた所など）。分けないと、同じ線の上で細かいつなぎと粗いつなぎが重なり、分岐に見える
+  const at = new Map();
+  used.forEach((_, i) => { if (!at.has(column[i])) at.set(column[i], uv[i]); });
+  const walls = [];
   for (let k = 0; k < tris.length; k += 3) {
     if (kinds[k / 3] !== WALL) continue;
-    const cols = [...new Map(idsOf(k).map((i) => [column[i], uv[i]]))];
-    const [a, b] = [cols[0][1], cols.at(-1)[1]];
-    const along = ([, w]) => (w[0] - a[0]) * (b[0] - a[0]) + (w[1] - a[1]) * (b[1] - a[1]);
-    cols.sort((x, y) => along(x) - along(y));
-    for (let j = 0; j + 1 < cols.length; j++) link(cols[j][0], cols[j + 1][0]);
+    const cols = [...new Set(idsOf(k).map((i) => column[i]))];
+    if (cols.length < 2) continue;
+    // 線分の両端: 最も離れた 2 本の柱
+    let [a, b, far] = [cols[0], cols[1], -1];
+    for (const x of cols) for (const y of cols) {
+      const d = Math.hypot(at.get(x)[0] - at.get(y)[0], at.get(x)[1] - at.get(y)[1]);
+      if (d > far) [a, b, far] = [x, y, d];
+    }
+    walls.push([a, b, far, k]);
+  }
+  const cellSize = Math.max(tol, [...walls.map((w) => w[2])].sort((x, y) => x - y)[walls.length >> 1] ?? tol);
+  const grid = new Map();
+  for (const [c, [x, y]] of at) {
+    const key = `${Math.floor(x / cellSize)},${Math.floor(y / cellSize)}`;
+    if (!grid.has(key)) grid.set(key, []);
+    grid.get(key).push(c);
+  }
+  // 柱ごとの側壁の上端・下端の段: その位置を覆う側壁の三角形の段の範囲（途中に乗る柱にも、覆う三角形の範囲を渡す）
+  const columnPoint = new Map(), colTop = new Map(), colBottom = new Map();
+  for (const [a, b, len, k] of walls) {
+    const [A, B] = [at.get(a), at.get(b)];
+    const d = [(B[0] - A[0]) / len, (B[1] - A[1]) / len];
+    const on = [[0, a], [len, b]];
+    const lo = [Math.min(A[0], B[0]), Math.min(A[1], B[1])].map((v) => Math.floor((v - tol) / cellSize));
+    const hi = [Math.max(A[0], B[0]), Math.max(A[1], B[1])].map((v) => Math.floor((v + tol) / cellSize));
+    for (let x = lo[0]; x <= hi[0]; x++) for (let y = lo[1]; y <= hi[1]; y++) {
+      for (const c of grid.get(`${x},${y}`) ?? []) {
+        if (c === a || c === b) continue;
+        const P = at.get(c), t = (P[0] - A[0]) * d[0] + (P[1] - A[1]) * d[1];
+        if (t > tol && t < len - tol && Math.abs((P[0] - A[0]) * d[1] - (P[1] - A[1]) * d[0]) <= tol) on.push([t, c]);
+      }
+    }
+    on.sort((p, q) => p[0] - q[0]);
+    for (let j = 0; j + 1 < on.length; j++) link(on[j][1], on[j + 1][1]);
+    const lv = idsOf(k).map(level);
+    for (const [, c] of on) {
+      columnPoint.set(c, at.get(c));
+      colTop.set(c, Math.max(colTop.get(c) ?? -1, ...lv));
+      colBottom.set(c, Math.min(colBottom.get(c) ?? Infinity, ...lv));
+    }
   }
   if (!adjacency.size) return fail("軸に平行な側面がない");
   const loops = wallLoops(adjacency);
   if (!loops) return fail("側面の形が分岐している");
 
-  // 柱ごとの側壁の上端・下端の段
-  const columnPoint = new Map(), colTop = new Map(), colBottom = new Map();
   const slant = new Set();
   for (let k = 0; k < tris.length; k += 3) {
-    for (let j = 0; j < 3; j++) {
-      const i = local.get(tris[k + j]);
-      if (kinds[k / 3] === SLANT) slant.add(i);
-      if (kinds[k / 3] !== WALL) continue;
-      const c = column[i];
-      columnPoint.set(c, uv[i]);
-      colTop.set(c, Math.max(colTop.get(c) ?? -1, level(i)));
-      colBottom.set(c, Math.min(colBottom.get(c) ?? Infinity, level(i)));
-    }
+    if (kinds[k / 3] === SLANT) for (let j = 0; j < 3; j++) slant.add(local.get(tris[k + j]));
   }
 
   // 断面の輪郭（外周は反時計回り、穴は時計回り）と、輪郭ごとの面取り

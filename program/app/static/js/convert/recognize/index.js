@@ -223,12 +223,12 @@ export function recognizeSnapshot(snapshot, { unit = 1 } = {}) {
     });
   });
 
-  // 開いた面: メッシュをまたいで縫い合わせ、平らな縁を塞いで立体にする。立体にならないものは除外
+  // 開いた面: メッシュをまたいで縫い合わせ、平らな縁を塞ぎ、継ぎ目の刻みをそろえて立体にする。立体にならないものは除外
   const { solids, open: rest } = closeOpenShells(open);
   for (const solid of solids) {
     const first = open[Math.min(...solid.members.keys())];
     const sources = [...solid.members].map(([i, local]) => ({ ...open[i].source, triangles: Int32Array.from(local, (t) => open[i].source.triangles[t]) }));
-    const repair = solid.caps ? "capped" : "stitched";
+    const repair = solid.caps ? "capped" : solid.seams ? "seamed" : "stitched";
     push({
       ...first.base, sources, caps: solid.caps, repair, triangles: solid.tris.length / 3, bbox: bbox(solid.points, solid.tris), points: solid.points, tris: solid.tris,
       ...recognizeSolid(solid.points, solid.tris, first.origin, candidateAxes(first.matrix), first.tol),
