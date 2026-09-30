@@ -57,8 +57,8 @@ function zRange(geometry) {
   return [Math.min(...zs), Math.max(...zs)];
 }
 
-/** 面取りを除いた期待値（表示は面取りを描かない） */
-const expectedVolume = (part) => expectedProperties({ kind: part.kind, loops: part.sketch.loops, revolve: part.revolve, extrude: part.extrude }).volume;
+/** 面取りを除いた期待値（表示は面取りを描かない）。近似の部品は三角形の体積 */
+const expectedVolume = (part) => expectedProperties(part.kind === "mesh" ? part : { kind: part.kind, loops: part.sketch.loops, revolve: part.revolve, extrude: part.extrude }).volume;
 
 describe("変換データの部品の形", () => {
   for (const name of fixtures) {
@@ -70,6 +70,7 @@ describe("変換データの部品の形", () => {
         const expect = expectedVolume(part);
         assert.ok(r.volume > 0, `${part.key}: 裏返っている（体積 ${r.volume}）`);
         assert.ok(Math.abs(r.volume - expect) / expect < 5e-3, `${part.key}: 体積 ${r.volume} / 期待値 ${expect}`);
+        if (part.kind === "mesh") continue; // 近似の部品は元のメッシュの座標系のまま（対称とは限らない）
         const [lo, hi] = zRange(partGeometry(part));
         const half = part.kind === "extrude" ? part.extrude.distance / 2 : hi;
         assert.ok(Math.abs(lo + half) < 1e-9 && Math.abs(hi - half) < 1e-9, `${part.key}: Z が ${lo}〜${hi}（XY 平面に対して対称のはず）`);
@@ -111,7 +112,7 @@ describe("置き方と説明", () => {
     assert.deepEqual([m[3], m[7], m[11]], first.origin, "移動は行優先の 4 列目");
     assert.deepEqual([m[0], m[4], m[8]], first.x, "X 軸は 1 列目");
     const d = describeSpec(spec);
-    assert.deepEqual(d.counts, { parts: 25, placed, skipped: spec.skipped.reduce((n, s) => n + s.count, 0) });
+    assert.deepEqual(d.counts, { parts: 25, placed, skipped: spec.skipped.reduce((n, s) => n + s.count, 0), approx: 0 });
     assert.deepEqual(d.groups.flatMap((g) => g.ids), scene.instances.map((i) => i.id), "3D の配置の番号とパネルの行が対応する");
   });
 

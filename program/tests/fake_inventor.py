@@ -24,6 +24,7 @@ K_ASSEMBLY_DOCUMENT = 12291
 K_JOIN = 20481
 K_SYMMETRIC = 20995
 SAMPLES_PER_TURN = 4096
+MM_PER_CM = 10.0  # Inventor の内部の長さは cm
 
 
 class FakeComError(Exception):
@@ -403,6 +404,50 @@ class Document:
         self.closed = True
 
 
+class ImportedBody:
+    """STEP を開いてできたボディ（三角形をまとめた平らな面だけの STEP を読む）。外接箱を持つ。"""
+
+    def __init__(self, points):
+        self.PreciseRangeBox = Box(points)
+
+
+def read_faceted_step(path) -> tuple[float, float, list]:
+    """平らな面だけの STEP を読み、(体積, 表面積, 頂点) を返す（cm 単位。Inventor の内部と同じ）。
+    面の輪は、面の外向きの法線から見て外周が反時計回り・穴が時計回りのはず（体積は面ごとの (面積ベクトル · 点) / 3 の和）。
+    輪の向きが逆なら体積が負になり、照合で見つかる。"""
+    import re  # noqa: PLC0415
+
+    text = Path(path).read_text(encoding="ascii")
+    entities = {int(m.group(1)): (m.group(2), m.group(3)) for m in re.finditer(r"#(\d+)=([A-Z_0-9]+)\((.*?)\);", text.replace("\n", ""))}
+    refs = lambda body: [int(r) for r in re.findall(r"#(\d+)", body)]  # noqa: E731
+    point = lambda i: tuple(float(v) / MM_PER_CM for v in re.search(r"\(([^()]*)\)\s*$", entities[i][1]).group(1).split(","))  # noqa: E731
+    vertex = lambda i: point(refs(entities[i][1])[0])  # noqa: E731
+    volume = area = 0.0
+    points = []
+    for name, body in entities.values():
+        if name != "ADVANCED_FACE":
+            continue
+        vector = [0.0, 0.0, 0.0]
+        anchor = None
+        for bound in refs(body)[:-1]:
+            loop = refs(entities[bound][1])[0]
+            ring = []
+            for used in refs(entities[loop][1]):
+                edge_ref = refs(entities[used][1])[0]
+                forward = entities[used][1].rstrip().endswith(".T.")
+                start, end = refs(entities[edge_ref][1])[:2]
+                ring.append(vertex(start if forward else end))
+            anchor = anchor or ring[0]
+            points += ring
+            for a, b in zip(ring, ring[1:] + ring[:1]):
+                vector[0] += (a[1] * b[2] - a[2] * b[1]) / 2
+                vector[1] += (a[2] * b[0] - a[0] * b[2]) / 2
+                vector[2] += (a[0] * b[1] - a[1] * b[0]) / 2
+        volume += sum(v * c for v, c in zip(vector, anchor)) / 3
+        area += math.sqrt(sum(v * v for v in vector))
+    return volume, area, points
+
+
 class FakeInventor:
     def __init__(self):
         self.TransientGeometry = TransientGeometry()
@@ -420,6 +465,18 @@ class FakeInventor:
         class Documents:
             def Add(self, kind, template, visible=True):  # noqa: N802
                 doc = Document(kind, template)
+                outer.documents.append(doc)
+                return doc
+
+            def Open(self, path, visible=True):  # noqa: N802 — STEP を開くと部品のドキュメントになる
+                if not Path(path).exists():
+                    raise FakeComError(f"ファイルがありません: {path}")
+                doc = Document(K_PART_DOCUMENT, None)
+                doc.opened = path
+                volume, area, points = read_faceted_step(path)
+                definition = doc.ComponentDefinition
+                definition.MassProperties.Volume, definition.MassProperties.Area = volume, area
+                definition.SurfaceBodies.Add(ImportedBody(points))
                 outer.documents.append(doc)
                 return doc
 

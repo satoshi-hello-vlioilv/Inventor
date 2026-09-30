@@ -60,19 +60,35 @@ class Jobs(unittest.TestCase):
 
     def test_builds_and_reports_every_part_and_the_assembly(self):
         started = self.builds.start(fixture("reel"))
-        self.assertEqual(started["state"], "connecting")
+        self.assertEqual(started["state"], "step", "まず STEP を書く")
         self.assertEqual([p["verdict"] for p in started["parts"]], [None] * 25, "始めた時点で、作る部品を全て並べる")
         done = wait(self.builds)
         self.assertEqual(done["state"], "done", done)
         self.assertEqual((done["good"], done["total"]), (25, 25))
         self.assertEqual(done["assembly"], {"file": "spool_reel_assembly_v2.iam", "placed": 459, "error": None})
         out = Path(done["out_dir"])
-        self.assertEqual(out, self.root / "spool_reel_assembly_v2_ipt")
+        self.assertEqual(out, self.root / "spool_reel_assembly_v2_cad")
         self.assertEqual(json.loads((out / "spool_reel_assembly_v2.inventor.json").read_text(encoding="utf-8")), fixture("reel"),
                          "作った変換データの写しを保存先に置く")
         self.assertTrue((out / "build-report.json").exists())
+        self.assertEqual(done["step"]["file"], "spool_reel_assembly_v2.stp")
+        self.assertTrue((out / "spool_reel_assembly_v2.stp").exists(), "STEP も同じ保存先に置く")
         self.assertTrue(self.builds.open_output())
         self.assertEqual(self.opened, [out])
+
+    def test_step_only_needs_neither_inventor_nor_the_library(self):
+        crash = python("raise SystemExit('Inventor を使ってはいけない')")
+        with mock.patch.object(libraries, "ready", return_value=False):
+            self.builds.command = lambda args: fake_command(args) if "--step-only" in args else crash(args)
+            started = self.builds.start(fixture("wire"), install=True, target="step")
+            self.assertEqual(started["state"], "step", "STEP だけなら、ライブラリを入れない")
+            done = wait(self.builds)
+        self.assertEqual(done["state"], "done", done)
+        self.assertFalse(done["inventor"])
+        self.assertEqual((done["step"]["placed"], done["step"]["assembly"]), (25, True))
+        self.assertEqual([p["how"] for p in done["step"]["parts"]], ["exact"] * 3 + ["faceted"] * 12)
+        out = Path(done["out_dir"])
+        self.assertEqual(sorted(p.suffix for p in out.iterdir()), [".json", ".json", ".stp"], "STEP・変換データの写し・結果だけ")
 
     def test_never_overwrites_an_earlier_result(self):
         self.builds.start(fixture("finger"))
@@ -139,8 +155,18 @@ class Jobs(unittest.TestCase):
                   "from ipt_build.__main__ import main; sys.exit(main(sys.argv[1:]))").format(root=str(tests.ROOT))
         builds = Builds(self.root, command=lambda args: [sys.executable, "-c", refuse, *args])
         started = builds.start(fixture("finger"))
+        done = wait(builds)
+        self.assertEqual((done["state"], done["inventor_error"]), ("done", "Inventor を起動できません"), "理由を伝える")
+        self.assertEqual(done["step"]["file"], "LS4_parts_viewer.stp", "Inventor で作れなくても STEP は残す")
+        self.assertTrue(Path(started["out_dir"], "LS4_parts_viewer.stp").exists())
+        self.assertTrue(builds.open_output())
+
+    def test_nothing_made_leaves_no_folder(self):
+        broken = python("import sys; print('{\"event\": \"error\", \"message\": \"壊れた変換データ\"}'); sys.exit(2)")
+        builds = Builds(self.root, command=broken)
+        started = builds.start(fixture("finger"))
         failed = wait(builds)
-        self.assertEqual((failed["state"], failed["message"]), ("failed", "Inventor を起動できません"))
+        self.assertEqual((failed["state"], failed["message"]), ("failed", "壊れた変換データ"))
         self.assertIsNone(failed["out_dir"], "何も作れなかった試みの保存先は片付ける")
         self.assertFalse(Path(started["out_dir"]).exists())
         self.assertFalse(builds.open_output())
@@ -193,7 +219,7 @@ class Api(unittest.TestCase):
             busy = self.c.post("/api/build", json={"spec": fixture("finger")}, headers=self.h)
             self.assertEqual(busy.status_code, 409)
             self.assertIn("作っています", busy.json["message"])
-            self.assertIn(self.c.post("/api/build/cancel", headers=self.h).json["state"], ("connecting", "cancelled"))
+            self.assertIn(self.c.post("/api/build/cancel", headers=self.h).json["state"], ("step", "cancelled"))
             self.assertEqual(wait(self.app.config["BUILDS"], 10)["state"], "cancelled")
 
 

@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import * as THREE from "three";
-import { recognizeMesh, recognizeSnapshot } from "../../app/static/js/convert/recognize/index.js";
+import { recognizeMesh, recognizeSnapshot, verify } from "../../app/static/js/convert/recognize/index.js";
 import { readHtmlFixture } from "./helpers.mjs";
 
 const near = (actual, expected, label, tol = 1e-3) => assert.ok(Math.abs(actual - expected) <= tol, `${label}: ${actual} ≠ ${expected}`);
@@ -181,5 +181,113 @@ describe("three.js 標準の形状クラス", () => {
       const p = plate({ bevelSegments: 3, bevelSize: 1, bevelThickness: 1 });
       assert.equal(p.kind, "mesh");
     });
+    test("穴の無い四角い板の丸い面取り（分割の点が全て角の範囲にある）→ 途中の高さの点を照合して近似", () => {
+      const rect = new THREE.Shape();
+      rect.moveTo(0, 0); rect.lineTo(40, 0); rect.lineTo(40, 20); rect.lineTo(0, 20); rect.lineTo(0, 0);
+      for (const bevelSegments of [2, 4, 8]) {
+        const [p] = recognize(new THREE.ExtrudeGeometry(rect, { depth: 5, bevelEnabled: true, bevelSize: 1, bevelThickness: 1, bevelSegments }));
+        assert.equal(p.kind, "mesh", `分割 ${bevelSegments}: 丸い面取りを C1 と誤認しない`);
+      }
+      const [straight] = recognize(new THREE.ExtrudeGeometry(rect, { depth: 5, bevelEnabled: true, bevelSize: 1, bevelThickness: 1, bevelSegments: 1 }));
+      assert.equal(straight.kind, "prism", "まっすぐな面取りは C1");
+    });
+  });
+});
+
+// 利用者が追加した設備の HTML。単位は HTML ごとに違うので、ソースの定数から決めた単位で認識する
+const partsOf = (name, unit) => recognizeSnapshot(readHtmlFixture(name), { unit }).parts;
+const byKind = (parts) => parts.reduce((m, p) => ({ ...m, [p.kind]: (m[p.kind] ?? 0) + 1 }), {});
+
+describe("2 号機（three.js r160、32 単位 = 1500 mm）", () => {
+  const parts = partsOf("2号機.mill", 1500 / 32);
+  test("コイル: 開いた円筒の外壁・内壁と両端のリング（4 メッシュ）を縫い合わせ、φ1500/φ508 × 1400 と φ560/φ508 × 1400", () => {
+    const coils = parts.filter((p) => p.repair === "stitched");
+    assert.equal(coils.length, 2);
+    for (const c of coils) assert.equal(c.sources.length, 4);
+    const [large, small] = coils.sort((a, b) => b.outerDiameter - a.outerDiameter);
+    expectRevolve(large, { od: 1500, id: 508, length: 1400, lines: 4 }); // REAL_MAX_DIA・REAL_CORE_ID・REAL_WIDTH
+    expectRevolve(small, { od: 560, id: 508, length: 1400, lines: 4 }); // REAL_MIN_DIA
+  });
+  test("ロール: ワーク φ550・バックアップ φ1350・ガイド φ200（ソースの定数）。除外は床だけ", () => {
+    const diameters = new Set(parts.filter((p) => p.kind === "revolve").map((p) => +p.outerDiameter.toFixed(3)));
+    for (const d of [550, 1350, 200]) assert.ok(diameters.has(d), `φ${d}`);
+    assert.deepEqual(parts.filter((p) => p.kind === "open").map((p) => p.geometryType), ["PlaneGeometry"]);
+    assert.equal(byKind(parts).mesh, undefined, "近似なし");
+  });
+  test("単位を変えても（1 = 1 mm のまま）同じ形として認識する（φ32 のコイル）", () => {
+    const raw = partsOf("2号機.mill", 1);
+    assert.deepEqual(byKind(raw), byKind(parts));
+    assert.ok(raw.some((p) => p.repair === "stitched" && Math.abs(p.outerDiameter - 32) < 1e-3));
+  });
+});
+
+describe("クレーン外観（three.js r160、1 単位 = 1 m）", () => {
+  const parts = partsOf("クレーン外観R10.crane", 1000);
+  test("巻上げ胴 φ1200 × 2500・モーター φ800 × 1200・車輪 φ600 × 200 × 4、桁は 20 m の押し出し", () => {
+    expectRevolve(parts.find((p) => p.kind === "revolve" && Math.abs(p.outerDiameter - 1200) < 1e-3), { od: 1200, id: 0, length: 2500, lines: 4 });
+    expectRevolve(parts.find((p) => p.kind === "revolve" && Math.abs(p.outerDiameter - 800) < 1e-3), { od: 800, id: 0, length: 1200, lines: 4 });
+    assert.equal(parts.filter((p) => p.kind === "revolve" && Math.abs(p.outerDiameter - 600) < 1e-3 && Math.abs(p.length - 200) < 1e-3).length, 4);
+    assert.equal(parts.filter((p) => p.kind === "prism" && Math.abs(p.length - 20000) < 1e-3).length, 2);
+  });
+  test("フックの管（TubeGeometry）は両端を塞いで立体に（近似）。除外は床だけ", () => {
+    const hook = parts.find((p) => p.geometryType === "TubeGeometry");
+    assert.equal(hook.repair, "capped");
+    assert.equal(hook.kind, "mesh");
+    assert.deepEqual(parts.filter((p) => p.kind === "open").map((p) => p.geometryType), ["PlaneGeometry"]);
+  });
+});
+
+describe("メッセンジャーワイヤー（three.js r160、1 単位 = 1 m）", () => {
+  test("電線の管 12 本は両端を塞いで立体に。柱 φ600 × 12960・端の球 φ700", () => {
+    const parts = partsOf("メッセンジャーワイヤー方式.wire", 1000);
+    const tubes = parts.filter((p) => p.geometryType === "TubeGeometry");
+    assert.equal(tubes.length, 12);
+    for (const t of tubes) assert.equal(t.repair, "capped");
+    assert.equal(parts.filter((p) => p.kind === "revolve" && Math.abs(p.outerDiameter - 600) < 1e-3 && Math.abs(p.length - 12960) < 1e-3).length, 2);
+    expectRevolve(parts.find((p) => p.geometryType === "SphereGeometry"), { od: 700, id: 0, length: 700, lines: 1, arcs: 1 });
+  });
+});
+
+describe("タイヤ（three.js r128）", () => {
+  test("r128 でも取り込める。トレッドの六角タイル 584 個は同じ押し出し、タイヤ本体は回転体 2 つ", () => {
+    const parts = partsOf("タイヤシミュレータR2.tire", 100);
+    const hex = parts.filter((p) => p.kind === "prism" && p.shape === "6 角形");
+    assert.equal(hex.length, 584);
+    assert.equal(new Set(hex.map((p) => [p.width, p.height, p.length].map((v) => v.toFixed(3)).join())).size, 1);
+    assert.equal(parts.filter((p) => p.kind === "revolve").length, 2);
+  });
+});
+
+describe("安全網（認識した寸法で作る形が元の形の全ての頂点を通るか）", () => {
+  const recognize = (geometry) => recognizeMesh({ positions: geometry.attributes.position.array, index: geometry.index?.array ?? null, matrix: new THREE.Matrix4().elements });
+  test("正しく認識した部品は、元の形との差（許容差以内）を記録して通す", () => {
+    const [p] = recognize(new THREE.CylinderGeometry(15, 15, 40, 48));
+    assert.equal(p.kind, "revolve");
+    assert.ok(p.deviation <= 4 * p.tol, `差 ${p.deviation}`);
+    assert.equal(p.feature.kind, "revolve");
+  });
+  test("寸法が狂った部品（認識の誤りを模して、断面の半径を 0.1 mm 変える）→ 近似に落とし、差を理由に示す", () => {
+    const [p] = recognize(new THREE.BoxGeometry(24, 12, 100));
+    const wrong = { ...p, segments: { ...p.segments, outer: p.segments.outer.map((s) => ({ ...s, a: s.a.map((v) => v * 1.01), b: s.b.map((v) => v * 1.01) })) } };
+    const checked = verify(wrong);
+    assert.equal(checked.kind, "mesh");
+    assert.match(checked.reason, /元の形と合わない（最大 0\.1\d\d mm）/);
+  });
+  test("穴を 0.1 mm 小さく認識したら（元の穴の縁は作る形の端面の上に乗る）→ 端面の縁の点が輪郭から離れているので近似", () => {
+    const plate = new THREE.Shape();
+    plate.moveTo(0, 0); plate.lineTo(40, 0); plate.lineTo(40, 20); plate.lineTo(0, 20); plate.lineTo(0, 0);
+    plate.holes.push(new THREE.Path().absarc(20, 10, 5, 0, 2 * Math.PI, true));
+    const [p] = recognize(new THREE.ExtrudeGeometry(plate, { depth: 4, bevelEnabled: false, curveSegments: 48 }));
+    assert.equal(p.kind, "prism");
+    const wrong = { ...p, segments: { ...p.segments, holes: p.segments.holes.map((loop) => loop.map((s) => ({ ...s, radius: s.radius - 0.1 }))) } };
+    assert.equal(verify(wrong).kind, "mesh");
+  });
+  test("回転体を軸方向に 1% 長く認識したら（元の端面の点は作る形の軸・側面の上に乗る）→ 断面の角に元の頂点が無いので近似", () => {
+    const [p] = recognize(new THREE.CylinderGeometry(10, 10, 100, 48));
+    const stretch = (s) => ({ ...s, ...(s.a && { a: [s.a[0], s.a[1] * 1.01], b: [s.b[0], s.b[1] * 1.01] }) });
+    const wrong = { ...p, segments: p.segments.map(stretch) };
+    const checked = verify(wrong);
+    assert.equal(checked.kind, "mesh");
+    assert.match(checked.reason, /最大 0\.5\d\d mm/);
   });
 });

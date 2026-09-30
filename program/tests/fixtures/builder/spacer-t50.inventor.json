@@ -1,11 +1,12 @@
 {
  "format": "inventor-builder",
- "version": 2,
+ "version": 3,
  "units": "mm",
  "source": {
   "file": "LS4_parts_viewer.html",
   "three": "180",
-  "captured_at": "fixture"
+  "captured_at": "fixture",
+  "unit_mm": 1
  },
  "parts": [
   {

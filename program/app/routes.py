@@ -7,8 +7,8 @@
     GET  /api/samples          サンプルの一覧（中身は /samples/<種類>/<名前>）
     POST /api/launch           起動ファイルへドロップされたファイル（1 回の起動分）を受け取る   … 合言葉
     GET  /api/files/<番号>      受け取ったファイルの中身                                     … 合言葉
-    GET  /api/build            「Inventor で作る」の状態・保存先・ライブラリがあるか                 … 合言葉
-    POST /api/build            変換データから作り始める（{spec, install}）                           … 合言葉
+    GET  /api/build            作る仕事の状態・保存先・ライブラリと Inventor があるか                … 合言葉
+    POST /api/build            変換データから作り始める（{spec, install, target: inventor | step}）  … 合言葉
     POST /api/build/cancel     作るのを中止する                                                     … 合言葉
     POST /api/build/open       保存先をエクスプローラーで開く                                         … 合言葉
     POST /api/heartbeat        画面が開いていることの知らせ（本文に合言葉）
@@ -142,10 +142,11 @@ def received(key: str):
     return send_file(path, mimetype="application/octet-stream", conditional=False)
 
 
-# ---- Inventor で作る -----------------------------------------------------------------------
+# ---- STEP を作る・Inventor で作る ------------------------------------------------------------
 def _build_status(**extra):
     builds = current_app.config["BUILDS"]
-    return jsonify(**builds.status(), ready=libraries.ready(), root=str(builds.root), **extra)
+    return jsonify(**builds.status(), ready=libraries.ready(), inventor_installed=current_app.config["INVENTOR_INSTALLED"](),
+                   root=str(builds.root), **extra)
 
 
 @bp.get("/api/build")
@@ -159,10 +160,11 @@ def build_start():
     _require_token()
     body = request.get_json(silent=True) or {}
     install = bool(body.get("install"))
-    if not install and not libraries.ready():
+    target = body.get("target", "inventor")
+    if target == "inventor" and not install and not libraries.ready():
         return _build_status(needs_install=True)  # 画面が「入れて作りますか」と尋ねる（まだ始めない）
     try:
-        current_app.config["BUILDS"].start(body.get("spec"), install=install)
+        current_app.config["BUILDS"].start(body.get("spec"), install=install, target=target)
     except SpecError as error:
         return jsonify(message=f"この変換データからは作れません: {error}"), 400
     except BuildBusy as error:

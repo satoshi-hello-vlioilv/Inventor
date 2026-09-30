@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
-"""「Inventor で作る」の仕事（1 度に 1 つ。Inventor は 1 つなので、同時には作らない）。Flask に頼らない。
+"""「STEP を作る」「Inventor で作る」の仕事（1 度に 1 つ。Inventor は 1 つなので、同時には作らない）。Flask に頼らない。
 
     1. 変換データを確かめる（ipt_build.parse_spec。作れない内容なら、理由を返して始めない）
-    2. 保存先「<出力先>/<名前>_ipt」を作り（同じ名前があれば「 (2)」…。前の結果を上書きしない）、変換データの写しを置く
-    3. 必要なら、Inventor の操作に使うライブラリ（pywin32）を入れる（pip。別のプロセス）
-    4. 別のプロセスで  python -m ipt_build <写し> --out <保存先> --events  を動かし、1 行ずつの進み具合を読む
+    2. 保存先「<出力先>/<名前>_cad」を作り（同じ名前があれば「 (2)」…。前の結果を上書きしない）、変換データの写しを置く
+    3. Inventor で作るとき、必要なら Inventor の操作に使うライブラリ（pywin32）を入れる（pip。別のプロセス）
+    4. 別のプロセスで  python -m ipt_build <写し> --out <保存先> --events [--step-only]  を動かし、1 行ずつの進み具合を読む
+       STEP（.stp）はどちらでも最初に書く（Inventor を使わない）。Inventor で作るときは、続けて .ipt・.iam を作る
 
 別のプロセスで作るのは、入れたばかりのライブラリを読めるようにするため（Python の起動時に読む設定がある）と、
 Inventor（COM）の不調でサーバーを巻き込まないため。進み具合の形は ipt_build.runner の BuildRun.status()。
@@ -26,8 +27,11 @@ from ipt_build import libraries, parse_spec
 from ipt_build.runner import BuildRun
 from ipt_build.spec import SpecError
 
-RUNNING = ("installing", "connecting", "building", "assembly")
-STATE_OF = {"connecting": "connecting", "start": "building", "part": "building", "assembly": "assembly", "done": "done"}  # 作る係の知らせ → 状態
+RUNNING = ("installing", "step", "connecting", "building", "assembly")
+TARGETS = ("inventor", "step")  # Inventor で作る（STEP・.ipt・.iam）／STEP だけ作る
+# 作る係の知らせ → 状態（STEP を書き終えたら、Inventor で作るときは接続へ）
+STATE_OF = {"step": "connecting", "connecting": "connecting", "start": "building", "part": "building", "assembly": "assembly", "done": "done"}
+PROGRESS = ("out_dir", "parts", "assembly", "good", "total", "step", "inventor", "inventor_error")  # 画面に渡す進み具合
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 UNSAFE = re.compile(r'[\\/:*?"<>|\x00-\x1f]+')  # Windows のファイル名に使えない文字
 
@@ -85,23 +89,28 @@ class Builds:
             self._job.update(changes)
 
     # ---- 始める・止める ----------------------------------------------------------------------------
-    def start(self, data: dict, install: bool = False) -> dict:
-        """変換データ（JSON を読んだもの）から作り始める。作れない内容なら SpecError、作成中なら BuildBusy。"""
+    def start(self, data: dict, install: bool = False, target: str = "inventor") -> dict:
+        """変換データ（JSON を読んだもの）から作り始める。作れない内容なら SpecError、作成中なら BuildBusy。
+        target: "inventor"（STEP と .ipt・.iam）か "step"（STEP だけ。Inventor もライブラリも使わない）"""
+        if target not in TARGETS:
+            raise SpecError(f"作るものの指定 {target!r} が分かりません")
         spec = parse_spec(data)
         if not spec.parts:
-            raise SpecError("作れる部品がありません（近似の部品だけでした）")
+            raise SpecError("作れる部品がありません")
+        inventor = target == "inventor"
+        install = install and inventor
         with self._lock:
             if self._job["state"] in RUNNING:
                 raise BuildBusy(f"「{self._job['name']}」を作っています。終わってから、もう一度押してください")
             name = safe_name(Path(str(spec.source.get("file") or "変換データ")).stem)
-            out_dir = unique_dir(self.root / f"{name}_ipt")
+            out_dir = unique_dir(self.root / f"{name}_cad")
             out_dir.mkdir(parents=True)
             spec_path = out_dir / f"{name}.inventor.json"
             spec_path.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
-            self._job = {"state": "installing" if install else "connecting", "name": name, "spec": str(spec_path),
-                         "message": "", "detail": "", **BuildRun(spec, out_dir, list(spec.parts)).status()}
+            self._job = {"state": "installing" if install else "step", "name": name, "spec": str(spec_path), "target": target,
+                         "message": "", "detail": "", **BuildRun(spec, out_dir, list(spec.parts), inventor=inventor).status()}
             self._cancelled = False
-        threading.Thread(target=self._run, args=(spec_path, out_dir, install), name="inventor-build", daemon=True).start()
+        threading.Thread(target=self._run, args=(spec_path, out_dir, install, inventor), name="cad-build", daemon=True).start()
         return self.status()
 
     def cancel(self) -> dict:
@@ -132,7 +141,7 @@ class Builds:
                                           creationflags=CREATE_NO_WINDOW)
             return self._proc
 
-    def _run(self, spec_path: Path, out_dir: Path, install: bool) -> None:
+    def _run(self, spec_path: Path, out_dir: Path, install: bool, inventor: bool = True) -> None:
         """仕事の本体（別の糸）。終わりの状態（done・failed・cancelled）は、片付けまで済ませてから 1 度に出す
         （画面が「終わった」と読んだときには、保存先が決まっている）。"""
         self._done, self._error = False, None
@@ -148,9 +157,9 @@ class Builds:
                 if proc.returncode != 0:
                     final = {"state": "failed", "message": "Inventor の操作に使うライブラリを入れられませんでした", "detail": output[-1500:]}
                     return
-                self._set(state="connecting")
-            with self.console.open("w", encoding="utf-8") as errors, \
-                    self._spawn(self.command([str(spec_path), "--out", str(out_dir), "--events"]), errors) as proc:
+                self._set(state="step")
+            args = [str(spec_path), "--out", str(out_dir), "--events", *([] if inventor else ["--step-only"])]
+            with self.console.open("w", encoding="utf-8") as errors, self._spawn(self.command(args), errors) as proc:
                 for line in proc.stdout:
                     self._apply(line)
             if self._cancelled:
@@ -194,5 +203,6 @@ class Builds:
             self._error = str(event.get("message", ""))  # 終わりの状態は _run が片付けてから出す
         elif kind in STATE_OF:
             self._done = kind == "done"
-            progress = {k: v for k, v in event.items() if k in ("out_dir", "parts", "assembly", "good", "total")}
-            self._set(**progress, **({} if self._done else {"state": STATE_OF[kind]}))
+            progress = {k: v for k, v in event.items() if k in PROGRESS}
+            state = {} if self._done or (kind == "step" and not event.get("inventor", True)) else {"state": STATE_OF[kind]}
+            self._set(**progress, **state)

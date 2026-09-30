@@ -5,10 +5,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, test } from "node:test";
+import * as THREE from "three";
 import { cross, dot, length } from "../../app/static/js/core/vec.js";
-import { expectedProperties, featureOf, maxDeviation, meshProperties } from "../../app/static/js/convert/inventor.js";
+import { buildInventorSpec, expectedProperties, featureOf, maxDeviation, meshProperties } from "../../app/static/js/convert/inventor.js";
 import { loopCorners, loopIntegrals } from "../../app/static/js/convert/recognize/geometry2d.js";
-import { recognizeSnapshot } from "../../app/static/js/convert/recognize/index.js";
+import { recognizeMesh, recognizeSnapshot } from "../../app/static/js/convert/recognize/index.js";
 import { pointAt } from "../../app/static/js/convert/recognize/mesh.js";
 import { CORNER_ZONE } from "../../app/static/js/convert/recognize/prism.js";
 import { BUILDER_FIXTURES, builderFixtures, fixtureText } from "../../tools/builder-fixtures.mjs";
@@ -100,14 +101,55 @@ describe("変換データの構造", () => {
     assert.equal(parts.reduce((s, p) => s + p.instances.length, 0), 459);
     assert.equal(Math.max(...parts.map((p) => p.instances.length)), 392);
   });
-  test("全てのループが閉じている（各部分の終点が次の始点と一致）", () => {
+  test("全てのループが閉じている（各部分の終点が次の始点と一致）。円弧の両端は中心から等しい距離", () => {
     for (const spec of Object.values(specs)) {
-      for (const part of spec.parts) {
+      for (const part of spec.parts.filter((p) => p.sketch)) {
         for (const loop of part.sketch.loops) {
           if (loop.length === 1 && loop[0].type === "circle") continue;
           loop.forEach((s, i) => assert.deepEqual(loop[(i + 1) % loop.length].a, s.b, `${part.name} の ${i} 番目`));
+          for (const s of loop.filter((s) => s.type === "arc")) {
+            const r = (p) => Math.hypot(p[0] - s.center[0], p[1] - s.center[1]);
+            assert.ok(Math.abs(r(s.a) - r(s.b)) <= 2e-6, `${part.name}: 円弧の半径 ${r(s.a)} / ${r(s.b)}`);
+          }
         }
       }
+    }
+  });
+  test("円弧の中心を格子に合わせても、両端から等しい距離のまま（端点に float32 の誤差が残る円弧。コイル転倒で 0.00007 mm 食い違った）", () => {
+    // 設計値は中心 (0, 136.4)・半径 18.7。端点 a は float32 の誤差を持ち、中心と端点 b は格子（0.001 mm）に合う
+    const arc = { type: "arc", a: [4.84, 118.337184], b: [18.700004, 136.400001], center: [0.00002, 136.40003], ccw: true };
+    const part = { kind: "revolve", segments: [arc], sweepDeg: 360, fit: { axis: { origin: [0, 0, 0], dir: [0, 1, 0] }, frame: [[1, 0, 0], [0, 0, 1]] } };
+    const [s] = featureOf(part).loops[0];
+    const r = (p) => Math.hypot(p[0] - s.center[0], p[1] - s.center[1]);
+    assert.ok(Math.abs(r(s.a) - r(s.b)) <= 1e-9, `円弧の半径 ${r(s.a)} / ${r(s.b)}`);
+    near(r(s.b), 18.7, 1e-4, "半径");
+  });
+  test("たる形の回転体（断面の円弧の中心が軸の反対側）: STEP の厳密な面で書けないので、元の形の三角形を添える", () => {
+    const R = Math.sqrt(1000), start = Math.asin(-10 / R), span = 2 * Math.asin(10 / R);
+    const profile = [[0, -10], ...Array.from({ length: 33 }, (_, i) => [-20 + R * Math.cos(start + (span * i) / 32), R * Math.sin(start + (span * i) / 32)]), [0, 10]];
+    const specOf = (g) => buildInventorSpec({ file: "t.html", revision: "180", capturedAt: "" },
+      { parts: recognizeMesh({ positions: g.attributes.position.array, index: g.index?.array ?? null, matrix: new THREE.Matrix4().elements }) }).parts;
+    const [part] = specOf(new THREE.LatheGeometry(profile.map(([x, y]) => new THREE.Vector2(x, y)), 64));
+    assert.equal(part.kind, "revolve");
+    const [arc] = part.sketch.loops[0].filter((s) => s.type === "arc");
+    near(arc.center[0], -20, 1e-3, "円弧の中心");
+    assert.ok(part.mesh?.triangles.length > 0, "STEP 用の三角形");
+    // 円が軸と交わらない普通のトーラスには添えない（厳密な面で書ける）
+    const [ring] = specOf(new THREE.TorusGeometry(50, 5, 32, 96));
+    assert.equal(ring.kind, "revolve");
+    assert.equal(ring.mesh, undefined);
+  });
+  test("近似の部品（メッセンジャーワイヤーの管 12 本）: 三角形が閉じた外向きの立体で、体積・表面積の期待値は三角形の和", () => {
+    const tubes = specs.wire.parts.filter((p) => p.kind === "mesh");
+    assert.equal(tubes.length, 12);
+    for (const part of tubes) {
+      const { positions, triangles } = part.mesh;
+      const directed = new Set();
+      for (let k = 0; k < triangles.length; k += 3) for (let e = 0; e < 3; e++) directed.add(`${triangles[k + e]}>${triangles[k + (e + 1) % 3]}`);
+      for (const key of directed) assert.ok(directed.has(key.split(">").reverse().join(">")), `${part.name}: 稜線 ${key} の相手が無い`);
+      const exact = expectedProperties({ kind: "mesh", mesh: { positions, triangles } });
+      assert.ok(exact.volume > 0);
+      assert.deepEqual([part.expect.volume, part.expect.area], [exact.volume, exact.area].map((v) => Math.round(v * 1e6) / 1e6));
     }
   });
   test("ビルダーのテストに使う保存済みの変換データが、現在の出力と一致する", () => {

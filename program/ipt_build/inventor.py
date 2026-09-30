@@ -7,6 +7,7 @@
                面取りは、押し出した端面（Z = ±長さ/2 の平らな面）の稜線のうち、指定したループの上にあるものを選び、
                等距離の面取り（ChamferFeatures.AddUsingDistance）をかける。同じ大きさの面取りは 1 つのフィーチャにまとめる
 対称にするのは、回転・押し出しの「正方向」の解釈に左右されず、変換データと同じ形にするため。
+    近似     … 三角形のままの部品は、その部品だけの STEP（step.py が書いたもの）を Inventor で開き、.ipt として保存する
 
 Inventor API の長さの単位は cm、角度はラジアン。mm → cm の換算はこのモジュールの中だけで行う。
 作った部品の体積・表面積・外接箱を Inventor に計算させ、変換データの期待値と照合する。
@@ -17,10 +18,12 @@ import math
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .spec import Part, Segment, distance_to_loop
+from .spec import Part, Segment, Spec, distance_to_loop
+from .step import write_step
 from .verify import body_bbox, check_extent
 
 MM_PER_CM = 10.0
+PART_STEPS = "step"  # 近似の部品を Inventor で開くための、部品ごとの STEP を置くフォルダ（保存先の中）
 REL_TOL = 1e-4  # 体積・表面積の照合の許容差（相対）
 EDGE_TOL = 1e-3  # mm。稜線が端面・ループの上にあるとみなす距離
 
@@ -32,7 +35,7 @@ K_SYMMETRIC = 20995  # PartFeatureExtentDirectionEnum.kSymmetricExtentDirection
 XY_PLANE = 3  # 原点の作業平面: 1 = YZ, 2 = XZ, 3 = XY
 Y_AXIS = 2  # 原点の作業軸: 1 = X, 2 = Y, 3 = Z
 
-KIND_LABEL = {"revolve": "回転体", "extrude": "押し出し"}
+KIND_LABEL = {"revolve": "回転体", "extrude": "押し出し", "mesh": "近似"}
 SEGMENT_LABEL = {"line": "直線", "arc": "円弧", "circle": "円"}
 
 
@@ -42,6 +45,8 @@ def cm(value_mm: float) -> float:
 
 def describe(part: Part) -> str:
     """iProperties の「説明」に入れる文。"""
+    if part.kind == "mesh":
+        return f"近似（三角形 {len(part.mesh.triangles)} 枚のまま。円は多角形）（three.js から変換）"
     counts: dict[str, int] = {}
     for loop in part.loops:
         for s in loop:
@@ -164,9 +169,15 @@ class Builder:
 
     # ---- 部品 -------------------------------------------------------------------
     def build_part(self, part: Part, out_dir: Path) -> PartResult:
+        """部品を作る。近似の部品（kind: mesh）は、その部品だけの STEP を書いて（保存先の step フォルダ）Inventor で開き、.ipt にする"""
         result = PartResult(part)
         doc = None
         try:
+            if part.kind == "mesh":
+                step_path = out_dir / PART_STEPS / f"{part.name}.stp"
+                write_step(Spec(source={}, parts=(part,), skipped=()), step_path, assembly=False)
+                doc = self.app.Documents.Open(str(step_path), True)
+                return self._finish(doc, doc.ComponentDefinition, part, out_dir, result)
             doc = self.app.Documents.Add(K_PART_DOCUMENT, self.part_template, True)
             definition = doc.ComponentDefinition
             sketch = definition.Sketches.Add(definition.WorkPlanes.Item(XY_PLANE))
@@ -186,19 +197,7 @@ class Builder:
                 features.ExtrudeFeatures.Add(extrude)
                 if part.chamfers:
                     self.add_chamfers(definition, part)
-
-            tracking = doc.PropertySets.Item("Design Tracking Properties")
-            tracking.Item("Part Number").Value = part.name
-            tracking.Item("Description").Value = describe(part)
-
-            mass = definition.MassProperties
-            result.volume = mass.Volume * MM_PER_CM**3
-            result.area = mass.Area * MM_PER_CM**2
-            result.extent_check, result.extent_detail = check_extent(body_bbox(definition, MM_PER_CM), part)
-
-            path = out_dir / f"{part.name}.ipt"
-            doc.SaveAs(str(path), False)
-            result.path = path
+            return self._finish(doc, definition, part, out_dir, result)
         except Exception as error:  # noqa: BLE001 — 1 部品の失敗で全体を止めない
             result.error = com_error_text(error)
         finally:
@@ -207,6 +206,22 @@ class Builder:
                     doc.Close(True)
                 except Exception:  # noqa: BLE001
                     result.notes.append("部品を閉じられませんでした")
+        return result
+
+    def _finish(self, doc, definition, part: Part, out_dir: Path, result: PartResult) -> PartResult:
+        """iProperties を入れ、体積・表面積・外接箱を Inventor に計算させて照合し、.ipt として保存する"""
+        tracking = doc.PropertySets.Item("Design Tracking Properties")
+        tracking.Item("Part Number").Value = part.name
+        tracking.Item("Description").Value = describe(part)
+
+        mass = definition.MassProperties
+        result.volume = mass.Volume * MM_PER_CM**3
+        result.area = mass.Area * MM_PER_CM**2
+        result.extent_check, result.extent_detail = check_extent(body_bbox(definition, MM_PER_CM), part)
+
+        path = out_dir / f"{part.name}.ipt"
+        doc.SaveAs(str(path), False)
+        result.path = path
         return result
 
     # ---- 組立 -------------------------------------------------------------------

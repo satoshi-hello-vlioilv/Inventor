@@ -26,13 +26,15 @@ export function plateWithHoles() {
 }
 
 export function builderFixtures() {
-  const html = (name, file, revision) => buildInventorSpec(SOURCE(file, revision), recognizeSnapshot(readHtmlFixture(name)));
+  const html = (name, file, revision, unit = 1) => buildInventorSpec(SOURCE(file, revision), recognizeSnapshot(readHtmlFixture(name), { unit }));
   return {
     "spacer-t50": html("LS4_parts_viewer.spacer-t50", "LS4_parts_viewer.html", "180"),
     finger: html("LS4_parts_viewer.finger", "LS4_parts_viewer.html", "180"),
     blade: html("LS4_parts_viewer.blade", "LS4_parts_viewer.html", "180"),
     reel: html("spool_reel_assembly_v2.reel", "spool_reel_assembly_v2.html", "160"),
     "plate-holes": buildInventorSpec(SOURCE("plate_holes.html", "170"), plateWithHoles()),
+    // 1 単位 = 1 m。端を塞いだ管（近似の部品、三角形のまま）・柱・球の組立
+    wire: html("メッセンジャーワイヤー方式.wire", "メッセンジャーワイヤー方式.html", "160", 1000),
   };
 }
 

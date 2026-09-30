@@ -1,4 +1,8 @@
-"""部品と組立を作る一連の処理（Inventor への接続 → 部品ごとの作成と照合 → 組立 → 結果の保存）。
+"""部品と組立を作る一連の処理（STEP → Inventor への接続 → 部品ごとの作成と照合 → 組立 → 結果の保存）。
+
+STEP（.stp）は Inventor を使わずに書く（step.py）。Inventor で作るとき（inventor=True）は、続けて .ipt・.iam を作る
+（近似の部品は、その部品だけの STEP を Inventor で開いて .ipt にする。inventor.py）。
+Inventor に接続できなくても STEP は残し、理由を inventor_error で知らせる。
 
 表示の仕方とは切り離し、進み具合は progress（呼び出し側の関数）に知らせる。
     コマンド（__main__）          … 黒い画面に 1 行ずつ表示する
@@ -7,7 +11,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable
 
@@ -23,6 +27,10 @@ class BuildRun:
     placed: int = 0
     assembly_path: Path | None = None
     assembly_error: str | None = None
+    inventor: bool = True  # Inventor で .ipt・.iam も作る（False なら STEP だけ）
+    step: object = None  # StepResult（STEP を書いたら）
+    step_error: str | None = None
+    inventor_error: str | None = None  # Inventor に接続できない・作れない（STEP はできていることがある）
 
     @property
     def good(self) -> int:
@@ -30,7 +38,7 @@ class BuildRun:
 
     @property
     def ok(self) -> bool:
-        return self.good == len(self.results) and not self.assembly_error
+        return not self.step_error and not self.inventor_error and self.good == len(self.results) and not self.assembly_error
 
     def report(self) -> dict:
         return {
@@ -42,12 +50,24 @@ class BuildRun:
                     "volume": {"expect": r.part.expect_volume, "inventor": r.volume, "diff": r.volume_diff},
                     "area": {"expect": r.part.expect_area, "inventor": r.area, "diff": r.area_diff},
                     "extent": {"ok": r.extent_check, "detail": r.extent_detail},
-                    "instances": len(r.part.instances), "notes": r.notes,
+                    "instances": len(r.part.instances), "notes": [*r.part.notes, *r.notes],
                 }
                 for r in self.results
             ],
             "assembly": {"file": self.assembly_path.name if self.assembly_path else None, "placed": self.placed, "error": self.assembly_error},
+            "step": self._step_status(),
+            "inventor_error": self.inventor_error,
             "skipped": list(self.spec.skipped),
+        }
+
+    def _step_status(self) -> dict | None:
+        if self.step_error:
+            return {"file": None, "error": self.step_error, "parts": []}
+        if not self.step:
+            return None
+        return {
+            "file": self.step.path.name, "error": None, "assembly": self.step.assembly, "placed": self.step.placed,
+            "parts": [{"key": p.key, "how": p.how, "faces": p.faces, "note": p.note} for p in self.step.parts],
         }
 
     def status(self) -> dict:
@@ -57,6 +77,9 @@ class BuildRun:
             "out_dir": str(self.out_dir),
             "parts": [{"key": p.key, "name": p.name, "instances": len(p.instances), **_result_status(done.get(p.key))} for p in self.parts],
             "assembly": {"file": self.assembly_path.name, "placed": self.placed, "error": self.assembly_error} if self.assembly_path else None,
+            "step": self._step_status(),
+            "inventor": self.inventor,
+            "inventor_error": self.inventor_error,
             "good": self.good,
             "total": len(self.parts),
         }
@@ -94,16 +117,40 @@ def pct(value: float | None) -> str:
 
 
 def build(spec, out_dir: Path, only: set[str] = frozenset(), assembly: bool = True, template: str | None = None,
-          progress: Progress = lambda *a, **k: None, connect=None) -> BuildRun:
-    """部品と組立を作り、結果（build-report.json）を保存する。
+          progress: Progress = lambda *a, **k: None, connect=None, inventor: bool = True) -> BuildRun:
+    """STEP を書き、inventor なら部品と組立を作り、結果（build-report.json）を保存する。
 
-    progress に知らせる出来事: "connecting" → "start" → "part"（部品ごと、result=…）→ "assembly"（組立を作るとき）→ "done"
+    progress に知らせる出来事: "step"（STEP を書いた）→ "connecting" → "start" → "part"（部品ごと、result=…）
+    → "assembly"（組立を作るとき）→ "done"。inventor=False なら "step" → "done"
     """
+    from .step import write_step  # noqa: PLC0415
+
+    parts = [p for p in spec.parts if not only or p.key in only]
+    run = BuildRun(spec, out_dir, parts, inventor=inventor)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stem = Path(spec.source.get("file", "model")).stem
+    try:
+        run.step = write_step(replace(spec, parts=tuple(parts)), out_dir / f"{stem}.stp")
+    except Exception as error:  # noqa: BLE001 — STEP を書けなくても、Inventor では作れることがある
+        run.step_error = f"STEP を書けませんでした: {error}"
+    progress("step", run)
+    if inventor:
+        try:
+            _build_in_inventor(run, spec, stem, assembly, template, progress, connect)
+        except Exception as error:  # noqa: BLE001 — 接続できない・保存できないなど。STEP は残す
+            from .inventor import com_error_text  # noqa: PLC0415
+
+            run.inventor_error = com_error_text(error)
+    (out_dir / REPORT).write_text(json.dumps(run.report(), ensure_ascii=False, indent=1), encoding="utf-8")
+    progress("done", run)
+    return run
+
+
+def _build_in_inventor(run: BuildRun, spec, stem: str, assembly: bool, template, progress: Progress, connect) -> None:
     from .inventor import Builder  # noqa: PLC0415 — Windows でだけ読み込む（Inventor に触れない評価では不要）
     from .inventor import connect as connect_inventor  # noqa: PLC0415
 
-    run = BuildRun(spec, out_dir, [p for p in spec.parts if not only or p.key in only])
-    out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = run.out_dir
     progress("connecting", run)
     app = (connect or connect_inventor)()
     builder = Builder(app, part_template=template)
@@ -116,16 +163,13 @@ def build(spec, out_dir: Path, only: set[str] = frozenset(), assembly: bool = Tr
             run.results.append(result)
             progress("part", run, result=result)
         if assembly and sum(len(r.part.instances) for r in run.results if r.path) > 1:
-            run.assembly_path = out_dir / f"{Path(spec.source.get('file', 'assembly')).stem}.iam"
+            run.assembly_path = out_dir / f"{stem}.iam"
             progress("assembly", run)
             run.placed, run.assembly_error = builder.build_assembly(run.results, run.assembly_path)
     finally:
         app.ScreenUpdating, app.SilentOperation = screen, silent
-    (out_dir / REPORT).write_text(json.dumps(run.report(), ensure_ascii=False, indent=1), encoding="utf-8")
-    progress("done", run)
-    return run
 
 
 def default_out_dir(spec_path: Path) -> Path:
-    """既定の保存先: 変換データと同じ場所の「<名前>_ipt」フォルダ。"""
-    return spec_path.with_name(spec_path.name.split(".")[0] + "_ipt")
+    """既定の保存先: 変換データと同じ場所の「<名前>_cad」フォルダ。"""
+    return spec_path.with_name(spec_path.name.split(".")[0] + "_cad")

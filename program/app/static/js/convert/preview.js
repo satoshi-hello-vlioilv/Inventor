@@ -36,6 +36,7 @@ const oriented = (pts, hole) => ((signedArea(pts) > 0) === !hole ? pts : [...pts
  * 押し出し: 断面を Z 方向に ±長さ/2。回転: Y 軸まわりに、360° 未満なら XY 平面に対して対称に（ビルダーと同じ）。
  */
 export function partGeometry(part) {
+  if (part.kind === "mesh") return meshGeometry(part.mesh);
   const loops = part.sketch.loops.map((loop, i) => oriented(sampleLoop(loop), i > 0));
   const revolve = part.kind === "revolve";
   const angle = revolve ? (part.revolve.angle_deg * Math.PI) / 180 : 0;
@@ -102,6 +103,15 @@ export function partGeometry(part) {
   return geometry;
 }
 
+/** 近似の部品（三角形のまま）の形。三角形ごとの法線で、面を平らに見せる */
+function meshGeometry({ positions, triangles }) {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(triangles.flatMap((i) => [positions[3 * i], positions[3 * i + 1], positions[3 * i + 2]]), 3));
+  geometry.setIndex(triangles.map((_, k) => k));
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
 /** 配置（原点と X・Y・Z 軸）→ 4×4 行列（行優先。組立の表示と同じ形） */
 const matrixOf = ({ origin, x, y, z }) => [x[0], y[0], z[0], origin[0], x[1], y[1], z[1], origin[1], x[2], y[2], z[2], origin[2], 0, 0, 0, 1];
 
@@ -118,6 +128,15 @@ const SEGMENT_LABEL = { line: "直線", arc: "円弧", circle: "円" };
 
 /** 1 部品の説明（見出しの寸法・補足）。取り込んだ HTML の部品と同じ書き方にする */
 function describeSpecPart(part) {
+  if (part.kind === "mesh") {
+    const p = part.mesh.positions;
+    const size = [0, 1, 2].map((k) => {
+      let lo = Infinity, hi = -Infinity;
+      for (let i = k; i < p.length; i += 3) [lo, hi] = [Math.min(lo, p[i]), Math.max(hi, p[i])];
+      return hi - lo;
+    });
+    return { kind: "mesh", main: size.map(fmt).join(" × "), sub: `三角形 ${part.mesh.triangles.length / 3} 枚のまま（円は多角形）` };
+  }
   const pts = part.sketch.loops.flatMap(sampleLoop);
   const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
   const counts = {};
@@ -144,7 +163,7 @@ function describeSpecPart(part) {
 
 /**
  * 部品の一覧（パネルの行）と、3D の配置ごとの説明。
- * @returns {{ groups: object[], partInfo: Map<number, {group: string, text: string}>, counts: { parts: number, placed: number, skipped: number } }}
+ * @returns {{ groups: object[], partInfo: Map<number, {group: string, text: string}>, counts: { parts: number, placed: number, skipped: number, approx: number } }}
  */
 export function describeSpec(spec) {
   let id = 0;
@@ -152,10 +171,10 @@ export function describeSpec(spec) {
   const groups = spec.parts.map((part) => {
     const d = describeSpecPart(part);
     const ids = part.instances.map(() => id++);
-    const group = { key: part.key, label: KIND_LABEL[d.kind], tone: "exact", ...d, ids, name: part.name };
+    const group = { key: part.key, label: KIND_LABEL[d.kind], tone: d.kind === "mesh" ? "approx" : "exact", ...d, ids, name: part.name };
     for (const i of ids) partInfo.set(i, { group: part.key, text: `${group.label} ${d.main} · ${part.name}` });
     return group;
   });
   const skipped = spec.skipped.reduce((sum, s) => sum + (s.count ?? 0), 0);
-  return { groups, partInfo, counts: { parts: spec.parts.length, placed: id, skipped } };
+  return { groups, partInfo, counts: { parts: spec.parts.length, placed: id, skipped, approx: spec.parts.filter((p) => p.kind === "mesh").length } };
 }

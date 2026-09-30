@@ -122,6 +122,11 @@ button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); 
 .convert-actions { display: flex; gap: 8px; }
 .convert-actions .secondary:first-child { flex: 1; }
 .convert-hint { margin: 0; font-size: 12px; color: var(--muted); }
+/* 作る: 2 つの作り方（Inventor・STEP）。小さな字で出来るファイルを添える。主（塗り）は、この PC で勧める方 */
+.build-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.build-actions button { display: flex; flex-direction: column; align-items: center; gap: 2px; line-height: 1.3; }
+.build-actions small { font: 500 11px var(--font-num); opacity: 0.85; }
+.build-hint { margin: -4px 0 0; font-size: 12px; color: var(--caution-ink); }
 /* Inventor で作る: 保存先・ライブラリの確認・進み具合と部品ごとの照合の結果 */
 .build-dest { margin: -4px 0 0; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .build-ask { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; font-size: 13px; border: 1px solid var(--approx); border-radius: 8px; background: var(--panel); }
@@ -193,6 +198,17 @@ kbd { font: 500 11px var(--font-ui); padding: 0 4px; border: 1px solid var(--rul
 .features.is-bom .feature:focus-visible { outline-offset: -2px; }
 .back { align-self: flex-start; }
 .tally { display: flex; flex-wrap: wrap; gap: 6px; }
+/* 単位: シーンの 1 単位 = ? mm。推定のときは注意の色で確かめを促す */
+.unit-field { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; }
+.unit-field label { font-weight: 600; }
+.unit-field select, .unit-field input {
+  font: 500 13px var(--font-num); color: var(--ink); background: var(--panel);
+  border: 1px solid var(--rule); border-radius: 6px; padding: 4px 8px;
+}
+.unit-field input { width: 9ch; }
+.unit-field select:focus-visible, .unit-field input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.unit-note { margin: -4px 0 0; font-size: 12px; color: var(--muted); }
+.unit-note[data-origin="guess"] { color: var(--caution-ink); }
 .tally-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--rule); border-radius: 999px; background: var(--panel); font-size: 12.5px; }
 .tally-chip .swatch { width: 10px; height: 10px; border-radius: 3px; background: var(--tone); }
 .tally-chip b { font: 600 13px var(--font-num); }
