@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>閉じたスプライン面（Bスプライン立体）</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#dfe3e8;font-family:"Segoe UI","Meiryo",sans-serif;}
+  #panel{position:absolute;top:10px;left:10px;width:260px;padding:12px 14px;background:rgba(255,255,255,.93);
+         border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.15);font-size:13px;color:#333;}
+  #panel h1{font-size:15px;margin:0 0 8px;}
+  #panel h2{font-size:13px;margin:12px 0 4px;color:#555;border-top:1px solid #ddd;padding-top:8px;}
+  #panel label{display:block;margin:5px 0;cursor:pointer;}
+  #panel input[type=range]{width:100%;}
+  #panel button{margin-top:8px;width:100%;padding:6px;border:1px solid #9aa3ad;border-radius:5px;background:#f4f6f8;cursor:pointer;}
+  #sel{font-weight:bold;}
+  #help{margin-top:10px;font-size:12px;color:#555;line-height:1.5;border-top:1px solid #ddd;padding-top:8px;}
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.170.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<div id="panel">
+  <h1>閉じたスプライン面</h1>
+  <h2>形状タイプ</h2>
+  <label><input type="radio" name="mode" value="sphere" checked> 球状（周方向：周期／上下：極で閉じる）</label>
+  <label><input type="radio" name="mode" value="torus"> トーラス状（両方向とも周期）</label>
+  <h2>表示</h2>
+  <label><input type="checkbox" id="chkCtrl" checked> 制御点・制御網</label>
+  <label><input type="checkbox" id="chkIso" checked> アイソパラメトリック線</label>
+  <label><input type="checkbox" id="chkWire"> ワイヤーフレーム</label>
+  <label><input type="checkbox" id="chkClip"> 断面表示（手前半分をカット）</label>
+  <h2>制御点</h2>
+  <div>選択中：<span id="sel">なし</span></div>
+  <div style="margin-top:6px">半径方向距離：<span id="rval">-</span>
+    <input type="range" id="radius" min="0.2" max="8" step="0.05" value="1" disabled>
+  </div>
+  <button id="reset">形状を初期化</button>
+  <div id="help">
+    制御点（赤球）をドラッグ：半径方向に移動<br>
+    左ドラッグ：視点回転　右ドラッグ：移動<br>
+    ホイール：ズーム
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+// ===== シーン =====
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xdfe3e8);
+const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 1000);
+camera.position.set(14, 10, 16);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.localClippingEnabled = true;
+document.body.appendChild(renderer.domElement);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8f96, 1.3));
+const sun = new THREE.DirectionalLight(0xffffff, 1.8);
+sun.position.set(8, 15, 10);
+scene.add(sun);
+const grid = new THREE.GridHelper(40, 40, 0xaab0b8, 0xc8cdd3);
+grid.position.y = -6.5;
+scene.add(grid);
+
+// 断面表示用クリップ面（z > 0 側をカット）
+const clipPlane = new THREE.Plane(new THREE.Vector3(0, 0, -1), 0);
+
+// ===== Bスプライン基底 =====
+// 周期一様3次：制御点数Nに対し、サンプルごとの重み配列（長さN）を返す
+function periodicBasis(N, samples) {
+  const out = [];
+  for (let a = 0; a < samples; a++) {
+    const s = a / samples * N, k = Math.floor(s), t = s - k;
+    const w = new Array(N).fill(0);
+    const b = [(1 - t) ** 3 / 6, (3 * t ** 3 - 6 * t ** 2 + 4) / 6, (-3 * t ** 3 + 3 * t ** 2 + 3 * t + 1) / 6, t ** 3 / 6];
+    for (let m = 0; m < 4; m++) w[((k - 1 + m) % N + N) % N] += b[m];
+    out.push(w);
+  }
+  return out;
+}
+// クランプ一様3次（端点を通る）：samples+1 個（0～1両端含む）
+function clampedBasis(N, samples, p = 3) {
+  const U = [];
+  for (let k = 0; k < N + p + 1; k++) U.push(k <= p ? 0 : k >= N ? 1 : (k - p) / (N - p));
+  const out = [];
+  for (let a = 0; a <= samples; a++) {
+    const t = a / samples, w = new Array(N).fill(0);
+    if (t >= 1) { w[N - 1] = 1; out.push(w); continue; }
+    const tmp = [];
+    for (let i = 0; i < U.length - 1; i++) tmp.push(t >= U[i] && t < U[i + 1] ? 1 : 0);
+    for (let d = 1; d <= p; d++) for (let i = 0; i < U.length - 1 - d; i++) {
+      const A = U[i + d] - U[i], B = U[i + d + 1] - U[i + 1];
+      tmp[i] = (A > 0 ? (t - U[i]) / A * tmp[i] : 0) + (B > 0 ? (U[i + d + 1] - t) / B * tmp[i + 1] : 0);
+    }
+    for (let i = 0; i < N; i++) w[i] = tmp[i];
+    out.push(w);
+  }
+  return out;
+}
+
+// ===== 形状定義 =====
+// 制御点 = base + d * r（d：半径方向単位ベクトル、r：距離）
+const MODES = {
+  sphere: {
+    NU: 8, NV: 7, RU: 96, RV: 64, vWrap: false,
+    make(i, j, NU, NV) {
+      const th = 2 * Math.PI * i / NU, ph = Math.PI * j / (NV - 1);
+      const d = new THREE.Vector3(Math.sin(ph) * Math.cos(th), -Math.cos(ph), Math.sin(ph) * Math.sin(th));
+      if (j === 0) d.set(0, -1, 0);
+      if (j === NV - 1) d.set(0, 1, 0);
+      const r = 4.6 + 0.9 * Math.cos(3 * th) * Math.sin(ph) ** 2;
+      return { base: new THREE.Vector3(), d, r };
+    }
+  },
+  torus: {
+    NU: 10, NV: 8, RU: 128, RV: 48, vWrap: true,
+    make(i, j, NU, NV) {
+      const fU = (4 + 2 * Math.cos(2 * Math.PI / NU)) / 6;  // 周期Bスプラインの縮み補正
+      const fV = (4 + 2 * Math.cos(2 * Math.PI / NV)) / 6;
+      const th = 2 * Math.PI * i / NU, ps = 2 * Math.PI * j / NV;
+      const R = 5 / fU;
+      const base = new THREE.Vector3(R * Math.cos(th), 0, R * Math.sin(th));
+      const d = new THREE.Vector3(Math.cos(ps) * Math.cos(th), Math.sin(ps), Math.cos(ps) * Math.sin(th));
+      return { base, d, r: 1.8 / fV };
+    }
+  }
+};
+
+let M, ctrl, Bu, Bv, vCount, geo, pos;
+const root = new THREE.Group();
+scene.add(root);
+const surfMat = new THREE.MeshStandardMaterial({
+  color: 0x6fa8dc, roughness: 0.35, metalness: 0.15, side: THREE.DoubleSide,
+  polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1
+});
+const wireMat = new THREE.MeshBasicMaterial({ color: 0x1f3b57, wireframe: true, transparent: true, opacity: 0.35 });
+const isoMat = new THREE.LineBasicMaterial({ color: 0x1b3550, transparent: true, opacity: 0.6 });
+const netMat = new THREE.LineBasicMaterial({ color: 0x8a2a1d });
+const matNormal = new THREE.MeshStandardMaterial({ color: 0xd9412b });
+const matSelect = new THREE.MeshStandardMaterial({ color: 0xffc400, emissive: 0x553300 });
+const sphereGeo = new THREE.SphereGeometry(0.2, 20, 14);
+let surface, wire, isoGroup, ctrlGroup, netGeo, spheres = [];
+
+function cp(i, j) { const c = ctrl[i][j]; return c.base.clone().addScaledVector(c.d, c.r); }
+
+function build(modeName) {
+  root.traverse(o => { if (o.geometry && o.geometry !== sphereGeo) o.geometry.dispose(); });
+  root.clear();
+  select(null);
+  M = MODES[modeName];
+  const { NU, NV, RU, RV, vWrap } = M;
+  ctrl = [];
+  for (let i = 0; i < NU; i++) { ctrl.push([]); for (let j = 0; j < NV; j++) { const c = M.make(i, j, NU, NV); c.r0 = c.r; ctrl[i].push(c); } }
+  Bu = periodicBasis(NU, RU);
+  Bv = vWrap ? periodicBasis(NV, RV) : clampedBasis(NV, RV);
+  vCount = Bv.length;
+
+  // 閉じたメッシュ（継ぎ目の頂点を共有＝溶着）
+  geo = new THREE.BufferGeometry();
+  pos = new Float32Array(RU * vCount * 3);
+  geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  const idx = [], vSegs = vWrap ? vCount : vCount - 1;
+  for (let a = 0; a < RU; a++) {
+    const a1 = (a + 1) % RU;
+    for (let b = 0; b < vSegs; b++) {
+      const b1 = (b + 1) % vCount;
+      const p0 = a * vCount + b, p1 = a * vCount + b1, p2 = a1 * vCount + b, p3 = a1 * vCount + b1;
+      idx.push(p0, p1, p2, p1, p3, p2);
+    }
+  }
+  geo.setIndex(idx);
+  surface = new THREE.Mesh(geo, surfMat);
+  wire = new THREE.Mesh(geo, wireMat);
+  wire.visible = document.getElementById("chkWire").checked;
+  isoGroup = new THREE.Group();
+  isoGroup.visible = document.getElementById("chkIso").checked;
+  ctrlGroup = new THREE.Group();
+  ctrlGroup.visible = document.getElementById("chkCtrl").checked;
+  root.add(surface, wire, isoGroup, ctrlGroup);
+
+  // 制御点（極は1点に集約して表示）
+  spheres = [];
+  for (let i = 0; i < NU; i++) for (let j = 0; j < NV; j++) {
+    const pole = !vWrap && (j === 0 || j === NV - 1);
+    if (pole && i !== 0) continue;
+    const s = new THREE.Mesh(sphereGeo, matNormal);
+    s.userData = { i, j, pole };
+    spheres.push(s); ctrlGroup.add(s);
+  }
+  const segs = NU * NV + NU * (vWrap ? NV : NV - 1);
+  netGeo = new THREE.BufferGeometry();
+  netGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(segs * 6), 3));
+  ctrlGroup.add(new THREE.LineSegments(netGeo, netMat));
+
+  controls.target.set(0, 0, 0);
+  applyClip();
+  rebuild();
+}
+
+const tmpV = new THREE.Vector3();
+let P = [];  // 制御点位置のキャッシュ
+function evalPoint(wu, wv, out) {
+  out.set(0, 0, 0);
+  for (let i = 0; i < wu.length; i++) {
+    if (!wu[i]) continue;
+    for (let j = 0; j < wv.length; j++) {
+      const w = wu[i] * wv[j];
+      if (w) out.addScaledVector(P[i][j], w);
+    }
+  }
+  return out;
+}
+
+function rebuild() {
+  const { NU, NV, RU, vWrap } = M;
+  P = [];
+  for (let i = 0; i < NU; i++) { P.push([]); for (let j = 0; j < NV; j++) P[i].push(cp(i, j)); }
+
+  // 曲面
+  let k = 0;
+  for (let a = 0; a < RU; a++) for (let b = 0; b < vCount; b++) {
+    evalPoint(Bu[a], Bv[b], tmpV);
+    pos[k++] = tmpV.x; pos[k++] = tmpV.y; pos[k++] = tmpV.z;
+  }
+  geo.attributes.position.needsUpdate = true;
+  geo.computeVertexNormals();
+  if (!vWrap) {  // 極点の法線を平均化して滑らかに
+    const n = geo.attributes.normal;
+    for (const b of [0, vCount - 1]) {
+      const avg = new THREE.Vector3();
+      for (let a = 0; a < RU; a++) avg.add(new THREE.Vector3().fromBufferAttribute(n, a * vCount + b));
+      avg.normalize();
+      for (let a = 0; a < RU; a++) n.setXYZ(a * vCount + b, avg.x, avg.y, avg.z);
+    }
+    n.needsUpdate = true;
+  }
+  geo.computeBoundingSphere();
+
+  // アイソパラメトリック線（周期方向はループで閉じる）
+  isoGroup.children.forEach(c => c.geometry.dispose());
+  isoGroup.clear();
+  const nU = 12, nV = vWrap ? 8 : 10;
+  for (let n = 0; n < nU; n++) {
+    const a = Math.round(n * RU / nU), pts = [];
+    for (let b = 0; b < vCount; b++) pts.push(evalPoint(Bu[a], Bv[b], new THREE.Vector3()));
+    const g = new THREE.BufferGeometry().setFromPoints(pts);
+    isoGroup.add(vWrap ? new THREE.LineLoop(g, isoMat) : new THREE.Line(g, isoMat));
+  }
+  for (let n = vWrap ? 0 : 1; n < (vWrap ? nV : nV); n++) {
+    const b = Math.round(n * (vWrap ? vCount : vCount - 1) / nV), pts = [];
+    for (let a = 0; a < RU; a++) pts.push(evalPoint(Bu[a], Bv[b], new THREE.Vector3()));
+    isoGroup.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), isoMat));
+  }
+  isoGroup.children.forEach(l => l.material = isoMat);
+
+  // 制御点・制御網
+  spheres.forEach(s => s.position.copy(P[s.userData.i][s.userData.j]));
+  const arr = netGeo.attributes.position.array; let m = 0;
+  const put = v => { arr[m++] = v.x; arr[m++] = v.y; arr[m++] = v.z; };
+  for (let j = 0; j < NV; j++) for (let i = 0; i < NU; i++) { put(P[i][j]); put(P[(i + 1) % NU][j]); }
+  for (let i = 0; i < NU; i++) for (let j = 0; j < (vWrap ? NV : NV - 1); j++) { put(P[i][j]); put(P[i][(j + 1) % NV]); }
+  netGeo.attributes.position.needsUpdate = true;
+  netGeo.computeBoundingSphere();
+}
+
+// ===== UI =====
+const $ = id => document.getElementById(id);
+const slider = $("radius");
+let selected = null;
+
+function select(s) {
+  if (selected) selected.material = matNormal;
+  selected = s;
+  if (s) {
+    s.material = matSelect;
+    const { i, j, pole } = s.userData;
+    $("sel").textContent = pole ? (j === 0 ? "下極点" : "上極点") : `P(${i}, ${j})`;
+    slider.disabled = false;
+    slider.value = ctrl[i][j].r;
+    $("rval").textContent = ctrl[i][j].r.toFixed(2);
+  } else {
+    $("sel").textContent = "なし"; slider.disabled = true; $("rval").textContent = "-";
+  }
+}
+function setRadius(r) {
+  if (!selected) return;
+  r = THREE.MathUtils.clamp(r, 0.2, 8);
+  const { i, j, pole } = selected.userData;
+  if (pole) for (let a = 0; a < M.NU; a++) ctrl[a][j].r = r;  // 極は全周まとめて移動
+  else ctrl[i][j].r = r;
+  slider.value = r; $("rval").textContent = r.toFixed(2);
+  rebuild();
+}
+function applyClip() {
+  const on = $("chkClip").checked;
+  const planes = on ? [clipPlane] : [];
+  [surfMat, wireMat, isoMat, netMat].forEach(m => { m.clippingPlanes = planes; m.needsUpdate = true; });
+}
+
+slider.addEventListener("input", () => setRadius(parseFloat(slider.value)));
+document.querySelectorAll("input[name=mode]").forEach(r => r.addEventListener("change", e => build(e.target.value)));
+$("chkCtrl").addEventListener("change", e => { ctrlGroup.visible = e.target.checked; if (!e.target.checked) select(null); });
+$("chkIso").addEventListener("change", e => { isoGroup.visible = e.target.checked; });
+$("chkWire").addEventListener("change", e => { wire.visible = e.target.checked; });
+$("chkClip").addEventListener("change", applyClip);
+$("reset").addEventListener("click", () => {
+  ctrl.forEach(row => row.forEach(c => c.r = c.r0));
+  select(selected); rebuild();
+});
+
+// ===== 制御点ドラッグ（半径方向） =====
+const ray = new THREE.Raycaster(), mouse = new THREE.Vector2();
+const dragPlane = new THREE.Plane(), hit = new THREE.Vector3();
+let dragging = false;
+function setMouse(e) {
+  const r = renderer.domElement.getBoundingClientRect();
+  mouse.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+  ray.setFromCamera(mouse, camera);
+}
+renderer.domElement.addEventListener("pointerdown", e => {
+  if (e.button !== 0 || !ctrlGroup.visible) return;
+  setMouse(e);
+  const hits = ray.intersectObjects(spheres);
+  if (!hits.length) return;
+  select(hits[0].object);
+  const n = camera.getWorldDirection(new THREE.Vector3());
+  dragPlane.setFromNormalAndCoplanarPoint(n, selected.position);
+  dragging = true; controls.enabled = false;
+  renderer.domElement.setPointerCapture(e.pointerId);
+});
+renderer.domElement.addEventListener("pointermove", e => {
+  setMouse(e);
+  if (!dragging) {
+    renderer.domElement.style.cursor = ctrlGroup.visible && ray.intersectObjects(spheres).length ? "pointer" : "default";
+    return;
+  }
+  if (ray.ray.intersectPlane(dragPlane, hit)) {
+    const c = ctrl[selected.userData.i][selected.userData.j];
+    setRadius(hit.clone().sub(c.base).dot(c.d));
+  }
+});
+renderer.domElement.addEventListener("pointerup", e => {
+  if (!dragging) return;
+  dragging = false; controls.enabled = true;
+  renderer.domElement.releasePointerCapture(e.pointerId);
+});
+
+build("sphere");
+
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+addEventListener("resize", () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+</script>
+</body>
+</html>
