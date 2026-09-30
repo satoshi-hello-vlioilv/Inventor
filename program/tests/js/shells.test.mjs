@@ -11,6 +11,7 @@ import { recognizeSnapshot } from "../../app/static/js/convert/recognize/index.j
 import { transformPoints, weldTriangles } from "../../app/static/js/convert/recognize/mesh.js";
 import { buildShells, closeOpenShells, conformSeams } from "../../app/static/js/convert/recognize/shells.js";
 import { selfCrossings, untangleLoop } from "../../app/static/js/convert/recognize/geometry2d.js";
+import { selfIntersections } from "../../app/static/js/convert/recognize/intersect.js";
 import { describePart } from "../../app/static/js/html/describe.js";
 import { coilGeometries, coilVolume } from "./coil.mjs";
 
@@ -221,6 +222,15 @@ describe("元の形の自己交差（近似の部品で知らせる）", () => {
     assert.equal(p.kind, "mesh");
     assert.ok(p.intersections > 0, `${p.intersections}`);
     assert.match(describePart(p).note, /元の形が自分と交わる所がある/);
+  });
+  test("同じ平面の上の重なり（丸い面取りの輪郭が折り返した端面）→ 数える。縁で接するだけ・離れているものは数えない", () => {
+    const count = (...tris) => selfIntersections(new Float64Array(tris.flat(2)), tris.map((_, i) => [3 * i, 3 * i + 1, 3 * i + 2]).flat(), TOL);
+    const base = [[0, 0, 5], [10, 0, 5], [0, 10, 5]];
+    assert.equal(count(base, [[2, 2, 5], [12, 2, 5], [2, 12, 5]]), 1, "辺どうしが交わる");
+    assert.equal(count(base, [[1, 1, 5], [3, 1, 5], [1, 3, 5]]), 1, "内側に含まれる");
+    assert.equal(count(base, [[10, 0, 5], [0, 10, 5], [10, 10, 5]].map((p) => p.map((v, k) => (k < 2 ? v + 1e-4 : v)))), 0, "斜めの縁で接するだけ（許容差より浅い）");
+    assert.equal(count(base, [[20, 0, 5], [30, 0, 5], [20, 10, 5]]), 0, "離れている");
+    assert.equal(count(base, [[2, 2, 5.5], [12, 2, 5.5], [2, 12, 5.5]]), 0, "平行な別の平面");
   });
   test("ゆるく曲がる管（半径 100 の円弧に沿う太さ 5 の管）・箱 → 交わりなし", () => {
     const arc = Array.from({ length: 9 }, (_, i) => [100 * Math.cos((Math.PI * i) / 16), 100 * Math.sin((Math.PI * i) / 16), 0]);

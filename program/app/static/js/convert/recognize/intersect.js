@@ -1,6 +1,8 @@
 // 閉じた三角形の自己交差（元の形が自分と交わる所）を見つける。three.js の丸い面取り（bevel）がへこんだ角で面を交差させる、
 // 重なった帯を 1 つのメッシュで描いている、など。そのような形は CAD の立体として正しくない（STEP を読んだ CAD で修復が要る）ので、
 // 近似の部品について調べて知らせる。頂点を共有する三角形どうし（隣どうし）は調べない。
+// 交わり方は 2 通り: 一方の辺が他方の内側を横切る（面が交差する）、同じ平面の上で内側どうしが重なる（丸い面取りの輪郭が、へこんだ角で
+// 折り返して端面が重なる。面取りが角の丸みより大きいとき）。縁で接するだけのものは数えない。
 
 import { pointAt } from "./mesh.js";
 
@@ -27,6 +29,30 @@ function segmentHitsTriangle(p, q, a, b, c, eps) {
     if (dot(cross(sub(v, u), sub(x, u)), n) / len / Math.hypot(...sub(v, u)) <= eps) return false;
   }
   return true;
+}
+
+/** 同じ平面にある 2 つの三角形の内側が重なるか（辺どうしが eps より深く交わる、または一方の頂点が他方の内側 eps より奥にある） */
+function coplanarOverlap(A, B, eps) {
+  const n = cross(sub(A[1], A[0]), sub(A[2], A[0]));
+  const len = Math.hypot(...n);
+  if (len < eps || B.some((p) => Math.abs(dot(n, sub(p, A[0]))) / len > eps)) return false;
+  // 平面の上の 2 次元座標（正規直交）
+  const e = sub(A[1], A[0]), el = Math.hypot(...e);
+  const u = e.map((c) => c / el), v = cross(n, u).map((c) => c / len);
+  const flat = (p) => { const d = sub(p, A[0]); return [dot(d, u), dot(d, v)]; };
+  const [a, b] = [A.map(flat), B.map(flat)];
+  const side = (p, q, r) => ((q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])) / Math.hypot(q[0] - p[0], q[1] - p[1]);
+  const orient = (t) => Math.sign(side(t[0], t[1], t[2]));
+  // 頂点が三角形の内側（どの辺からも eps より奥）
+  const inside = (p, t) => { const s = orient(t); return [0, 1, 2].every((i) => s * side(t[i], t[(i + 1) % 3], p) > eps); };
+  if (b.some((p) => inside(p, a)) || a.some((p) => inside(p, b))) return true;
+  // 辺どうしが、互いの端点を eps より離して交わる
+  for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) {
+    const [p, q, r, w] = [a[i], a[(i + 1) % 3], b[j], b[(j + 1) % 3]];
+    const [s1, s2, s3, s4] = [side(r, w, p), side(r, w, q), side(p, q, r), side(p, q, w)];
+    if (s1 * s2 < 0 && s3 * s4 < 0 && Math.min(Math.abs(s1), Math.abs(s2), Math.abs(s3), Math.abs(s4)) > eps) return true;
+  }
+  return false;
 }
 
 /**
@@ -70,7 +96,8 @@ export function selfIntersections(points, tris, tol, limit = 100) {
         const shared = [0, 1, 2].some((a) => [0, 1, 2].some((b) => tris[3 * s + a] === tris[3 * t + b]));
         if (shared) continue;
         const hit = [[0, 1], [1, 2], [2, 0]].some(([u, v]) => segmentHitsTriangle(A.p[u], A.p[v], ...B.p, tol)) ||
-          [[0, 1], [1, 2], [2, 0]].some(([u, v]) => segmentHitsTriangle(B.p[u], B.p[v], ...A.p, tol));
+          [[0, 1], [1, 2], [2, 0]].some(([u, v]) => segmentHitsTriangle(B.p[u], B.p[v], ...A.p, tol)) ||
+          coplanarOverlap(A.p, B.p, tol);
         if (hit && ++count >= limit) return count;
       }
     }

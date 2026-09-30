@@ -41,6 +41,8 @@ const CASES = {
   "クレーン外観R10.html": [["crane", null]], // 1 単位 = 1 m
   "メッセンジャーワイヤー方式.html": [["wire", null]], // 1 単位 = 1 m。端の開いた管（TubeGeometry）
   "タイヤシミュレータR2.html": [["tire", null]], // three.js r128（isWebGLRenderer が無い版）
+  // 本体とパッドだけ（吊荷のコイル・シャックルを消す）。丸い面取りが、へこんだ角で端面を折り返して重ねる（平面上の自己交差）
+  "C_tong_3D.html": [["body", async (p) => { await p.click("text=吊荷コイルを表示"); await p.click("text=シャックル・ワイヤを表示"); }]],
 };
 
 const TYPES = { ".js": "application/javascript", ".mjs": "application/javascript", ".css": "text/css" };

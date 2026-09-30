@@ -248,6 +248,19 @@ describe("メッセンジャーワイヤー（three.js r160、1 単位 = 1 m）"
   });
 });
 
+describe("Cトング 3D（three.js r160、mm で作って 0.001 倍 = 1 単位 1 m）", () => {
+  test("本体（穴のある C 形の押し出し）とパッドは丸い面取りなので近似。面取りがへこんだ角で端面を折り返して重ねる所を、自己交差として知らせる", () => {
+    const parts = partsOf("C_tong_3D.body", 1000);
+    // 吊った姿勢（重心で傾く）なので、外形の大きい順に本体・パッド
+    const [body, pad, ...others] = parts.filter((p) => p.kind === "mesh").sort((a, b) => Math.hypot(...b.bbox.size) - Math.hypot(...a.bbox.size));
+    assert.equal(others.length, 0);
+    assert.equal(body.geometryType, "ExtrudeGeometry");
+    assert.ok(body.intersections >= 100, `本体の交わり ${body.intersections}`); // 同じ平面の上の重なり（面が横切る交わりは無い）
+    assert.ok(pad.intersections > 0, `パッドの交わり ${pad.intersections}`);
+    assert.deepEqual(parts.filter((p) => p.kind === "open").map((p) => p.geometryType), ["PlaneGeometry"]);
+  });
+});
+
 describe("タイヤ（three.js r128）", () => {
   test("r128 でも取り込める。トレッドの六角タイル 584 個は同じ押し出し、タイヤ本体は回転体 2 つ", () => {
     const parts = partsOf("タイヤシミュレータR2.tire", 100);
