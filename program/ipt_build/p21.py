@@ -12,7 +12,8 @@ from dataclasses import dataclass
 from datetime import datetime
 
 SCHEMA = "AUTOMOTIVE_DESIGN { 1 0 10303 214 3 1 1 }"  # AP214（Inventor が書き出す STEP と同じ）
-LINE_LIMIT = 256  # これより長い実体は、引数の区切りで改行する（読み手の行の長さの制限に備える）
+LINE_LIMIT = 80  # これより長い実体は、引数の区切りで改行する（Inventor が書く STEP と同じくらいの行の長さ）
+NEWLINE = "\r\n"  # 改行（Inventor が書く STEP と同じ CR+LF。どの OS で書いても同じにする）
 
 
 @dataclass(frozen=True)
@@ -125,6 +126,10 @@ class P21Writer:
             self._seen[body] = ref
         return ref
 
+    def forget(self) -> None:
+        """使い回す実体の記録を消す（ここから先は、前に書いた実体を共有しない）"""
+        self._seen.clear()
+
     def __len__(self) -> int:
         return len(self._records)
 
@@ -140,7 +145,7 @@ class P21Writer:
             "DATA;",
         ]
         body = [_wrap(f"#{i}={record};") for i, record in enumerate(self._records, start=1)]
-        return "\n".join(header + body + ["ENDSEC;", "END-ISO-10303-21;", ""])
+        return NEWLINE.join(header + body + ["ENDSEC;", "END-ISO-10303-21;", ""])
 
 
 def _wrap(line: str) -> str:
@@ -155,4 +160,4 @@ def _wrap(line: str) -> str:
             out.append(line[start : i + 1])
             start = i + 1
     out.append(line[start:])
-    return "\n".join(out)
+    return NEWLINE.join(out)

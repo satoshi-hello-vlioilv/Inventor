@@ -29,7 +29,7 @@ flowchart LR
 
 | 項目 | 内容 |
 |---|---|
-| 形式 | ISO 10303-21、AP214（`AUTOMOTIVE_DESIGN`）。Inventor が書き出す STEP と同じ応用・同じ構造（部品の PRODUCT、組立の出現 NEXT_ASSEMBLY_USAGE_OCCURRENCE、配置の ITEM_DEFINED_TRANSFORMATION） |
+| 形式 | ISO 10303-21、AP214 第 3 版（`AUTOMOTIVE_DESIGN { 1 0 10303 214 3 1 1 }`）。Inventor 2026 が書き出す STEP と同じ応用・同じつなぎ方（部品の PRODUCT → 形状表現 SHAPE_REPRESENTATION → 関係 → ADVANCED_BREP_SHAPE_REPRESENTATION、組立の出現 NEXT_ASSEMBLY_USAGE_OCCURRENCE、配置の ITEM_DEFINED_TRANSFORMATION）。点・座標系は部品の中でだけ使い回す。改行は CR+LF、1 行はおよそ 80 文字 |
 | 単位 | mm・ラジアン。形の精度 0.00001 mm（`UNCERTAINTY`） |
 | 名前 | 部品名（日本語は `\X2\` の書き方）。出現は「部品名:番号」 |
 | 回転体 | 断面の直線・円弧を回した面: 円筒・円錐・平面・球・トーラス。一周する面は半分ずつ 2 面に割る（Inventor の STEP と同じ）。断面の円弧の円が軸と交わる形（たる形・りんご形。紡錘形のトーラス）は元の形の三角形で書く（規格の書き方 `DEGENERATE_TOROIDAL_SURFACE` は、OpenCascade が体積を 100 倍に読み違えた。読み手の扱いがそろわない） |
@@ -59,6 +59,22 @@ flowchart LR
 STEP だけのときの指示、近似の部品の STEP）は、3 つの確かめのどれかが必ず検出した。ただし OpenCascade は読むときに面の向きを直してしまい、
 アプリの読み戻しは押し出しの円弧の向きを見逃したので、自作の確かめに向き（輪の回り方）と単位の確かめを足し、OpenCascade の無い環境
 （アプリを使う PC）でも 12 通り全てを見つけられるようにした。
+
+### Inventor 2026 で開けないという報告の調査
+
+「アプリの STEP が Inventor 2026 で開けない」という報告を受けて調べた（エラーの文はまだ分からない）。
+
+| 調べたこと | 結果 |
+|---|---|
+| Inventor 2026 は STEP を開けるか（仕様） | 開ける。Inventor 2026 自身が同じ AP214 第 3 版で書き出している（`program/samples/stp`）ので、STEP を開けないのは仕様ではない |
+| アプリの STEP は規格どおりか | 規格どおり。AP214 の EXPRESS スキーマ（STEPcode の AP214E3_2010）から作った検査プログラム（`p21read`、厳しい判定 `-s`）で、部品・組立・三角形の部品（最大 33 万実体）の全てで誤り 0。同じ検査で Inventor 自身の STEP は 39 実体が規格違反（名前を `$` にした配置） |
+| Inventor の書き方との違い | 3 つ（どれも規格上は正しい）: 形状表現のつなぎ方（B-rep の形状表現を直接つないでいた）、全ての部品が 1 つの座標系を共有していた、改行が LF（ただし Windows で書くと CR+LF になる）。Inventor と同じ書き方にそろえた |
+
+原因がファイルか Inventor 側かは、実物の Inventor で確かめるまで分からない。1 つずつ条件を変えた確認用の STEP を
+[step-check/](step-check/README.md) に置いた（直す前・直した後・別の書き手の書いたもの）。
+
+検査の再現（開発用）: `git clone https://github.com/stepcode/stepcode` → `cmake .. -DSC_BUILD_SCHEMAS=ap214e3` →
+`make p21read_sdai_ap214e3` → `p21read_sdai_ap214e3 -s ファイル.stp`（「SECOND PASS complete: N instances valid」なら規格どおり）。
 
 ### 分からないこと（実物の Inventor で確かめる）
 

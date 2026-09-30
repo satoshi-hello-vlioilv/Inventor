@@ -418,7 +418,7 @@ def read_faceted_step(path) -> tuple[float, float, list]:
     import re  # noqa: PLC0415
 
     text = Path(path).read_text(encoding="ascii")
-    entities = {int(m.group(1)): (m.group(2), m.group(3)) for m in re.finditer(r"#(\d+)=([A-Z_0-9]+)\((.*?)\);", text.replace("\n", ""))}
+    entities = {int(m.group(1)): (m.group(2), m.group(3)) for m in re.finditer(r"#(\d+)=([A-Z_0-9]+)\((.*?)\);", re.sub(r"[\r\n]", "", text))}
     refs = lambda body: [int(r) for r in re.findall(r"#(\d+)", body)]  # noqa: E731
     point = lambda i: tuple(float(v) / MM_PER_CM for v in re.search(r"\(([^()]*)\)\s*$", entities[i][1]).group(1).split(","))  # noqa: E731
     vertex = lambda i: point(refs(entities[i][1])[0])  # noqa: E731

@@ -65,7 +65,7 @@ def read(path: str | Path) -> dict[int, tuple[str, list]]:
     text = Path(path).read_text(encoding="ascii")
     data = text[text.index("DATA;") + 5 : text.index("ENDSEC;", text.index("DATA;"))]
     entities = {}
-    for m in re.finditer(r"#(\d+)=(.*?);\s*(?=#\d+=|$)", data.replace("\n", ""), re.S):
+    for m in re.finditer(r"#(\d+)=(.*?);\s*(?=#\d+=|$)", re.sub(r"[\r\n]", "", data), re.S):  # 改行（CR+LF）は字句の間にしか無い
         body = m.group(2).strip()
         if body.startswith("("):
             entities[int(m.group(1))] = ("COMPLEX", body)
