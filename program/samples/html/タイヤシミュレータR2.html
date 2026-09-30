@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>フォークリフトタイヤ トレッドシミュレータ</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+        }
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+        }
+        #controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: white;
+            background: rgba(0, 0, 0, 0.85);
+            padding: 20px;
+            border-radius: 10px;
+            font-size: 14px;
+            width: 280px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        #controls h3 {
+            margin: 0 0 15px 0;
+            font-size: 18px;
+            border-bottom: 2px solid #4a90e2;
+            padding-bottom: 8px;
+        }
+        .control-group {
+            margin-bottom: 18px;
+        }
+        .control-group label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: bold;
+            color: #a0d0ff;
+        }
+        .control-group select,
+        .control-group input[type="range"] {
+            width: 100%;
+            padding: 6px;
+            border-radius: 4px;
+            border: none;
+            background: rgba(255, 255, 255, 0.9);
+        }
+        .control-group input[type="range"] {
+            padding: 0;
+            height: 6px;
+            cursor: pointer;
+        }
+        .value-display {
+            display: inline-block;
+            float: right;
+            background: rgba(74, 144, 226, 0.3);
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+        #info {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+        #info h3 {
+            margin: 0 0 10px 0;
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div id="canvas-container"></div>
+    <div id="info">
+        <h3>🚜 フォークリフトタイヤ</h3>
+        <p>🖱️ ドラッグ:回転<br>
+        🔄 ホイール:ズーム<br>
+        ⌨️ 右クリック:移動</p>
+    </div>
+    <div id="controls">
+        <h3>トレッドパターン設定</h3>
+        
+        <div class="control-group">
+            <label>タイル形状</label>
+            <select id="treadShape">
+                <option value="hexagon" selected>六角形</option>
+                <option value="square">正方形</option>
+                <option value="cylinder">円柱</option>
+                <option value="pyramid">四角錐</option>
+                <option value="triPyramid">三角錐</option>
+                <option value="star">星型</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <label>
+                タイル間隙間
+                <span class="value-display" id="spacingValue">0.00mm</span>
+            </label>
+            <input type="range" id="treadSpacing" min="0" max="500" value="8" step="0.1">
+        </div>
+
+        <div class="control-group">
+            <label>
+                タイル高さ
+                <span class="value-display" id="heightValue">6.0mm</span>
+            </label>
+            <input type="range" id="treadHeight" min="10" max="800" value="60" step="1">
+        </div>
+
+        <div class="control-group">
+            <label>
+                タイル回転角度
+                <span class="value-display" id="rotationValue">0°</span>
+            </label>
+            <input type="range" id="treadRotation" min="0" max="360" value="0" step="1">
+        </div>
+
+        <div class="control-group">
+            <label>
+                タイルサイズ
+                <span class="value-display" id="sizeValue">100%</span>
+            </label>
+            <input type="range" id="treadSize" min="50" max="2000" value="100" step="1">
+        </div>
+
+        <div class="control-group">
+            <label>
+                タイル幅
+                <span class="value-display" id="widthValue">100%</span>
+            </label>
+            <input type="range" id="treadWidth" min="50" max="200" value="100" step="1">
+        </div>
+
+        <div class="control-group">
+            <label>
+                タイル奥行き
+                <span class="value-display" id="depthScaleValue">100%</span>
+            </label>
+            <input type="range" id="treadDepthScale" min="50" max="200" value="100" step="1">
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        const CONFIG = {
+            tire: {
+                outerRadius: 2,
+                innerRadius: 1.0,
+                width: 1.2,
+                segments: 48,
+                color: 0x1a1a1a,
+                roughness: 0.9
+            },
+            tread: {
+                baseSize: 0.08,
+                height: 0.06,
+                depth: 0.14,
+                spacing: 0.008,
+                shape: 'hexagon',
+                rotation: 0,
+                sizeScale: 1.0,
+                widthScale: 1.0,
+                depthScale: 1.0
+            },
+            camera: {
+                fov: 45,
+                near: 0.1,
+                far: 1000,
+                initialPosition: { x: 5, y: 3, z: 8 },
+                minDistance: 2,
+                maxDistance: 20
+            },
+            lighting: {
+                ambient: { color: 0xffffff, intensity: 0.7 },
+                lights: [
+                    { color: 0xffffff, intensity: 1.2, position: { x: 5, y: 10, z: 7 }, shadow: true },
+                    { color: 0x4466ff, intensity: 0.5, position: { x: -5, y: 3, z: -5 }, shadow: false },
+                    { color: 0xffffff, intensity: 0.4, position: { x: 0, y: -5, z: -5 }, shadow: false }
+                ]
+            },
+            animation: {
+                rotationSpeed: 0.002
+            },
+            ui: {
+                controls: [
+                    {
+                        id: 'treadShape',
+                        property: 'shape',
+                        type: 'select',
+                        formatter: null
+                    },
+                    {
+                        id: 'treadSpacing',
+                        property: 'spacing',
+                        type: 'range',
+                        valueDisplayId: 'spacingValue',
+                        formatter: (v) => ({
+                            display: (v / 1000).toFixed(2) + 'mm',
+                            value: v / 1000
+                        })
+                    },
+                    {
+                        id: 'treadHeight',
+                        property: 'height',
+                        type: 'range',
+                        valueDisplayId: 'heightValue',
+                        formatter: (v) => ({
+                            display: (v / 1000).toFixed(1) + 'mm',
+                            value: v / 1000
+                        })
+                    },
+                    {
+                        id: 'treadRotation',
+                        property: 'rotation',
+                        type: 'range',
+                        valueDisplayId: 'rotationValue',
+                        formatter: (v) => ({
+                            display: v + '°',
+                            value: parseFloat(v)
+                        })
+                    },
+                    {
+                        id: 'treadSize',
+                        property: 'sizeScale',
+                        type: 'range',
+                        valueDisplayId: 'sizeValue',
+                        formatter: (v) => ({
+                            display: v + '%',
+                            value: v / 100
+                        })
+                    },
+                    {
+                        id: 'treadWidth',
+                        property: 'widthScale',
+                        type: 'range',
+                        valueDisplayId: 'widthValue',
+                        formatter: (v) => ({
+                            display: v + '%',
+                            value: v / 100
+                        })
+                    },
+                    {
+                        id: 'treadDepthScale',
+                        property: 'depthScale',
+                        type: 'range',
+                        valueDisplayId: 'depthScaleValue',
+                        formatter: (v) => ({
+                            display: v + '%',
+                            value: v / 100
+                        })
+                    }
+                ]
+            }
+        };
+
+        class GeometryFactory {
+            static create(shape, params, height, widthScale = 1.0, depthScale = 1.0) {
+                const geometryMap = {
+                    hexagon: () => this.createPolygon(6, params, height, Math.PI / 2, widthScale, depthScale),
+                    square: () => this.createBox(params * 2, height, widthScale, depthScale),
+                    cylinder: () => this.createCylinder(params, height, widthScale, depthScale),
+                    pyramid: () => this.createPyramid(params * 2, height, 4, widthScale, depthScale),
+                    triPyramid: () => this.createPyramid(params * 2, height, 3, widthScale, depthScale),
+                    star: () => this.createStar(params * 1.2, height, widthScale, depthScale)
+                };
+                return (geometryMap[shape] || geometryMap.hexagon)();
+            }
+
+            static createPolygon(sides, radius, height, startAngle = 0, widthScale = 1.0, depthScale = 1.0) {
+                const shape = new THREE.Shape();
+                for (let i = 0; i < sides; i++) {
+                    const angle = (i / sides) * Math.PI * 2 + startAngle;
+                    const x = radius * Math.cos(angle) * widthScale;
+                    const y = radius * Math.sin(angle) * depthScale;
+                    i === 0 ? shape.moveTo(x, y) : shape.lineTo(x, y);
+                }
+                shape.closePath();
+                return this.extrudeShape(shape, height);
+            }
+
+            static createBox(size, height, widthScale = 1.0, depthScale = 1.0) {
+                const geometry = new THREE.BoxGeometry(size * widthScale, height, size * depthScale);
+                geometry.translate(0, height / 2, 0);
+                return geometry;
+            }
+
+            static createCylinder(radius, height, widthScale = 1.0, depthScale = 1.0) {
+                const geometry = new THREE.CylinderGeometry(radius, radius, height, 16);
+                geometry.scale(widthScale, 1, depthScale);
+                return this.positionGeometry(geometry, height);
+            }
+
+            static createPyramid(base, height, sides, widthScale = 1.0, depthScale = 1.0) {
+                const radius = sides === 3 ? base / Math.sqrt(3) : base / Math.sqrt(2);
+                const geometry = new THREE.ConeGeometry(radius, height, sides);
+                geometry.scale(widthScale, 1, depthScale);
+                if (sides === 4) geometry.rotateZ(Math.PI / 4);
+                return this.positionGeometry(geometry, height);
+            }
+
+            static createStar(radius, height, widthScale = 1.0, depthScale = 1.0) {
+                const shape = new THREE.Shape();
+                const spikes = 5;
+                const outerRadius = radius;
+                const innerRadius = radius * 0.4;
+                
+                for (let i = 0; i < spikes * 2; i++) {
+                    const angle = (i / (spikes * 2)) * Math.PI * 2 - Math.PI / 2;
+                    const r = i % 2 === 0 ? outerRadius : innerRadius;
+                    const x = r * Math.cos(angle) * widthScale;
+                    const y = r * Math.sin(angle) * depthScale;
+                    i === 0 ? shape.moveTo(x, y) : shape.lineTo(x, y);
+                }
+                shape.closePath();
+                return this.extrudeShape(shape, height);
+            }
+
+            static extrudeShape(shape, height) {
+                const geometry = new THREE.ExtrudeGeometry(shape, {
+                    depth: height,
+                    bevelEnabled: false
+                });
+                return this.positionGeometry(geometry, height);
+            }
+
+            static positionGeometry(geometry, height) {
+                geometry.rotateX(Math.PI / 2);
+                geometry.translate(0, height / 2, 0);
+                return geometry;
+            }
+
+            static getTileWidth(shape, baseSize, widthScale = 1.0, depthScale = 1.0) {
+                const baseWidth = shape === 'star' ? baseSize * 2.5 : baseSize * 2;
+                return Math.max(baseWidth * widthScale, baseWidth * depthScale);
+            }
+        }
+
+        class TireScene {
+            constructor() {
+                this.scene = null;
+                this.camera = null;
+                this.renderer = null;
+                this.tireGroup = null;
+                this.controls = null;
+            }
+
+            init() {
+                this.setupScene();
+                this.setupCamera();
+                this.setupRenderer();
+                this.setupLighting();
+                this.createTire();
+                this.createFloor();
+                this.setupControls();
+                this.setupEventListeners();
+                this.setupUIControls();
+                this.animate();
+            }
+
+            setupScene() {
+                this.scene = new THREE.Scene();
+                this.scene.background = new THREE.Color(0x1a1a2e);
+                this.scene.fog = new THREE.Fog(0x1a1a2e, 10, 50);
+            }
+
+            setupCamera() {
+                const { fov, near, far, initialPosition } = CONFIG.camera;
+                this.camera = new THREE.PerspectiveCamera(
+                    fov,
+                    window.innerWidth / window.innerHeight,
+                    near,
+                    far
+                );
+                this.camera.position.set(initialPosition.x, initialPosition.y, initialPosition.z);
+                this.camera.lookAt(0, 0, 0);
+            }
+
+            setupRenderer() {
+                this.renderer = new THREE.WebGLRenderer({ antialias: true });
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                this.renderer.shadowMap.enabled = true;
+                this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+                document.getElementById('canvas-container').appendChild(this.renderer.domElement);
+            }
+
+            setupLighting() {
+                const { ambient, lights } = CONFIG.lighting;
+                this.scene.add(new THREE.AmbientLight(ambient.color, ambient.intensity));
+
+                lights.forEach(({ color, intensity, position, shadow }) => {
+                    const light = new THREE.DirectionalLight(color, intensity);
+                    light.position.set(position.x, position.y, position.z);
+                    if (shadow) {
+                        light.castShadow = true;
+                        light.shadow.mapSize.width = 2048;
+                        light.shadow.mapSize.height = 2048;
+                    }
+                    this.scene.add(light);
+                });
+            }
+
+            createTire() {
+                if (this.tireGroup) {
+                    this.scene.remove(this.tireGroup);
+                }
+                this.tireGroup = new THREE.Group();
+                
+                this.createTireBody();
+                this.createTreadPattern();
+                this.createTireLogo();
+                
+                this.tireGroup.position.y = -1.5 + CONFIG.tire.outerRadius;
+                this.scene.add(this.tireGroup);
+            }
+
+            createTireBody() {
+                const { outerRadius, innerRadius, width, segments, color, roughness } = CONFIG.tire;
+                const { height } = CONFIG.tread;
+                
+                const tireBodyOuterRadius = outerRadius - height;
+                const wallThickness = tireBodyOuterRadius - innerRadius;
+                const innerWallThickness = wallThickness * 0.15;
+                const innerWallRadius = innerRadius + innerWallThickness;
+
+                const tireMaterial = new THREE.MeshStandardMaterial({
+                    color,
+                    roughness,
+                    metalness: 0.1,
+                    side: THREE.DoubleSide
+                });
+
+                const tireConfigs = [
+                    { outerR: tireBodyOuterRadius, innerR: innerWallRadius, w: width },
+                    { outerR: innerWallRadius, innerR: innerRadius, w: width * 0.8 }
+                ];
+
+                tireConfigs.forEach(config => {
+                    const mesh = new THREE.Mesh(
+                        this.createTireRingGeometry(config, segments),
+                        tireMaterial
+                    );
+                    mesh.castShadow = true;
+                    mesh.receiveShadow = true;
+                    this.tireGroup.add(mesh);
+                });
+            }
+
+            createTireRingGeometry(config, segments) {
+                const shape = new THREE.Shape();
+                shape.absarc(0, 0, config.outerR, 0, Math.PI * 2, false);
+                const holePath = new THREE.Path();
+                holePath.absarc(0, 0, config.innerR, 0, Math.PI * 2, true);
+                shape.holes.push(holePath);
+
+                const geometry = new THREE.ExtrudeGeometry(shape, {
+                    depth: config.w,
+                    bevelEnabled: false,
+                    curveSegments: segments
+                });
+                geometry.center();
+                return geometry;
+            }
+
+            createTreadPattern() {
+                const { outerRadius, width, color, roughness } = CONFIG.tire;
+                const { baseSize, height, depth, spacing, shape, rotation, sizeScale, widthScale, depthScale } = CONFIG.tread;
+
+                const scaledBaseSize = baseSize * sizeScale;
+                const effectiveRadius = outerRadius - height / 2;
+                const effectiveCircumference = 2 * Math.PI * effectiveRadius;
+                
+                const tileWidth = GeometryFactory.getTileWidth(shape, scaledBaseSize, widthScale, depthScale);
+                const rotationRad = (rotation * Math.PI) / 180;
+
+                const arcLengthPerTile = tileWidth + spacing;
+                const tilesAroundCircle = Math.floor(effectiveCircumference / arcLengthPerTile);
+                const tilesAlongWidth = Math.floor(width / (depth + spacing));
+
+                const tileMaterial = new THREE.MeshStandardMaterial({ color, roughness });
+
+                for (let row = 0; row < tilesAlongWidth; row++) {
+                    const zPos = (row - (tilesAlongWidth - 1) / 2) * (depth + spacing);
+                    const offsetAngle = (row % 2) * (Math.PI / tilesAroundCircle);
+
+                    for (let col = 0; col < tilesAroundCircle; col++) {
+                        const angle = (col / tilesAroundCircle) * Math.PI * 2 + offsetAngle;
+                        this.createTreadTile(
+                            shape, scaledBaseSize, height, widthScale, depthScale,
+                            rotationRad, angle, effectiveRadius, zPos, tileMaterial
+                        );
+                    }
+                }
+            }
+
+            createTreadTile(shape, size, height, widthScale, depthScale, rotationRad, angle, radius, zPos, material) {
+                const tileGeometry = GeometryFactory.create(shape, size, height, widthScale, depthScale);
+                if (rotationRad !== 0) {
+                    tileGeometry.rotateY(rotationRad);
+                }
+
+                const tile = new THREE.Mesh(tileGeometry, material);
+                tile.position.x = Math.cos(angle) * radius;
+                tile.position.y = Math.sin(angle) * radius;
+                tile.position.z = zPos;
+                tile.rotation.z = angle + Math.PI / 2;
+                tile.castShadow = true;
+                
+                this.tireGroup.add(tile);
+            }
+
+            createTireLogo() {
+                const { width } = CONFIG.tire;
+                const logoZ = width / 2 + 0.02;
+
+                const texture = this.createLogoTexture();
+                const logoMaterial = new THREE.MeshStandardMaterial({
+                    map: texture,
+                    transparent: true,
+                    opacity: 0.8,
+                    roughness: 0.7
+                });
+
+                const logoGeometry = new THREE.PlaneGeometry(1.5, 0.37);
+                
+                [logoZ, -logoZ].forEach((z, i) => {
+                    const logo = new THREE.Mesh(logoGeometry, logoMaterial);
+                    logo.position.z = z;
+                    if (i === 1) logo.rotation.y = Math.PI;
+                    this.tireGroup.add(logo);
+                });
+            }
+
+            createLogoTexture() {
+                const canvas = document.createElement('canvas');
+                canvas.width = 512;
+                canvas.height = 128;
+                const ctx = canvas.getContext('2d');
+                
+                ctx.fillStyle = '#FFFFFF';
+                ctx.font = 'bold 60px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('SOLID TIRE', 256, 40);
+                ctx.font = '32px Arial';
+                ctx.fillText('INDUSTRIAL', 256, 90);
+
+                return new THREE.CanvasTexture(canvas);
+            }
+
+            createFloor() {
+                const floorGeometry = new THREE.PlaneGeometry(20, 20);
+                const floorMaterial = new THREE.MeshStandardMaterial({
+                    color: 0x2a2a3e,
+                    roughness: 0.8,
+                    metalness: 0.2
+                });
+                const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+                floor.rotation.x = -Math.PI / 2;
+                floor.position.y = -1.5;
+                floor.receiveShadow = true;
+                this.scene.add(floor);
+
+                const gridHelper = new THREE.GridHelper(20, 20, 0x444466, 0x333344);
+                gridHelper.position.y = -1.49;
+                this.scene.add(gridHelper);
+            }
+
+            setupControls() {
+                this.controls = new CameraControls(this.camera, this.renderer.domElement, this.tireGroup);
+            }
+
+            setupUIControls() {
+                CONFIG.ui.controls.forEach(ctrl => {
+                    const element = document.getElementById(ctrl.id);
+                    const valueDisplay = ctrl.valueDisplayId ? document.getElementById(ctrl.valueDisplayId) : null;
+                    
+                    const eventType = ctrl.type === 'select' ? 'change' : 'input';
+                    element.addEventListener(eventType, (e) => {
+                        const rawValue = e.target.value;
+                        const processedValue = ctrl.formatter ? ctrl.formatter(rawValue).value : rawValue;
+                        CONFIG.tread[ctrl.property] = processedValue;
+                        
+                        if (valueDisplay && ctrl.formatter) {
+                            valueDisplay.textContent = ctrl.formatter(rawValue).display;
+                        }
+                        
+                        this.createTire();
+                    });
+
+                    if (valueDisplay && ctrl.formatter) {
+                        valueDisplay.textContent = ctrl.formatter(element.value).display;
+                    }
+                });
+            }
+
+            setupEventListeners() {
+                window.addEventListener('resize', () => this.onWindowResize());
+            }
+
+            animate() {
+                requestAnimationFrame(() => this.animate());
+                
+                if (this.tireGroup) {
+                    this.tireGroup.rotation.z += CONFIG.animation.rotationSpeed;
+                }
+
+                this.renderer.render(this.scene, this.camera);
+            }
+
+            onWindowResize() {
+                this.camera.aspect = window.innerWidth / window.innerHeight;
+                this.camera.updateProjectionMatrix();
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+            }
+        }
+
+        class CameraControls {
+            constructor(camera, domElement, target) {
+                this.camera = camera;
+                this.domElement = domElement;
+                this.target = target;
+                
+                this.isDragging = false;
+                this.isPanning = false;
+                this.previousMousePosition = { x: 0, y: 0 };
+                this.cameraDistance = this.camera.position.length();
+                this.cameraAngle = { theta: 0, phi: 0 };
+
+                this.updateCameraAngles();
+                this.setupEventListeners();
+            }
+
+            updateCameraAngles() {
+                const { x, y, z } = this.camera.position;
+                this.cameraDistance = Math.sqrt(x * x + y * y + z * z);
+                this.cameraAngle.theta = Math.atan2(x, z);
+                this.cameraAngle.phi = Math.acos(y / this.cameraDistance);
+            }
+
+            setupEventListeners() {
+                this.domElement.addEventListener('mousedown', (e) => this.onMouseDown(e));
+                this.domElement.addEventListener('mousemove', (e) => this.onMouseMove(e));
+                this.domElement.addEventListener('mouseup', () => this.onMouseUp());
+                this.domElement.addEventListener('wheel', (e) => this.onWheel(e));
+                this.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
+            }
+
+            onMouseDown(e) {
+                this.isDragging = e.button === 0;
+                this.isPanning = e.button === 2;
+                this.previousMousePosition = { x: e.clientX, y: e.clientY };
+            }
+
+            onMouseMove(e) {
+                if (this.isDragging) {
+                    this.handleRotation(e);
+                } else if (this.isPanning) {
+                    this.handlePanning(e);
+                }
+                this.previousMousePosition = { x: e.clientX, y: e.clientY };
+            }
+
+            onMouseUp() {
+                this.isDragging = false;
+                this.isPanning = false;
+            }
+
+            handleRotation(e) {
+                const deltaX = e.clientX - this.previousMousePosition.x;
+                const deltaY = e.clientY - this.previousMousePosition.y;
+
+                this.cameraAngle.theta -= deltaX * 0.01;
+                this.cameraAngle.phi -= deltaY * 0.01;
+                this.cameraAngle.phi = Math.max(0.1, Math.min(Math.PI - 0.1, this.cameraAngle.phi));
+
+                this.updateCameraPosition();
+            }
+
+            handlePanning(e) {
+                const deltaX = e.clientX - this.previousMousePosition.x;
+                const deltaY = e.clientY - this.previousMousePosition.y;
+                const panSpeed = 0.01;
+
+                const right = new THREE.Vector3();
+                const up = new THREE.Vector3(0, 1, 0);
+                this.camera.getWorldDirection(right);
+                right.cross(up).normalize();
+
+                if (this.target) {
+                    this.target.position.x += right.x * deltaX * panSpeed;
+                    this.target.position.z += right.z * deltaX * panSpeed;
+                    this.target.position.y -= deltaY * panSpeed;
+                }
+            }
+
+            onWheel(e) {
+                e.preventDefault();
+                this.cameraDistance += e.deltaY * 0.01;
+                this.cameraDistance = Math.max(
+                    CONFIG.camera.minDistance,
+                    Math.min(CONFIG.camera.maxDistance, this.cameraDistance)
+                );
+                this.updateCameraPosition();
+            }
+
+            updateCameraPosition() {
+                this.camera.position.x = this.cameraDistance * Math.sin(this.cameraAngle.phi) * Math.sin(this.cameraAngle.theta);
+                this.camera.position.y = this.cameraDistance * Math.cos(this.cameraAngle.phi);
+                this.camera.position.z = this.cameraDistance * Math.sin(this.cameraAngle.phi) * Math.cos(this.cameraAngle.theta);
+                this.camera.lookAt(0, 0, 0);
+            }
+        }
+
+        const tireScene = new TireScene();
+        tireScene.init();
+    </script>
+</body>
+</html>

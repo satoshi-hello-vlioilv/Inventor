@@ -1,0 +1,885 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mill - Custom Configuration (Speed Control Fix)</title>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: "Segoe UI", sans-serif; background-color: #eef2f5; }
+        
+        /* UI Panel */
+        #ui-panel {
+            position: absolute; top: 20px; left: 20px; width: 340px;
+            background: rgba(255, 255, 255, 0.95); 
+            color: #333; padding: 18px; border-radius: 6px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1); 
+            border: 1px solid #d1d9e0; user-select: none;
+            max-height: 90vh; overflow-y: auto;
+        }
+        h2 { 
+            margin: 0 0 15px 0; font-size: 16px; color: #2c3e50; 
+            border-bottom: 2px solid #5d7a68; padding-bottom: 8px; font-weight: 700;
+        }
+        
+        .row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 13px; }
+        label { color: #555; font-weight: 600; }
+        input[type="range"] { flex: 1; margin: 0 12px; cursor: pointer; }
+        input[type="number"] { 
+            width: 70px; padding: 5px; text-align: right; 
+            background: #f8f9fa; border: 1px solid #ced4da; border-radius: 3px; font-weight: bold; color: #333;
+        }
+        
+        .val-highlight { color: #0056b3; font-weight: 800; }
+        
+        /* Realtime Info Grid */
+        #realtime-info {
+            margin-top: 15px; padding: 10px; background: #eef2f5; border-radius: 4px;
+            border: 1px solid #dee2e6;
+            display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+            font-family: "Consolas", monospace; font-size: 11px; color: #333;
+        }
+        .info-label { color: #666; display: block; margin-bottom: 2px; }
+        .info-val { font-weight: bold; font-size: 13px; color: #222; }
+        .full-width { grid-column: span 2; border-bottom: 1px solid #ddd; padding-bottom: 5px; margin-bottom: 5px; }
+
+        button {
+            width: 100%; padding: 10px; margin-top: 10px;
+            border: 1px solid transparent; border-radius: 4px; cursor: pointer;
+            font-size: 12px; font-weight: 700; transition: all 0.2s;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        button:active { transform: translateY(1px); box-shadow: none; }
+        
+        .btn-start { background: #28a745; color: white; } .btn-start:hover { background: #218838; }
+        .btn-reset { background: #fd7e14; color: white; margin-top: 5px; } .btn-reset:hover { background: #e36d0e; }
+        .btn-normal { background: #e2e6ea; color: #495057; border: 1px solid #d3d9df; } .btn-normal:hover { background: #dbe2e8; }
+        .btn-danger { background: #dc3545; color: white; } .btn-danger:hover { background: #c82333; }
+        .btn-info { background: #17a2b8; color: white; } .btn-info:hover { background: #138496; }
+
+        /* Selection Info */
+        #selection-info {
+            margin-top: 15px; padding-top: 10px; border-top: 1px solid #e9ecef;
+            display: none; background-color: #f8f9fa; padding: 10px; border-radius: 4px; border: 1px solid #dee2e6;
+        }
+        .info-title { font-weight: 700; color: #495057; margin-bottom: 5px; display: block; font-size: 13px; }
+        .status-text { font-size: 11px; text-align: center; color: #6c757d; margin-top: 5px; font-style: italic;}
+    </style>
+</head>
+<body>
+
+    <div id="canvas-container"></div>
+
+    <div id="ui-panel">
+        <h2>Mill Operation (Real Scale)</h2>
+        
+        <div class="row">
+            <label>Line Speed Ref</label>
+            <input type="range" id="inp-speed" min="0" max="1500" value="0" step="10">
+        </div>
+        
+        <div style="background:#f1f3f5; padding:10px; border-radius:4px; margin-bottom:10px; border:1px solid #e9ecef;">
+            <div class="row">
+                <label>Entry Thickness (mm)</label>
+                <input type="number" id="inp-th-in" value="2.3" step="0.1" min="0.1">
+            </div>
+            <div class="row">
+                <label>Target Gap (mm)</label>
+                <input type="number" id="inp-gap" value="0.8" step="0.05" min="0.05">
+            </div>
+            <div class="row">
+                <label>Reduction</label>
+                <span id="disp-red" class="val-highlight">65.2 %</span>
+            </div>
+        </div>
+
+        <div id="realtime-info">
+            <div class="full-width">
+                <span class="info-label">Strip Speed (mpm)</span>
+                In: <span id="val-vin" class="info-val">0</span> / Out: <span id="val-vout" class="info-val">0</span>
+            </div>
+            <div>
+                <span class="info-label">Coil In (Dia/RPM)</span>
+                <span id="val-dia-in" class="info-val">1500</span>mm / <span id="val-rpm-in" class="info-val" style="color:#d35400">0</span>
+            </div>
+            <div>
+                <span class="info-label">Coil Out (Dia/RPM)</span>
+                <span id="val-dia-out" class="info-val">560</span>mm / <span id="val-rpm-out" class="info-val" style="color:#d35400">0</span>
+            </div>
+            <div class="full-width" style="border-bottom:none; margin-bottom:0; padding-bottom:0; padding-top:5px; border-top:1px solid #ddd;">
+                <span class="info-label">Work Roll RPM</span>
+                <span id="val-rpm-wr" class="info-val" style="color:#2980b9">0</span> rpm
+            </div>
+        </div>
+
+        <button class="btn-start" id="btn-start">START / STOP</button>
+        <button class="btn-reset" id="btn-reset">RESET (New Coil)</button>
+        <button class="btn-info" id="btn-export">Export Config (Copy Code)</button>
+        <button class="btn-normal" id="btn-add-guide">+ Add Guide Roll</button>
+
+        <div id="selection-info">
+            <span class="info-title">Selected: <span id="sel-name"></span></span>
+            <div class="row">
+                <label>Dia (mm)</label>
+                <input type="number" id="sel-dia" step="10" min="100">
+            </div>
+            <div id="ctrl-guide-opts" style="display:none;">
+                <button class="btn-normal" id="btn-toggle-pass">Toggle Pass</button>
+                <div id="lbl-pass" class="status-text">Current: OVER</div>
+            </div>
+            <div id="ctrl-coil-opts" style="display:none;">
+                <button class="btn-normal" id="btn-toggle-wind">Toggle Winding</button>
+                <div id="lbl-winding" class="status-text">Current: OVER</div>
+            </div>
+            <button class="btn-danger" id="btn-delete-obj" style="display:none;">Delete Roll</button>
+        </div>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { TransformControls } from 'three/addons/controls/TransformControls.js';
+
+        let scene, camera, renderer, orbit, transformControl;
+        let stripInMesh, stripOutMesh; 
+        let raycaster = new THREE.Raycaster();
+        let mouse = new THREE.Vector2();
+        let rollTexture; 
+
+        // === リアル寸法定義 (mm) ===
+        const REAL_MAX_DIA = 1500.0;
+        const REAL_MIN_DIA = 560.0;
+        const REAL_CORE_ID = 508.0;
+        const REAL_WIDTH   = 1400.0; 
+        
+        // ロール系 (実寸目安)
+        const WR_DIA_MM = 550.0;   
+        const BR_DIA_MM = 1350.0;  
+        const GUIDE_DIA_MM = 200.0; 
+
+        // === 単位変換 ===
+        // 32 units = 1500 mm
+        const MM_TO_UNIT = 32.0 / REAL_MAX_DIA; 
+
+        const SC_MAX_R = (REAL_MAX_DIA / 2) * MM_TO_UNIT; 
+        const SC_MIN_R = (REAL_MIN_DIA / 2) * MM_TO_UNIT; 
+        const SC_CORE_R= (REAL_CORE_ID / 2) * MM_TO_UNIT; 
+        const SC_WIDTH = REAL_WIDTH * MM_TO_UNIT;         
+        
+        const SC_WR_DIA = WR_DIA_MM * MM_TO_UNIT; 
+        const SC_BR_DIA = BR_DIA_MM * MM_TO_UNIT; 
+        const SC_GUIDE_DIA = GUIDE_DIA_MM * MM_TO_UNIT; 
+
+        const MIN_VISUAL_THICKNESS = 0.15; 
+
+        const state = {
+            isRunning: false,
+            speedMpm: 0,       // 入側速度 (m/min)
+            targetSpeed: 0,
+            thInMm: 2.3,       // mm
+            gapMm: 0.8,        // mm
+            
+            millRolls: {},
+            chocks: {}, 
+            coilIn: null,
+            coilOut: null,
+            guides: [],
+            selectedObj: null
+        };
+
+        init();
+        animate();
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xf0f4f8);
+            scene.fog = new THREE.Fog(0xf0f4f8, 150, 600); 
+            
+            rollTexture = createSteelTexture();
+
+            const floorMat = new THREE.MeshStandardMaterial({ 
+                color: 0xe0e0e0, roughness: 0.8, metalness: 0.05,
+                transparent: true, opacity: 0.5
+            });
+            const floor = new THREE.Mesh(new THREE.PlaneGeometry(1000, 1000), floorMat);
+            floor.rotation.x = -Math.PI/2; floor.position.y = -45; floor.receiveShadow = true;
+            scene.add(floor);
+
+            camera = new THREE.PerspectiveCamera(38, window.innerWidth/window.innerHeight, 0.1, 2000);
+            camera.position.set(0, 50, -160); 
+            camera.lookAt(0,0,0);
+
+            renderer = new THREE.WebGLRenderer({antialias:true});
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap; 
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.1;
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+            // Lighting
+            const ambLight = new THREE.AmbientLight(0xffffff, 0.75); 
+            scene.add(ambLight);
+            const hemiLight = new THREE.HemisphereLight(0xffffff, 0xddeeff, 0.5);
+            scene.add(hemiLight);
+            
+            const mainLi = new THREE.DirectionalLight(0xffffff, 1.3);
+            mainLi.position.set(60, 100, -60); // Back side
+            mainLi.castShadow = true;
+            mainLi.shadow.mapSize.set(2048, 2048);
+            scene.add(mainLi);
+            
+            const fillLi = new THREE.DirectionalLight(0xffffff, 0.6);
+            fillLi.position.set(-50, 40, -20);
+            scene.add(fillLi);
+
+            // Controls
+            orbit = new OrbitControls(camera, renderer.domElement);
+            orbit.enableDamping = true;
+            orbit.maxPolarAngle = Math.PI / 2 - 0.02; 
+            
+            transformControl = new TransformControls(camera, renderer.domElement);
+            transformControl.addEventListener('dragging-changed', e => orbit.enabled = !e.value);
+            transformControl.showZ = false; 
+            scene.add(transformControl);
+
+            buildMill();
+            
+            // Coils (Positioned closer and lower as requested)
+            state.coilIn = createCoil('Entry Coil (1500mm)', SC_MAX_R, -66, -25); 
+            state.coilIn.userData.isEntry = true;
+            state.coilIn.userData.winding = 'over';
+
+            state.coilOut = createCoil('Exit Coil', SC_MIN_R, 60, -20); 
+            state.coilOut.userData.isEntry = false;
+            state.coilOut.userData.rCurMm = REAL_MIN_DIA / 2;
+            state.coilOut.userData.winding = 'under';
+
+            // Strips
+            initSolidStrips();
+
+            // === Custom Guide Configuration ===
+            addGuideWithPass(-33.9, -2.9, 'over',100);
+            addGuideWithPass(-31.8, -2.3, 'under',100);
+            addGuideWithPass(-29.7, -3.1, 'over',100);
+
+            addGuideWithPass(-23.2, -3.5, 'over',100);
+            addGuideWithPass(-21, -2.9, 'under',100);
+            addGuideWithPass(-19.1, -3.5, 'over',100);
+
+            addGuideWithPass(-46.8, -3.6, 'over');
+
+            addGuideWithPass(21.5, -1.2, 'over',180); 
+            addGuideWithPass(35, -5, 'over',300);
+
+            window.addEventListener('resize', onWindowResize);
+            renderer.domElement.addEventListener('pointerdown', onPointerDown);
+            window.addEventListener('keydown', onKeyDown);
+            setupUI();
+        }
+
+        function createSteelTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512; canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#b8b8b8'; ctx.fillRect(0, 0, 512, 512);
+            for(let i=0; i<1000; i++) {
+                ctx.fillStyle = Math.random() > 0.5 ? '#cccccc' : '#a0a0a0';
+                ctx.globalAlpha = 0.05;
+                ctx.fillRect(0, Math.random() * 512, Math.random() * 512, 1);
+            }
+            ctx.fillStyle = '#999999'; ctx.globalAlpha = 0.4;
+            ctx.fillRect(0, 0, 40, 512); ctx.fillRect(256, 0, 40, 512);
+            ctx.globalAlpha = 1.0;
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.colorSpace = THREE.SRGBColorSpace;
+            return tex;
+        }
+
+        function createCoil(name, initialRadiusUnit, x, y) {
+            const group = new THREE.Group();
+            group.position.set(x, y, 0);
+            
+            const initialRadiusMm = initialRadiusUnit / MM_TO_UNIT;
+            group.userData = { 
+                name: name, type: 'coil', rCurMm: initialRadiusMm, coreRMm: REAL_CORE_ID / 2 
+            };
+            
+            const mat = new THREE.MeshStandardMaterial({ map: rollTexture, metalness: 0.6, roughness: 0.35, side: THREE.DoubleSide });
+            const outerGeo = new THREE.CylinderGeometry(1, 1, 1, 64, 1, true); 
+            const outerMesh = new THREE.Mesh(outerGeo, mat);
+            outerMesh.rotation.x = Math.PI/2; 
+            outerMesh.castShadow = true; outerMesh.receiveShadow = true;
+            group.add(outerMesh);
+
+            const innerMat = new THREE.MeshStandardMaterial({ color: 0x444444, metalness: 0.3, roughness: 0.8, side: THREE.BackSide });
+            const innerMesh = new THREE.Mesh(outerGeo, innerMat);
+            innerMesh.rotation.x = Math.PI/2;
+            group.add(innerMesh);
+
+            const ringMat = new THREE.MeshStandardMaterial({ color: 0x999999, metalness: 0.5, roughness: 0.5, side: THREE.DoubleSide });
+            const ringGeo = new THREE.RingGeometry(SC_CORE_R, initialRadiusUnit, 64);
+            const ringL = new THREE.Mesh(ringGeo, ringMat); ringL.position.z = -SC_WIDTH / 2; ringL.receiveShadow = true;
+            group.add(ringL);
+            const ringR = new THREE.Mesh(ringGeo, ringMat); ringR.position.z = SC_WIDTH / 2; ringR.receiveShadow = true;
+            group.add(ringR);
+
+            scene.add(group);
+            updateCoilVisuals(group);
+            return group;
+        }
+
+        function updateCoilVisuals(group) {
+            const rCurUnit = group.userData.rCurMm * MM_TO_UNIT;
+            const rCoreUnit = SC_CORE_R;
+            const rOuter = Math.max(rCurUnit, rCoreUnit + 0.01);
+            const w = SC_WIDTH;
+
+            group.children[0].scale.set(rOuter, w, rOuter);
+            group.children[1].scale.set(rCoreUnit, w, rCoreUnit);
+
+            const ringL = group.children[2];
+            const ringR = group.children[3];
+            if (ringL.geometry) ringL.geometry.dispose();
+            if (ringR.geometry) ringR.geometry.dispose();
+            
+            const newGeo = new THREE.RingGeometry(rCoreUnit, rOuter, 64);
+            ringL.geometry = newGeo; ringR.geometry = newGeo;
+            ringL.position.z = -w/2; ringR.position.z = w/2;
+        }
+
+        function createRollMesh(name, diaUnit, x, y, color=0xffffff, useTexture=true, isMillRoll=false) {
+            const matParams = { color: 0xffffff, metalness: 0.6, roughness: 0.35 };
+            if(useTexture) matParams.map = rollTexture; else matParams.color = color;
+            const mat = new THREE.MeshStandardMaterial(matParams);
+
+            const group = new THREE.Group();
+            group.position.set(x, y, 0);
+
+            const rollFaceWidth = SC_WIDTH * 1.2; 
+
+            if (isMillRoll) {
+                const barrelHalfW = rollFaceWidth / 2; 
+                const housingCenter = barrelHalfW + 4; 
+                const chockDepth = (diaUnit > 10) ? 8 : 6; 
+                const chockOuterFace = housingCenter + (chockDepth / 2);
+                const neckLength = chockOuterFace - barrelHalfW;
+                const neckCenterZ = barrelHalfW + (neckLength / 2);
+                const neckDia = diaUnit * 0.6; 
+
+                const barrelGeo = new THREE.CylinderGeometry(0.5, 0.5, 1, 64);
+                const barrel = new THREE.Mesh(barrelGeo, mat);
+                barrel.rotation.x = Math.PI/2; 
+                barrel.scale.set(diaUnit, rollFaceWidth, diaUnit);
+                barrel.castShadow = true; barrel.receiveShadow = true;
+                group.add(barrel);
+
+                const neckGeo = new THREE.CylinderGeometry(0.5, 0.5, 1, 32);
+                const neckLeft = new THREE.Mesh(neckGeo, mat);
+                neckLeft.rotation.x = Math.PI/2; neckLeft.scale.set(neckDia, neckLength, neckDia);
+                neckLeft.position.z = -neckCenterZ; neckLeft.castShadow = true;
+                group.add(neckLeft);
+
+                const neckRight = new THREE.Mesh(neckGeo, mat);
+                neckRight.rotation.x = Math.PI/2; neckRight.scale.set(neckDia, neckLength, neckDia);
+                neckRight.position.z = neckCenterZ; neckRight.castShadow = true;
+                group.add(neckRight);
+
+            } else {
+                const geo = new THREE.CylinderGeometry(0.5, 0.5, 1, 64);
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.rotation.x = Math.PI/2; 
+                mesh.scale.set(diaUnit, rollFaceWidth, diaUnit);
+                mesh.castShadow = true; mesh.receiveShadow = true;
+                group.add(mesh);
+            }
+
+            group.userData = { name: name, diaMm: diaUnit / MM_TO_UNIT, type: isMillRoll ? 'mill' : 'guide', passType: 'over' };
+            scene.add(group);
+            return group;
+        }
+
+        function buildMill() {
+            const w = SC_WIDTH * 1.2; 
+            const housingGap = w/2 + 6; 
+            const hMat = new THREE.MeshStandardMaterial({ 
+                color: 0x5D7A68, 
+                roughness: 0.6, 
+                metalness: 0.1, 
+                transparent: true, 
+                opacity: 0.5, 
+                side: THREE.DoubleSide 
+            });
+            
+            const hGeo = new THREE.BoxGeometry(10, 90, 12); 
+            
+            [[-12, -housingGap], [-12, housingGap], [12, -housingGap], [12, housingGap]].forEach(p => {
+                const m = new THREE.Mesh(hGeo, hMat); 
+                m.position.set(p[0], 0, p[1]); 
+                m.castShadow = true; m.receiveShadow = true; scene.add(m);
+            });
+
+            const beamGeo = new THREE.BoxGeometry(36, 20, 12);
+            
+            const tb1 = new THREE.Mesh(beamGeo, hMat); tb1.position.set(0, 45, -housingGap); tb1.castShadow=true; scene.add(tb1);
+            const tb2 = new THREE.Mesh(beamGeo, hMat); tb2.position.set(0, 45, housingGap); tb2.castShadow=true; scene.add(tb2);
+
+            const bb1 = new THREE.Mesh(beamGeo, hMat); bb1.position.set(0, -45, -housingGap); bb1.castShadow=true; scene.add(bb1);
+            const bb2 = new THREE.Mesh(beamGeo, hMat); bb2.position.set(0, -45, housingGap); bb2.castShadow=true; scene.add(bb2);
+
+            const wrR = SC_WR_DIA / 2;
+            const brR = SC_BR_DIA / 2;
+            const wrY = wrR + 0.5;
+            const brY = wrY + wrR + brR;
+
+            state.millRolls.brTop = createRollMesh('Backup Top', SC_BR_DIA, 0, brY, 0xffffff, true, true);
+            state.millRolls.brBot = createRollMesh('Backup Bot', SC_BR_DIA, 0, -brY, 0xffffff, true, true);
+            state.millRolls.wrTop = createRollMesh('Work Top', SC_WR_DIA, 0, wrY, 0xffffff, true, true);
+            state.millRolls.wrBot = createRollMesh('Work Bot', SC_WR_DIA, 0, -wrY, 0xffffff, true, true);
+            
+            const chockMat = hMat; 
+            function createChockPair(width, height, depth) {
+                const geo = new THREE.BoxGeometry(width, height, depth);
+                const left = new THREE.Mesh(geo, chockMat);
+                const right = new THREE.Mesh(geo, chockMat);
+                left.position.z = -housingGap; right.position.z = housingGap;
+                scene.add(left); scene.add(right);
+                return { left, right };
+            }
+            state.chocks.wrTop = createChockPair(10, 10, 10);
+            state.chocks.wrBot = createChockPair(10, 10, 10);
+            state.chocks.brTop = createChockPair(20, 20, 12);
+            state.chocks.brBot = createChockPair(20, 20, 12);
+
+            const cylGeo = new THREE.CylinderGeometry(5, 5, 12, 32);
+            const cylMat = new THREE.MeshStandardMaterial({ 
+                color: 0xdde4e6,   
+                metalness: 0.3, 
+                roughness: 0.2, 
+                transparent: true, 
+                opacity: 0.25      
+            });
+
+            function addCylinderToChock(chockMesh) {
+                const cyl = new THREE.Mesh(cylGeo, cylMat); cyl.position.y = 16; cyl.castShadow = true;
+                const rodGeo = new THREE.CylinderGeometry(2.5, 2.5, 6, 16);
+                const rodMat = new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.9, roughness: 0.1 });
+                const rod = new THREE.Mesh(rodGeo, rodMat); rod.position.y = 9; cyl.add(rod);
+                chockMesh.add(cyl);
+            }
+            addCylinderToChock(state.chocks.brTop.left);  
+            addCylinderToChock(state.chocks.brTop.right); 
+        }
+
+        function addGuideWithPass(x, y, passType, diaMm = GUIDE_DIA_MM) {
+            const diaUnit = diaMm * MM_TO_UNIT;
+            const mesh = createRollMesh('Guide Roll', diaUnit, x, y, 0xffffff, true);
+            mesh.userData.type = 'guide';
+            mesh.userData.passType = passType;
+            state.guides.push(mesh);
+        }
+
+        function addGuide(x, y) {
+            addGuideWithPass(x, y, 'over');
+            selectObject(state.guides[state.guides.length-1]);
+        }
+
+        function removeGuide(mesh) {
+            if(!mesh) return;
+            transformControl.detach();
+            scene.remove(mesh);
+            state.guides = state.guides.filter(g => g !== mesh);
+            selectObject(null);
+        }
+
+        function initSolidStrips() {
+            const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.75, roughness: 0.25, side: THREE.DoubleSide });
+            stripInMesh = new THREE.Mesh(new THREE.BufferGeometry(), mat);
+            stripInMesh.frustumCulled = false; stripInMesh.castShadow = true; stripInMesh.receiveShadow = true;
+            scene.add(stripInMesh);
+            stripOutMesh = new THREE.Mesh(new THREE.BufferGeometry(), mat);
+            stripOutMesh.frustumCulled = false; stripOutMesh.castShadow = true; stripOutMesh.receiveShadow = true;
+            scene.add(stripOutMesh);
+        }
+
+        function updateSolidStripGeometry(mesh, points, thicknessMm, widthUnit) {
+            if(points.length < 2) return;
+            const thUnit = thicknessMm * MM_TO_UNIT;
+            const visualTh = Math.max(thUnit, MIN_VISUAL_THICKNESS);
+            const curve = new THREE.CatmullRomCurve3(points);
+            curve.curveType = 'catmullrom'; curve.tension = 0.1; 
+            const segments = 200; 
+            const positions = [], indices = [], normals = [];
+            const p = new THREE.Vector3(), tan = new THREE.Vector3();
+            
+            for(let i=0; i<=segments; i++) {
+                const t = i / segments;
+                curve.getPoint(t, p); curve.getTangent(t, tan);
+                const norm = new THREE.Vector3(-tan.y, tan.x, 0).normalize();
+                const halfTh = visualTh / 2; const halfW = widthUnit / 2;
+                positions.push(p.x + norm.x*halfTh, p.y + norm.y*halfTh, -halfW);
+                positions.push(p.x + norm.x*halfTh, p.y + norm.y*halfTh, halfW);
+                positions.push(p.x - norm.x*halfTh, p.y - norm.y*halfTh, -halfW);
+                positions.push(p.x - norm.x*halfTh, p.y - norm.y*halfTh, halfW);
+                normals.push(norm.x, norm.y, 0, norm.x, norm.y, 0, -norm.x, -norm.y, 0, -norm.x, -norm.y, 0);
+                if(i > 0) {
+                    const curr = i * 4, prev = (i - 1) * 4;
+                    indices.push(prev, curr, prev+1, prev+1, curr, curr+1);
+                    indices.push(prev+2, prev+3, curr+2, prev+3, curr+3, curr+2);
+                    indices.push(prev, prev+2, curr, prev+2, curr+2, curr);
+                    indices.push(prev+1, curr+1, prev+3, prev+3, curr+1, curr+3);
+                }
+            }
+            const geo = mesh.geometry;
+            geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+            geo.setIndex(indices);
+            geo.computeVertexNormals();
+        }
+
+        function onPointerDown(event) {
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            
+            const interactables = [];
+            [state.coilIn, state.coilOut, ...state.guides].forEach(g => {
+                g.traverse(child => { if(child.isMesh) interactables.push(child); });
+            });
+
+            const intersects = raycaster.intersectObjects(interactables);
+            if (intersects.length > 0) {
+                let target = intersects[0].object;
+                while(target.parent && target.parent !== scene) {
+                    target = target.parent;
+                }
+                if(state.selectedObj !== target) selectObject(target);
+            } else if(!transformControl.dragging) selectObject(null);
+        }
+
+        function selectObject(mesh) {
+            state.selectedObj = mesh;
+            const infoDiv = document.getElementById('selection-info');
+            const ctrlGuide = document.getElementById('ctrl-guide-opts');
+            const ctrlCoil = document.getElementById('ctrl-coil-opts');
+            const btnDel = document.getElementById('btn-delete-obj');
+
+            if (mesh) {
+                transformControl.attach(mesh);
+                infoDiv.style.display = 'block';
+                document.getElementById('sel-name').textContent = mesh.userData.name;
+                const diaInp = document.getElementById('sel-dia');
+                let currentDiaMm = 0;
+                if(mesh.userData.type === 'coil') currentDiaMm = mesh.userData.rCurMm * 2;
+                else currentDiaMm = mesh.userData.diaMm;
+                
+                diaInp.value = Math.round(currentDiaMm); 
+                diaInp.oninput = (e) => {
+                    const dMm = parseFloat(e.target.value);
+                    if(dMm > 0) { 
+                        const dUnit = dMm * MM_TO_UNIT;
+                        if(mesh.userData.type === 'coil') {
+                            mesh.userData.rCurMm = dMm/2;
+                            updateCoilVisuals(mesh);
+                        } else {
+                            mesh.userData.diaMm = dMm; 
+                            mesh.children.forEach(c => {
+                                if(c.geometry.type === 'CylinderGeometry') {
+                                    c.scale.set(dUnit, SC_WIDTH*1.2, dUnit);
+                                }
+                            });
+                        }
+                    }
+                };
+
+                if(mesh.userData.type === 'guide') {
+                    ctrlGuide.style.display = 'block'; ctrlCoil.style.display = 'none'; btnDel.style.display = 'block';
+                    btnDel.onclick = () => removeGuide(mesh);
+                    updatePassLabel(mesh);
+                    document.getElementById('btn-toggle-pass').onclick = () => {
+                        mesh.userData.passType = (mesh.userData.passType === 'over') ? 'under' : 'over';
+                        updatePassLabel(mesh);
+                    };
+                } else if(mesh.userData.type === 'coil') {
+                    ctrlGuide.style.display = 'none'; ctrlCoil.style.display = 'block'; btnDel.style.display = 'none';
+                    updateWindLabel(mesh);
+                    document.getElementById('btn-toggle-wind').onclick = () => {
+                        mesh.userData.winding = (mesh.userData.winding === 'over') ? 'under' : 'over';
+                        updateWindLabel(mesh);
+                    };
+                }
+            } else {
+                transformControl.detach(); infoDiv.style.display = 'none';
+            }
+        }
+
+        function updateWindLabel(mesh) {
+            document.getElementById('lbl-winding').textContent = `Current: ${mesh.userData.winding === 'over' ? 'OVER' : 'UNDER'}`;
+        }
+        function updatePassLabel(mesh) {
+            document.getElementById('lbl-pass').textContent = `Current: ${mesh.userData.passType === 'over' ? 'OVER' : 'UNDER'}`;
+        }
+        function onKeyDown(event) {
+            if ((event.key === 'Delete' || event.key === 'Backspace') && state.selectedObj?.userData.type === 'guide') removeGuide(state.selectedObj);
+        }
+
+        // === Export Configuration Function ===
+        function exportConfiguration() {
+            let code = "// Copy and paste this into the init() function inside buildMill() or after guides setup:\n";
+            const guides = state.guides.sort((a,b) => a.position.x - b.position.x);
+            
+            guides.forEach(g => {
+                const x = parseFloat(g.position.x.toFixed(1));
+                const y = parseFloat(g.position.y.toFixed(1));
+                const pass = g.userData.passType;
+                const dia = Math.round(g.userData.diaMm);
+                if(dia !== 200) {
+                     code += `addGuideWithPass(${x}, ${y}, '${pass}', ${dia});\n`;
+                } else {
+                     code += `addGuideWithPass(${x}, ${y}, '${pass}');\n`;
+                }
+            });
+            console.log(code);
+            alert("Configuration logged to Console (F12) and ready to copy:\n\n" + code);
+        }
+
+        function resetMill() {
+            state.isRunning = false;
+            state.speedMpm = 0;
+            state.targetSpeed = 0;
+            document.getElementById('inp-speed').value = 0;
+            state.coilIn.userData.rCurMm = REAL_MAX_DIA / 2;
+            state.coilOut.userData.rCurMm = REAL_MIN_DIA / 2;
+            state.coilIn.rotation.z = 0; 
+            state.coilOut.rotation.z = 0;
+            state.guides.forEach(g => g.rotation.z = 0);
+            updateCoilVisuals(state.coilIn);
+            updateCoilVisuals(state.coilOut);
+            updateStripPaths(state.thInMm, state.gapMm);
+            renderer.render(scene, camera);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // === Speed Control Logic Updated ===
+            // Allow acceleration and deceleration while running
+            if(state.isRunning) { 
+                const accelStep = 20;
+                if (Math.abs(state.speedMpm - state.targetSpeed) < accelStep) {
+                    state.speedMpm = state.targetSpeed;
+                } else if (state.speedMpm < state.targetSpeed) {
+                    state.speedMpm += accelStep;
+                } else if (state.speedMpm > state.targetSpeed) {
+                    state.speedMpm -= accelStep;
+                }
+            } else { 
+                // Stop Logic
+                if(state.speedMpm > 0) state.speedMpm -= 50; else state.speedMpm=0; 
+            }
+
+            const thIn = state.thInMm;
+            const thOut = state.gapMm;
+            const elongation = (thOut > 0) ? thIn / thOut : 1;
+            document.getElementById('disp-red').textContent = ((thIn > 0 ? (thIn - thOut) / thIn : 0)*100).toFixed(1) + " %";
+
+            const vInMpm = state.speedMpm;
+            const vOutMpm = vInMpm * elongation;
+
+            const diaInM = (state.coilIn.userData.rCurMm * 2) / 1000;
+            const rpmIn = (diaInM > 0 && vInMpm > 0) ? (vInMpm / (Math.PI * diaInM)) : 0;
+            
+            const diaOutM = (state.coilOut.userData.rCurMm * 2) / 1000;
+            const rpmOut = (diaOutM > 0 && vOutMpm > 0) ? (vOutMpm / (Math.PI * diaOutM)) : 0;
+
+            const diaWrM = WR_DIA_MM / 1000;
+            const rpmWr = (diaWrM > 0 && vOutMpm > 0) ? (vOutMpm / (Math.PI * diaWrM)) : 0;
+
+            document.getElementById('val-vin').textContent = vInMpm.toFixed(0);
+            document.getElementById('val-vout').textContent = vOutMpm.toFixed(0);
+            document.getElementById('val-dia-in').textContent = (state.coilIn.userData.rCurMm * 2).toFixed(0);
+            document.getElementById('val-rpm-in').textContent = rpmIn.toFixed(1);
+            document.getElementById('val-dia-out').textContent = (state.coilOut.userData.rCurMm * 2).toFixed(0);
+            document.getElementById('val-rpm-out').textContent = rpmOut.toFixed(1);
+            document.getElementById('val-rpm-wr').textContent = rpmWr.toFixed(1);
+
+            const unitsPerMeter = 1000 * MM_TO_UNIT; 
+            const vInUnit = (vInMpm * unitsPerMeter) / 3600; 
+            const vOutUnit = vInUnit * elongation;
+
+            const wrR = state.millRolls.wrTop.children[0].scale.x / 2;
+            const brR = state.millRolls.brTop.children[0].scale.x / 2;
+            const rollYOffset = (thOut * MM_TO_UNIT) / 2; 
+            
+            state.millRolls.wrTop.position.y = rollYOffset + wrR;
+            state.millRolls.wrBot.position.y = -(rollYOffset + wrR);
+            state.millRolls.brTop.position.y = rollYOffset + wrR*2 + brR;
+            state.millRolls.brBot.position.y = -(rollYOffset + wrR*2 + brR);
+
+            if (state.chocks.wrTop) {
+                state.chocks.wrTop.left.position.y = state.millRolls.wrTop.position.y;
+                state.chocks.wrTop.right.position.y = state.millRolls.wrTop.position.y;
+                state.chocks.wrBot.left.position.y = state.millRolls.wrBot.position.y;
+                state.chocks.wrBot.right.position.y = state.millRolls.wrBot.position.y;
+                state.chocks.brTop.left.position.y = state.millRolls.brTop.position.y;
+                state.chocks.brTop.right.position.y = state.millRolls.brTop.position.y;
+                state.chocks.brBot.left.position.y = state.millRolls.brBot.position.y;
+                state.chocks.brBot.right.position.y = state.millRolls.brBot.position.y;
+            }
+
+            const rotSpeed = vOutUnit / wrR;
+            if(state.speedMpm > 0) {
+                state.millRolls.wrTop.rotation.z += rotSpeed;
+                state.millRolls.wrBot.rotation.z -= rotSpeed;
+                state.millRolls.brTop.rotation.z -= rotSpeed;
+                state.millRolls.brBot.rotation.z += rotSpeed;
+            }
+
+            if(vInUnit > 0) {
+                const lengthMm = (state.speedMpm * 1000) / 3600; 
+                const volMm3 = REAL_WIDTH * thIn * lengthMm;
+
+                let areaInMm2 = Math.PI * (state.coilIn.userData.rCurMm ** 2);
+                areaInMm2 -= volMm3 / REAL_WIDTH; 
+                let newRInMm = Math.sqrt(areaInMm2 / Math.PI);
+                
+                if(newRInMm < REAL_MIN_DIA / 2) {
+                    state.isRunning = false; state.targetSpeed = 0; document.getElementById('inp-speed').value = 0;
+                    state.coilIn.userData.rCurMm = REAL_MIN_DIA / 2;
+                } else {
+                    state.coilIn.userData.rCurMm = newRInMm;
+                }
+
+                let areaOutMm2 = Math.PI * (state.coilOut.userData.rCurMm ** 2);
+                areaOutMm2 += volMm3 / REAL_WIDTH;
+                state.coilOut.userData.rCurMm = Math.sqrt(areaOutMm2 / Math.PI);
+            }
+
+            updateCoilVisuals(state.coilIn);
+            updateCoilVisuals(state.coilOut);
+
+            const dirIn = state.coilIn.userData.winding === 'over' ? -1 : 1;
+            const rInUnit = state.coilIn.userData.rCurMm * MM_TO_UNIT;
+            state.coilIn.rotation.z += dirIn * (vInUnit / rInUnit);
+            
+            const dirOut = state.coilOut.userData.winding === 'over' ? -1 : 1;
+            const rOutUnit = state.coilOut.userData.rCurMm * MM_TO_UNIT;
+            state.coilOut.rotation.z += dirOut * (vOutUnit / rOutUnit);
+
+            state.guides.forEach(g => {
+                const v = (g.position.x < 0) ? vInUnit : vOutUnit;
+                const dir = g.userData.passType === 'over' ? -1 : 1; 
+                const diaUnit = g.children.length > 0 ? g.children[0].scale.x : 4;
+                g.rotation.z += dir * (v / (diaUnit/2));
+            });
+
+            updateStripPaths(thIn, thOut);
+            orbit.update();
+            renderer.render(scene, camera);
+        }
+
+        function getTangentPoint(center, radius, point, winding) {
+            const dx = point.x - center.x;
+            const dy = point.y - center.y;
+            const distSq = dx*dx + dy*dy;
+            const dist = Math.sqrt(distSq);
+            if (dist <= radius) return new THREE.Vector3(center.x, center.y + (winding === 'over' ? radius : -radius), 0);
+            const baseAngle = Math.atan2(dy, dx);
+            const offsetAngle = Math.acos(radius / dist);
+            const t1 = baseAngle + offsetAngle;
+            const t2 = baseAngle - offsetAngle;
+            const y1 = center.y + radius * Math.sin(t1);
+            const y2 = center.y + radius * Math.sin(t2);
+            let theta;
+            if (winding === 'over') theta = (y1 > y2) ? t1 : t2; else theta = (y1 < y2) ? t1 : t2; 
+            return new THREE.Vector3(center.x + radius * Math.cos(theta), center.y + radius * Math.sin(theta), 0);
+        }
+
+        function updateStripPaths(thInMm, thOutMm) {
+            const sortedGuides = [...state.guides].sort((a,b) => a.position.x - b.position.x);
+            const guidesIn = sortedGuides.filter(g => g.position.x < 0);
+            const guidesOut = sortedGuides.filter(g => g.position.x > 0);
+            const rInUnit = state.coilIn.userData.rCurMm * MM_TO_UNIT;
+            const rOutUnit = state.coilOut.userData.rCurMm * MM_TO_UNIT;
+            const thInUnit = Math.max(thInMm * MM_TO_UNIT, MIN_VISUAL_THICKNESS);
+            const thOutUnit = Math.max(thOutMm * MM_TO_UNIT, MIN_VISUAL_THICKNESS);
+
+            const pIn = [];
+            let nextTargetPos;
+            if (guidesIn.length > 0) {
+                const g = guidesIn[0]; 
+                const r = g.children[0].scale.x / 2;
+                const halfTh = thInUnit / 2;
+                const offset = g.userData.passType === 'over' ? (r + halfTh) : -(r + halfTh);
+                nextTargetPos = new THREE.Vector3(g.position.x, g.position.y + offset, 0);
+            } else {
+                nextTargetPos = new THREE.Vector3(-3, 0, 0);
+            }
+
+            const startTan = getTangentPoint(state.coilIn.position, rInUnit, nextTargetPos, state.coilIn.userData.winding);
+            pIn.push(startTan);
+            guidesIn.forEach(g => {
+                const r = g.children[0].scale.x / 2;
+                const halfTh = thInUnit / 2;
+                const offset = g.userData.passType === 'over' ? (r + halfTh) : -(r + halfTh);
+                pIn.push(new THREE.Vector3(g.position.x, g.position.y + offset, 0));
+            });
+            pIn.push(new THREE.Vector3(-3, 0, 0)); pIn.push(new THREE.Vector3(0, 0, 0));
+            updateSolidStripGeometry(stripInMesh, pIn, thInMm, SC_WIDTH);
+
+            const pOut = [];
+            pOut.push(new THREE.Vector3(0, 0, 0)); pOut.push(new THREE.Vector3(3, 0, 0));
+            guidesOut.forEach(g => {
+                const r = g.children[0].scale.x / 2;
+                const halfTh = thOutUnit / 2;
+                const offset = g.userData.passType === 'over' ? (r + halfTh) : -(r + halfTh);
+                pOut.push(new THREE.Vector3(g.position.x, g.position.y + offset, 0));
+            });
+            let prevTargetPos;
+            if (guidesOut.length > 0) {
+                const g = guidesOut[guidesOut.length - 1];
+                const r = g.children[0].scale.x / 2;
+                const halfTh = thOutUnit / 2;
+                const offset = g.userData.passType === 'over' ? (r + halfTh) : -(r + halfTh);
+                prevTargetPos = new THREE.Vector3(g.position.x, g.position.y + offset, 0);
+            } else {
+                prevTargetPos = new THREE.Vector3(3, 0, 0);
+            }
+            const endTan = getTangentPoint(state.coilOut.position, rOutUnit, prevTargetPos, state.coilOut.userData.winding);
+            pOut.push(endTan);
+            updateSolidStripGeometry(stripOutMesh, pOut, thOutMm, SC_WIDTH);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function setupUI() {
+            const btnStart = document.getElementById('btn-start');
+            btnStart.onclick = () => {
+                state.isRunning = !state.isRunning;
+                state.targetSpeed = parseInt(document.getElementById('inp-speed').value);
+            };
+            document.getElementById('btn-reset').onclick = resetMill;
+            document.getElementById('inp-speed').oninput = e => {
+                state.targetSpeed = parseInt(e.target.value);
+            };
+            document.getElementById('inp-th-in').oninput = e => state.thInMm = parseFloat(e.target.value);
+            document.getElementById('inp-gap').oninput = e => state.gapMm = parseFloat(e.target.value);
+            document.getElementById('btn-add-guide').onclick = () => addGuide(-45, 10);
+            document.getElementById('btn-export').onclick = exportConfiguration;
+        }
+    </script>
+</body>
+</html>

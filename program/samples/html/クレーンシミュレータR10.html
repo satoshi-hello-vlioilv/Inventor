@@ -1,0 +1,3650 @@
+<!DOCTYPE html>
+<html lang="ja"><head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>クレーンシミュレータ</title>
+    <style>
+/* CSS_INJECTION_START: style.css */
+:root {
+    --crane-green: #2d6e3e;
+    --crane-light-green: #4a8c5a;
+    --crane-dark-green: #1a4d2b;
+    --pendant-bg: #f0f0f0;
+    --pendant-border: #999999;
+    --pendant-shadow: rgba(0, 0, 0, 0.3);
+    --button-bg: #e8e8e8;
+    --button-hover: #d0d0d0;
+    --button-active: #b0b0b0;
+    --emergency-red: #c41e3a;
+    --power-on-green: #4CAF50;
+    --power-off-red: #f44336;
+    --direction-yellow: #FFC107;
+    --text-color: #333333;
+    --hud-bg: rgba(255, 255, 255, 0.95);
+    --hud-border: rgba(0, 0, 0, 0.1);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: linear-gradient(135deg, #f0f8ff 0%, #e6f3ff 100%);
+    overflow: hidden;
+    height: 100vh;
+    color: var(--text-color);
+}
+
+#container {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+}
+
+#canvas {
+    display: block;
+    cursor: grab;
+}
+
+#canvas:active {
+    cursor: grabbing;
+}
+
+.hud {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    background: var(--hud-bg);
+    padding: 20px;
+    border-radius: 12px;
+    backdrop-filter: blur(10px);
+    border: 1px solid var(--hud-border);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    min-width: 280px;
+    color: var(--text-color);
+}
+
+.hud h3 {
+    margin-bottom: 10px;
+    color: var(--crane-green);
+    font-size: 16px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.status-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 8px;
+    font-size: 13px;
+}
+
+.status-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 2px 0;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.status-value {
+    color: var(--crane-green);
+    font-weight: 600;
+}
+
+.status-value.warning {
+    color: var(--emergency-red);
+    font-weight: bold;
+}
+
+.status-value.attached {
+    color: var(--power-on-green);
+}
+
+.status-value.detached {
+    color: #888888;
+}
+
+.status-value.possible {
+    color: var(--power-on-green);
+    font-weight: bold;
+}
+
+.status-value.impossible {
+    color: #888888;
+}
+
+.pendant-switch {
+    position: absolute;
+    top: 50%;
+    right: 30px;
+    transform: translateY(-50%);
+    background: var(--pendant-bg);
+    border: 3px solid var(--pendant-border);
+    border-radius: 8px;
+    padding: 20px 15px;
+    box-shadow: 0 8px 24px var(--pendant-shadow);
+    user-select: none;
+    cursor: move;
+    min-width: 100px;
+    background: linear-gradient(145deg, #f5f5f5, #d0d0d0);
+}
+
+.pendant-title {
+    text-align: center;
+    font-size: 14px;
+    font-weight: 700;
+    margin-bottom: 15px;
+    color: #222;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    background: #666;
+    color: white;
+    padding: 8px;
+    margin: -20px -15px 15px -15px;
+    border-radius: 5px 5px 0 0;
+}
+
+.pendant-buttons-vertical {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: center;
+}
+
+.pendant-button {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    border: 2px solid #666;
+    background: var(--button-bg);
+    color: var(--text-color);
+    font-size: 12px;
+    font-weight: bold;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    line-height: 1.1;
+    box-shadow: 0 3px 6px rgba(0, 0, 0, 0.2), inset 0 -2px 3px rgba(0,0,0,0.2);
+    background: linear-gradient(180deg, #f0f0f0, #d0d0d0);
+}
+
+.pendant-button:hover {
+    background: linear-gradient(180deg, #e0e0e0, #c0c0c0);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.25);
+}
+
+.pendant-button:active {
+    transform: translateY(1px);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 1px 2px rgba(0,0,0,0.2);
+    background: linear-gradient(180deg, #c0c0c0, #a0a0a0);
+}
+
+.pendant-button.power-on.active {
+    background: linear-gradient(180deg, #66BB6A, #4CAF50);
+    border-color: #388E3C;
+    color: white;
+    box-shadow: 0 0 12px 3px rgba(76, 175, 80, 0.6), inset 0 1px 2px rgba(0,0,0,0.2);
+    transform: translateY(1px);
+}
+
+.pendant-button.power-on.active:hover {
+    background: linear-gradient(180deg, #81C784, #66BB6A);
+}
+
+.pendant-button.power-off.active {
+    background: linear-gradient(180deg, #ef5350, #f44336);
+    border-color: #c62828;
+    color: white;
+    box-shadow: 0 0 12px 3px rgba(244, 67, 54, 0.6), inset 0 1px 2px rgba(0,0,0,0.2);
+    transform: translateY(1px);
+}
+
+.pendant-button.power-off.active:hover {
+    background: linear-gradient(180deg, #e57373, #ef5350);
+}
+
+.pendant-button.emergency {
+    background: linear-gradient(180deg, #e53935, #c41e3a);
+    border-color: #8B0000;
+    width: 60px;
+    height: 60px;
+    color: white;
+    font-weight: 900;
+    margin-top: 10px;
+}
+
+.pendant-button.emergency:hover {
+    background: linear-gradient(180deg, #ef5350, #e53935);
+}
+
+.pendant-button.direction {
+    background: linear-gradient(180deg, #FFD54F, #FFC107);
+    color: #333;
+    border-color: #F57C00;
+}
+
+.pendant-button.direction:hover {
+    background: linear-gradient(180deg, #FFE082, #FFD54F);
+}
+
+.pendant-button.hoist {
+    background: linear-gradient(180deg, #4a8c5a, #2d6e3e);
+    border-color: var(--crane-dark-green);
+    color: white;
+}
+
+.pendant-button.hoist:hover {
+    background: linear-gradient(180deg, #5a9c6a, #4a8c5a);
+}
+
+.loading {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: var(--text-color);
+    font-size: 18px;
+    text-align: center;
+    background: var(--pendant-bg);
+    padding: 30px;
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+}
+
+.spinner {
+    border: 3px solid rgba(45, 110, 62, 0.3);
+    border-top: 3px solid var(--crane-green);
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 15px;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.instructions {
+    position: absolute;
+    bottom: 20px;
+    left: 20px;
+    background: var(--hud-bg);
+    padding: 16px;
+    border-radius: 12px;
+    font-size: 12px;
+    line-height: 1.5;
+    max-width: 320px;
+    backdrop-filter: blur(15px);
+    border: 1px solid var(--hud-border);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    color: var(--text-color);
+}
+
+.instructions strong {
+    color: var(--crane-green);
+    font-size: 13px;
+}
+
+#fpInstructions {
+    margin-top: 5px;
+    color: #FF6B35;
+    font-weight: 600;
+}
+
+.settings-button {
+    position: absolute;
+    bottom: 20px;
+    right: 20px;
+    padding: 12px 20px;
+    background: linear-gradient(145deg, #4a8c5a, #2d6e3e);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    transition: all 0.3s ease;
+}
+
+.settings-button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+    background: linear-gradient(145deg, #5a9c6a, #4a8c5a);
+}
+
+.settings-modal .settings-button {
+    position: static;
+    width: 100%;
+    justify-content: center;
+}
+
+.settings-button.delete-button {
+    background: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+.settings-button.delete-button:hover {
+    background: #f5c6cb;
+    transform: translateY(0);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+.settings-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1000;
+    pointer-events: none;
+}
+
+.settings-content {
+    position: absolute;
+    bottom: 90px;
+    left: 20px;
+    background: white;
+    border-radius: 12px;
+    width: 450px;
+    max-width: 90%;
+    max-height: 80vh;
+    box-shadow: 0 12px 48px rgba(0, 0, 0, 0.3);
+    pointer-events: auto;
+
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.settings-header {
+    padding: 20px;
+    background: white;
+    border-bottom: 1px solid #eee;
+    position: relative;
+}
+
+.settings-header h3 {
+    margin-bottom: 0;
+    color: var(--crane-green);
+    font-size: 20px;
+    text-align: center;
+    cursor: move;
+    user-select: none;
+    padding-right: 30px;
+}
+
+.close-button {
+    position: absolute;
+    top: 50%;
+    right: 15px;
+    transform: translateY(-50%);
+    font-size: 28px;
+    font-weight: bold;
+    color: #aaa;
+    cursor: pointer;
+    transition: color 0.2s;
+    line-height: 1;
+}
+
+.settings-scroll-container {
+    overflow-y: auto;
+    padding: 20px;
+    flex-grow: 1;
+    background: #fff;
+}
+
+.close-button:hover {
+    color: #333;
+}
+
+.settings-item {
+    margin-bottom: 15px;
+}
+
+.settings-content details {
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    overflow: hidden;
+    transition: border-color 0.2s;
+}
+
+.settings-content details[open] {
+    border-color: var(--crane-green);
+}
+
+.settings-content summary {
+    list-style: none;
+    display: block;
+    cursor: pointer;
+    padding: 12px 15px;
+    background-color: #f7f7f7;
+    font-weight: 600;
+    color: var(--crane-dark-green);
+    position: relative;
+    transition: background-color 0.2s;
+    user-select: none;
+}
+
+.settings-content summary::-webkit-details-marker {
+    display: none;
+}
+
+.settings-content summary:hover {
+    background-color: #efefef;
+}
+
+.settings-content summary::after {
+    content: '▶';
+    position: absolute;
+    right: 15px;
+    top: 50%;
+    transform: translateY(-50%) rotate(0deg);
+    transition: transform 0.2s;
+    font-size: 10px;
+    color: #666;
+}
+
+.settings-content details[open] > summary::after {
+    transform: translateY(-50%) rotate(90deg);
+}
+
+.category-content {
+    padding: 15px 15px 5px 15px;
+    border-top: 1px solid #e0e0e0;
+    background: #fff;
+}
+
+#plateSettings, #coilSettings {
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px dashed #e0e0e0;
+}
+
+.settings-item select, .settings-item input[type="number"] {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background: white;
+    font-size: 14px;
+    color: var(--text-color);
+    cursor: pointer;
+    transition: border-color 0.2s;
+}
+
+.settings-item select:hover, .settings-item input[type="number"]:hover {
+    border-color: var(--crane-green);
+}
+
+.settings-item select:focus, .settings-item input[type="number"]:focus {
+    outline: none;
+    border-color: var(--crane-green);
+    box-shadow: 0 0 0 2px rgba(45, 110, 62, 0.1);
+}
+
+.settings-item label span#calculatedWeight {
+    color: var(--crane-green);
+    font-weight: 600;
+    font-size: 16px;
+}
+
+.settings-item.slider-item {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.settings-item.slider-item label {
+    color: #333;
+    font-size: 14px;
+    font-weight: 500;
+    margin-bottom: 4px;
+}
+
+.slider-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.slider-group input[type="range"] {
+    flex: 1;
+    margin: 0;
+}
+
+.slider-value {
+    color: var(--crane-green);
+    font-weight: 600;
+    font-size: 14px;
+    min-width: 50px;
+    text-align: right;
+}
+
+.settings-item.toggle-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.settings-item.toggle-item label:first-child {
+    color: #333;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.settings-item.color-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.settings-item.color-item label {
+    color: #333;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.color-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.settings-item input[type="color"] {
+    width: 60px;
+    height: 35px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    cursor: pointer;
+    padding: 2px;
+}
+
+.settings-item input[type="color"]::-webkit-color-swatch-wrapper {
+    padding: 2px;
+}
+
+.settings-item input[type="color"]::-webkit-color-swatch {
+    border: none;
+    border-radius: 2px;
+}
+
+#resetFloorColor {
+    padding: 5px 10px;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+    background: #f0f0f0;
+    cursor: pointer;
+    font-size: 12px;
+    transition: background 0.2s;
+}
+
+#resetFloorColor:hover {
+    background: #e0e0e0;
+}
+
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 24px;
+}
+
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #ccc;
+    transition: .4s;
+    border-radius: 24px;
+}
+
+.toggle-slider:before {
+    position: absolute;
+    content: "";
+    height: 18px;
+    width: 18px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: .4s;
+    border-radius: 50%;
+}
+
+input:checked + .toggle-slider {
+    background-color: var(--crane-green);
+}
+
+input:checked + .toggle-slider:before {
+    transform: translateX(20px);
+}
+
+#cameraModeLabel {
+    margin-left: 5px;
+    font-weight: 600;
+    color: var(--crane-green);
+}
+
+.settings-scroll-container::-webkit-scrollbar {
+    width: 8px;
+}
+
+.settings-scroll-container::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+}
+
+.settings-scroll-container::-webkit-scrollbar-thumb {
+    background: var(--crane-green);
+    border-radius: 4px;
+}
+
+.settings-scroll-container::-webkit-scrollbar-thumb:hover {
+    background: var(--crane-light-green);
+}
+/* CSS_INJECTION_END */
+</style>
+</head>
+<body>
+    <div id="container">
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <div>天井クレーンシミュレーション<br>初期化中...</div>
+        </div>
+
+        <canvas id="canvas"></canvas>
+
+        <div class="hud" id="hud" style="display: none;">
+            <h3>🏗️ クレーン状態監視</h3>
+            <div class="status-grid">
+                <div class="status-item">
+                    <span>電源状態:</span>
+                    <span class="status-value" id="powerStatus">OFF</span>
+                </div>
+                <div class="status-item">
+                    <span>荷の状態:</span>
+                    <span class="status-value detached" id="cargoStatus">空</span>
+                </div>
+                <div class="status-item">
+                    <span>走行位置:</span>
+                    <span class="status-value" id="bridgePos">0.0m</span>
+                </div>
+                <div class="status-item">
+                    <span>横行位置:</span>
+                    <span class="status-value" id="trolleyPos">0.0m</span>
+                </div>
+                <div class="status-item">
+                    <span>巻上高さ:</span>
+                    <span class="status-value" id="hoistHeight">0.0m</span>
+                </div>
+                <div class="status-item">
+                    <span>吊り荷重量:</span>
+                    <span class="status-value" id="loadWeight">0.0t</span>
+                </div>
+                 <div class="status-item">
+                    <span>荷の高さ:</span>
+                    <span class="status-value" id="cargoHeightStatus">0.0m</span>
+                </div>
+                <div class="status-item">
+                    <span>ワイヤー長:</span>
+                    <span class="status-value" id="wireLength">0.0m</span>
+                </div>
+                <div class="status-item">
+                    <span>振り角度:</span>
+                    <span class="status-value" id="swingAngle">0.0°</span>
+                </div>
+                <div class="status-item">
+                    <span>ワイヤー荷重:</span>
+                    <span class="status-value" id="slingTension">0.00t / -本</span>
+                </div>
+                <div class="status-item">
+                    <span>揺れ警告:</span>
+                    <span class="status-value" id="swingWarning">正常</span>
+                </div>
+                <div class="status-item">
+                    <span>吊り上げ:</span>
+                    <span class="status-value impossible" id="pickupStatus">不可</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="pendant-switch" id="pendant">
+            <div class="pendant-title">操作盤</div>
+            <div class="pendant-buttons-vertical">
+                <button class="pendant-button power-on" id="powerOnBtn">
+                    <span>電源</span>
+                    <span>入</span>
+                </button>
+                
+                <button class="pendant-button power-off active" id="powerOffBtn">
+                    <span>電源</span>
+                    <span>切</span>
+                </button>
+                
+                <button class="pendant-button direction" id="northBtn">
+                    <span>北</span>
+                    <span>↑</span>
+                </button>
+                
+                <button class="pendant-button direction" id="southBtn">
+                    <span>南</span>
+                    <span>↓</span>
+                </button>
+                
+                <button class="pendant-button direction" id="westBtn">
+                    <span>西</span>
+                    <span>←</span>
+                </button>
+                
+                <button class="pendant-button direction" id="eastBtn">
+                    <span>東</span>
+                    <span>→</span>
+                </button>
+                
+                <button class="pendant-button hoist" id="upBtn">
+                    <span>巻上</span>
+                    <span>UP</span>
+                </button>
+                
+                <button class="pendant-button hoist" id="downBtn">
+                    <span>巻下</span>
+                    <span>DOWN</span>
+                </button>
+                
+                <button class="pendant-button emergency" id="emergencyBtn">
+                    <span>非常</span>
+                    <span>停止</span>
+                </button>
+            </div>
+        </div>
+
+        <div class="instructions">
+            <strong>📋 操作方法</strong><br>
+            • マウスドラッグ: カメラ回転/視点移動<br>
+            • ホイール: ズーム<br>
+            • 操作盤: クレーン操作<br>
+            • 床をダブルクリック: 荷物を設置<br>
+            • 荷物をクリック: 荷物の設定/移動<br>
+            <span id="fpInstructions" style="display: none;">• WASD/方向キー: 移動 / Space: 上昇 / Shift: 下降</span>
+        </div>
+
+        <button class="settings-button" id="settingsBtn">
+            <span>⚙️</span>
+            <span>設定</span>
+        </button>
+
+        <div class="settings-modal" id="settingsModal" style="display: none;">
+            <div class="settings-content">
+                <div class="settings-header">
+                    <span class="close-button" id="closeSettingsBtn">×</span>
+                    <h3>シミュレーション設定</h3>
+                </div>
+                
+                <div class="settings-scroll-container">
+                    <details open="">
+                        <summary>クレーン性能設定</summary>
+                        <div class="category-content">
+                            <div class="settings-item slider-item">
+                                <label>走行最高速度 (m/s)</label>
+                                <div class="slider-group">
+                                    <input type="range" id="bridgeSpeed" min="0.2" max="2.0" step="0.1" value="0.5">
+                                    <span class="slider-value" id="bridgeSpeedValue">0.5</span>
+                                </div>
+                            </div>
+                            <div class="settings-item slider-item">
+                                <label>横行最高速度 (m/s)</label>
+                                <div class="slider-group">
+                                    <input type="range" id="trolleySpeed" min="0.1" max="1.0" step="0.05" value="0.5">
+                                    <span class="slider-value" id="trolleySpeedValue">0.5</span>
+                                </div>
+                            </div>
+                            <div class="settings-item slider-item">
+                                <label>巻上げ/巻下げ速度 (m/s)</label>
+                                <div class="slider-group">
+                                    <input type="range" id="hoistSpeed" min="0.05" max="0.5" step="0.01" value="0.25">
+                                    <span class="slider-value" id="hoistSpeedValue">0.25</span>
+                                </div>
+                            </div>
+                        </div>
+                    </details>
+                    
+                    <details>
+                        <summary>物理・環境設定</summary>
+                        <div class="category-content">
+                            <div class="settings-item slider-item">
+                                <label>荷の揺れの減衰</label>
+                                <div class="slider-group">
+                                    <input type="range" id="dampingFactor" min="0.90" max="0.995" step="0.005" value="0.96">
+                                    <span class="slider-value" id="dampingFactorValue">0.960</span>
+                                </div>
+                            </div>
+                            <div class="settings-item slider-item">
+                                <label>建屋高さ (m)</label>
+                                <div class="slider-group">
+                                    <input type="range" id="buildingHeight" min="5" max="20" step="0.5" value="8">
+                                    <span class="slider-value" id="buildingHeightValue">8.0m</span>
+                                </div>
+                            </div>
+                        </div>
+                    </details>
+
+                    <details>
+                        <summary>荷の追加方法</summary>
+                        <div class="category-content">
+                            <div class="settings-item">
+                                <label>ダブルクリック時の動作</label>
+                                <select id="cargoPlacementMode">
+                                    <option value="drop">上から落下</option>
+                                    <option value="place">その場に出現</option>
+                                </select>
+                            </div>
+                            <div class="settings-item">
+                                <label>デフォルト形状</label>
+                                <select id="defaultCargoShape">
+                                    <option value="plate">板</option>
+                                    <option value="coil">コイル</option>
+                                    <option value="ctong">Cトング</option>
+                                </select>
+                            </div>
+                        </div>
+                    </details>
+
+                    <details>
+                        <summary>表示設定</summary>
+                        <div class="category-content">
+                            <div class="settings-item toggle-item">
+                                <label>視点モード: <span id="cameraModeLabel">3人称視点</span></label>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="cameraMode">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="settings-item toggle-item">
+                                <label>床の表示</label>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="groundEnabled" checked="">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="settings-item color-item">
+                                <label>床の色</label>
+                                <div class="color-group">
+                                    <input type="color" id="floorColor" value="#fafafa">
+                                    <button id="resetFloorColor">リセット</button>
+                                </div>
+                            </div>
+                            <div class="settings-item toggle-item">
+                                <label>影の表示</label>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="shadowEnabled" checked="">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                        </div>
+                    </details>
+                </div>
+            </div>
+        </div>
+        
+        <div class="settings-modal" id="cargoEditModal" style="display: none;">
+            <div class="settings-content">
+                <div class="settings-header">
+                    <span class="close-button" id="closeCargoEditBtn">×</span>
+                    <h3>📦 荷物設定</h3>
+                </div>
+
+                <div class="settings-scroll-container">
+                    <details open="">
+                        <summary>形状・寸法</summary>
+                        <div class="category-content">
+                            <div class="settings-item">
+                                <label>荷の形状</label>
+                                <select id="cargoShape">
+                                    <option value="plate" selected="">板</option>
+                                    <option value="coil">コイル</option>
+                                    <option value="ctong">Cトング</option>
+                                </select>
+                            </div>
+
+                            <div class="settings-item slider-item" id="slingAngleSetting" style="padding-top: 15px; border-top: 1px dashed #e0e0e0; margin-top: 15px;">
+                                <label>吊り角度 (度)</label>
+                                <div class="slider-group">
+                                    <input type="range" id="slingAngle" min="15" max="120" step="1" value="30">
+                                    <span class="slider-value" id="slingAngleValue">30°</span>
+                                </div>
+                            </div>
+
+                            <div id="plateSettings">
+                                <div class="settings-item slider-item" id="slingPositionSetting">
+                                    <label>吊り点位置（長辺方向）</label>
+                                    <div class="slider-group">
+                                        <input type="range" id="slingPosition" min="0" max="5" step="0.1" value="3">
+                                        <span class="slider-value" id="slingPositionValue">3.0</span>
+                                    </div>
+                                </div>
+                                <div class="settings-item slider-item">
+                                    <label>荷の幅 (m)</label>
+                                    <div class="slider-group">
+                                        <input type="range" id="cargoPlateWidth" min="0.5" max="4" step="0.1" value="2.5">
+                                        <span class="slider-value" id="cargoPlateWidthValue">2.5m</span>
+                                    </div>
+                                </div>
+                                <div class="settings-item slider-item">
+                                    <label>荷の高さ (m)</label>
+                                    <div class="slider-group">
+                                        <input type="range" id="cargoPlateHeight" min="0.1" max="1" step="0.05" value="0.3">
+                                        <span class="slider-value" id="cargoPlateHeightValue">0.3m</span>
+                                    </div>
+                                </div>
+                                <div class="settings-item slider-item">
+                                    <label>荷の奥行 (m)</label>
+                                    <div class="slider-group">
+                                        <input type="range" id="cargoPlateDepth" min="0.5" max="3" step="0.1" value="1.5">
+                                        <span class="slider-value" id="cargoPlateDepthValue">1.5m</span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div id="coilSettings" style="display: none;">
+                                 <div class="settings-item slider-item">
+                                    <label>肉厚 (mm)</label>
+                                    <div class="slider-group">
+                                        <input type="range" id="cargoCoilThickness" min="50" max="600" step="10" value="400">
+                                        <span class="slider-value" id="cargoCoilThicknessValue">400mm</span>
+                                    </div>
+                                </div>
+                                <div class="settings-item slider-item">
+                                    <label>内径 (mm)</label>
+                                    <div class="slider-group">
+                                        <input type="range" id="cargoCoilInnerDiameter" min="250" max="610" step="1" value="557">
+                                        <span class="slider-value" id="cargoCoilInnerDiameterValue">557mm</span>
+                                    </div>
+                                </div>
+                                <div class="settings-item slider-item">
+                                    <label>コイル幅 (mm)</label>
+                                    <div class="slider-group">
+                                        <input type="range" id="cargoCoilWidth" min="50" max="1800" step="10" value="1250">
+                                        <span class="slider-value" id="cargoCoilWidthValue">1250mm</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div id="ctongSettings" style="display: none;">
+                                <div class="settings-item slider-item">
+                                    <label>アーム長さ (m)</label>
+                                    <div class="slider-group">
+                                        <input type="range" id="cargoCtongArmLength" min="0.8" max="2.0" step="0.1" value="1.2">
+                                        <span class="slider-value" id="cargoCtongArmLengthValue">1.2m</span>
+                                    </div>
+                                </div>
+                                <div class="settings-item slider-item">
+                                    <label>開口高さ (m)</label>
+                                    <div class="slider-group">
+                                        <input type="range" id="cargoCtongOpeningHeight" min="0.1" max="1.0" step="0.01" value="0.5">
+                                        <span class="slider-value" id="cargoCtongOpeningHeightValue">0.50m</span>
+                                    </div>
+                                </div>
+                                <div class="settings-item slider-item">
+                                    <label>フレーム板厚 (mm)</label>
+                                    <div class="slider-group">
+                                        <input type="range" id="cargoCtongThickness" min="50" max="150" step="5" value="80">
+                                        <span class="slider-value" id="cargoCtongThicknessValue">80mm</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </details>
+
+                    <details open="">
+                         <summary>材質・重量</summary>
+                         <div class="category-content">
+                            <div class="settings-item">
+                                <label>荷の材質</label>
+                                <select id="cargoMaterial">
+                                    <option value="aluminum" selected="">アルミニウム (比重 2.7)</option>
+                                    <option value="iron">鉄 (比重 7.9)</option>
+                                    <option value="copper">銅 (比重 8.9)</option>
+                                    <option value="wood">木材 (比重 0.6)</option>
+                                    <option value="plastic">プラスチック (比重 1.2)</option>
+                                </select>
+                            </div>
+                            <div class="settings-item">
+                                <label>計算重量: <span id="calculatedWeight">3.0t</span></label>
+                            </div>
+                        </div>
+                    </details>
+                    
+                    <details>
+                        <summary>位置・操作</summary>
+                        <div class="category-content">
+                            <div class="settings-item" style="display: flex; gap: 10px;">
+                                <div style="flex:1;">
+                                    <label>位置 X (m)</label>
+                                    <input type="number" id="cargoPosX" step="0.1" style="width: 100%; padding: 8px;">
+                                </div>
+                                <div style="flex:1;">
+                                    <label>位置 Z (m)</label>
+                                    <input type="number" id="cargoPosZ" step="0.1" style="width: 100%; padding: 8px;">
+                                </div>
+                            </div>
+                            <div class="settings-item" style="display: flex; gap: 10px; margin-top: 10px;">
+                                <button class="settings-button" id="rotateCargoLeftBtn" style="flex: 1;">
+                                    <span>↺</span>
+                                    <span>左90°回転</span>
+                                </button>
+                                <button class="settings-button" id="rotateCargoRightBtn" style="flex: 1;">
+                                    <span>↻</span>
+                                    <span>右90°回転</span>
+                                </button>
+                            </div>
+                            <div class="settings-item" style="margin-top: 20px;">
+                                <button class="settings-button delete-button" id="deleteCargoBtn">
+                                    <span>🗑️</span>
+                                    <span>この荷物を削除</span>
+                                </button>
+                            </div>
+                        </div>
+                    </details>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+    <script>
+
+// 物理演算・衝突判定・貨物管理
+
+const MATERIAL_DENSITIES = {
+    aluminum: 2700, iron: 7900, copper: 8900, wood: 600, plastic: 1200
+};
+
+const PHYSICS = {
+    gravity: 9.81,
+    airResistance: 0.03,
+    dampingFactor: 0.96,
+    wireStiffness: 0.85,
+    loadMass: 3037.5,
+    maxSwingAngle: Math.PI / 4,
+    friction: 0.6,
+    restitution: 0.2,
+    slidingFriction: 0.4,
+    rollingResistance: 0.02,
+    stabilityThreshold: 0.05
+};
+
+const DEFAULT_CARGO_CONFIG = {
+    shape: 'plate', material: 'aluminum',
+    plateWidth: 2.5, plateHeight: 0.3, plateDepth: 1.5,
+    slingPositionRatio: 3.0,
+    slingAngle: 50,
+    coilThickness: 400, coilInnerDiameter: 557, coilWidth: 1250,
+    ctongArmLength: 1.2, ctongOpeningHeight: 0.5, ctongThickness: 80,
+};
+
+// 設定値
+let CARGO_PLACEMENT_SETTINGS = {
+    mode: 'place', // 'drop' or 'place'
+    defaultShape: 'plate' // 'plate', 'coil', 'ctong'
+};
+
+/**
+ * 二つの荷物間に実際に衝突があるか精密に判定します。
+ * 大まかな境界ボックス（AABB）が交差していることを前提とします。
+ * この関数は、交差部分がオブジェクトの「中空部分」である場合、衝突ではないと判定します。
+ */
+function hasPreciseCollision(cargoA, cargoB) {
+    // 1. 広域判定：AABB（軸並行境界ボックス）での交差を確認
+    const boxA = new THREE.Box3().setFromObject(cargoA.mesh);
+    const boxB = new THREE.Box3().setFromObject(cargoB.mesh);
+    
+    // AABBが交差していない場合は、そもそも衝突していない
+    if (!boxA.intersectsBox(boxB)) {
+        return false;
+    }
+
+    // 2. 詳細判定：AABBの交差領域が中空部分にあるかを確認
+    // AABB同士が交差している領域（intersectionBox）を計算します
+    const intersectionBox = boxA.clone().intersect(boxB);
+    if (intersectionBox.isEmpty()) {
+        // ボックスが接しているが交差体積がない場合。衝突とみなす。
+        return true; 
+    }
+
+    // 交差領域の中心点を取得します。この点が衝突の代表点となります。
+    const intersectionCenter = new THREE.Vector3();
+    intersectionBox.getCenter(intersectionCenter);
+    
+    /**
+     * 指定されたワールド座標の点が、指定された荷物の中空部分にあるかどうかを判定する内部ヘルパー関数。
+     */
+    const checkHollow = (point, hollowCargo) => {
+        const hollowInfo = hollowCargo.mesh.userData.hollowInfo;
+        // 中空情報がないオブジェクトは判定しない
+        if (!hollowInfo) return false;
+
+        // ワールド座標の点を、荷物のローカル座標系に変換
+        const invMatrix = hollowCargo.mesh.matrixWorld.clone().invert();
+        const localPoint = point.clone().applyMatrix4(invMatrix);
+
+        if (hollowCargo.config.shape === 'coil') {
+            const distSq = localPoint.x**2 + localPoint.y**2;
+            // ローカル座標での点が、コイルの穴の半径内で、かつ幅の内側にあるか
+            return distSq < hollowInfo.innerRadius**2 && Math.abs(localPoint.z) < hollowInfo.halfWidth;
+        } else if (hollowCargo.config.shape === 'ctong') {
+            // Cトングの形状は作成時に中央寄せされているため、そのオフセットを考慮して判定
+            const pointToCheck = localPoint.add(hollowInfo.centerOffset);
+            return hollowInfo.hole.containsPoint(pointToCheck);
+        }
+        return false;
+    };
+    
+    // 交差領域の中心点が、どちらかの荷物の中空部分にあれば、それは「衝突ではない」
+    if (checkHollow(intersectionCenter, cargoA) || checkHollow(intersectionCenter, cargoB)) {
+        return false;
+    }
+
+    // どちらの中空部分にもなければ、それは固い部分への「実際の衝突」である
+    return true;
+}
+
+/**
+ * 荷物のメッシュを作成する
+ */
+function createCargoMesh(config) {
+    const cargoGroup = new THREE.Group();
+    const mainMeshGroup = new THREE.Group();
+    const slingMeshGroup = new THREE.Group();
+    cargoGroup.add(mainMeshGroup, slingMeshGroup);
+
+    if (config.shape === 'plate') {
+        const geom = new THREE.BoxGeometry(config.plateWidth, config.plateHeight, config.plateDepth);
+        mainMeshGroup.add(new THREE.Mesh(geom, MATERIALS.cargo.clone()));
+        createNylonSlingsForPlate(slingMeshGroup, config);
+    } else if (config.shape === 'ctong') {
+        const cTongGroup = new THREE.Group();
+        const material = MATERIALS.craneYellow.clone();
+
+        const armLength = config.ctongArmLength;
+        const openingHeight = config.ctongOpeningHeight;
+        const frameThickness = config.ctongThickness / 1000;
+        const frameDepth = frameThickness * 3.0;
+
+        const shape = new THREE.Shape();
+        const cornerRadius = frameThickness * 1.5;
+        const bottomArmLength = armLength;
+        const topArmLength = armLength - 0.2;
+        const bottomArmTipThickness = frameThickness * 0.7;
+        const bottomArmTipRadius = frameThickness * 0.3;
+
+        shape.moveTo(bottomArmLength, 0);
+        shape.lineTo(cornerRadius, 0);
+        shape.quadraticCurveTo(0, 0, 0, cornerRadius);
+        shape.lineTo(0, openingHeight - cornerRadius);
+        shape.quadraticCurveTo(0, openingHeight, cornerRadius, openingHeight);
+        shape.lineTo(topArmLength, openingHeight);
+        shape.quadraticCurveTo(topArmLength + frameThickness * 0.4, openingHeight, topArmLength + frameThickness * 0.4, openingHeight + (frameThickness / 2));
+        shape.quadraticCurveTo(topArmLength + frameThickness * 0.4, openingHeight + frameThickness, topArmLength, openingHeight + frameThickness);
+        shape.lineTo(-frameThickness, openingHeight + frameThickness);
+        shape.quadraticCurveTo(-frameThickness - cornerRadius, openingHeight + frameThickness, -frameThickness - cornerRadius, openingHeight + frameThickness - cornerRadius);
+        shape.lineTo(-frameThickness - cornerRadius, cornerRadius);
+        shape.quadraticCurveTo(-frameThickness - cornerRadius, -frameThickness, -frameThickness, -frameThickness);
+        const startX = -frameThickness;
+        const startY = -frameThickness;
+        const endX = bottomArmLength;
+        const endY = -bottomArmTipThickness;
+        const controlX1 = startX + (endX - startX) * 0.2;
+        const controlY1 = startY;
+        const controlX2 = startX + (endX - startX) * 0.8;
+        const controlY2 = endY;
+        shape.bezierCurveTo(controlX1, controlY1, controlX2, controlY2, endX, endY);
+        const tipTopY = 0;
+        const tipBottomY = endY;
+        const tipX = endX;
+        shape.quadraticCurveTo(tipX + bottomArmTipRadius, tipBottomY, tipX + bottomArmTipRadius, (tipTopY + tipBottomY) / 2);
+        shape.quadraticCurveTo(tipX + bottomArmTipRadius, tipTopY, tipX, tipTopY);
+
+        const bevelSettings = {
+            depth: frameDepth,
+            bevelEnabled: true,
+            bevelThickness: frameThickness * 0.1,
+            bevelSize: frameThickness * 0.1,
+            bevelSegments: 3
+        };
+        const cTongGeometry = new THREE.ExtrudeGeometry(shape, bevelSettings);
+        const cTongMesh = new THREE.Mesh(cTongGeometry, material);
+        cTongGroup.add(cTongMesh);
+
+        const hookHeight = openingHeight * 0.25;
+        const hookWidth = frameDepth * 1.2;
+        const hookTubeRadius = frameThickness * 0.5;
+        const hookPath = new THREE.CatmullRomCurve3([
+            new THREE.Vector3(0, 0, -hookWidth / 2),
+            new THREE.Vector3(0, hookHeight, -hookWidth / 2),
+            new THREE.Vector3(0, hookHeight, hookWidth / 2),
+            new THREE.Vector3(0, 0, hookWidth / 2)
+        ]);
+        const hookGeometry = new THREE.TubeGeometry(hookPath, 64, hookTubeRadius, 12, false);
+        const hook = new THREE.Mesh(hookGeometry, material);
+        hook.rotation.y = Math.PI / 2;
+
+        // フックの位置をCトングの中央に修正
+        const topArmCenterX = topArmLength / 2; // 上部アームの中央
+        const topArmCenterY = openingHeight + frameThickness;
+        const topArmCenterZ = frameDepth / 2;
+        hook.position.set(topArmCenterX, topArmCenterY, topArmCenterZ);
+        cTongGroup.add(hook);
+        
+        const box = new THREE.Box3().setFromObject(cTongGroup);
+        const center = box.getCenter(new THREE.Vector3());
+        cTongGroup.position.sub(center);
+        mainMeshGroup.add(cTongGroup);
+        
+        // フックの中央を吊り点とする
+        const hookTopLocalPos = new THREE.Vector3(topArmCenterX, topArmCenterY + hookHeight, topArmCenterZ);
+        const finalLiftingPoint = hookTopLocalPos.sub(center);
+        cargoGroup.userData.liftingPoint = finalLiftingPoint;
+
+        const halfDepth = frameDepth / 2;
+        cargoGroup.userData.hollowInfo = {
+            centerOffset: center.clone(),
+            hole: new THREE.Box3(
+                new THREE.Vector3(0.05, 0.05, -halfDepth * 0.9), 
+                new THREE.Vector3(config.ctongArmLength - 0.1, config.ctongOpeningHeight - 0.05, halfDepth * 0.9)
+            )
+        };
+
+    } else {
+        const t_m = config.coilThickness / 1000, id_m = config.coilInnerDiameter / 1000, w_m = config.coilWidth / 1000;
+        const outerR = id_m / 2 + t_m, innerR = id_m / 2;
+        const shape = new THREE.Shape(); shape.absarc(0, 0, outerR, 0, Math.PI * 2, false);
+        const hole = new THREE.Path(); hole.absarc(0, 0, innerR, 0, Math.PI * 2, true);
+        shape.holes.push(hole);
+        const geom = new THREE.ExtrudeGeometry(shape, { depth: w_m, bevelEnabled: false });
+        geom.center(); geom.rotateZ(Math.PI / 2);
+        mainMeshGroup.add(new THREE.Mesh(geom, MATERIALS.cargo.clone()));
+        createNylonSlingsForCoil(slingMeshGroup, config);
+
+        cargoGroup.userData.hollowInfo = {
+            innerRadius: innerR,
+            halfWidth: w_m / 2
+        };
+    }
+
+    cargoGroup.traverse(node => {
+        node.userData.parentCargo = cargoGroup;
+        if (node.isMesh) {
+            node.castShadow = true;
+            node.receiveShadow = true;
+        }
+    });
+    
+    cargoGroup.userData.mainMesh = mainMeshGroup;
+    cargoGroup.userData.slingMesh = slingMeshGroup;
+    return cargoGroup;
+}
+
+function createNylonSlingsForPlate(slingGroup, config) {
+    while(slingGroup.children.length > 0) slingGroup.remove(slingGroup.children[0]);
+    const { plateWidth: w, plateHeight: h, plateDepth: d, slingPositionRatio } = config;
+    const ratio = slingPositionRatio / 10, offset = (0.5 - ratio) * w;
+    const slingPositions = [{ x: offset }, { x: -offset }];
+
+    const slingBeltWidth = 0.04;
+    const slingThickness = 0.002;
+    const margin = 0.001;
+
+    // スリングの断面 (XY平面)
+    const slingShape = new THREE.Shape();
+    slingShape.moveTo(-slingBeltWidth / 2, -slingThickness / 2);
+    slingShape.lineTo( slingBeltWidth / 2, -slingThickness / 2);
+    slingShape.lineTo( slingBeltWidth / 2,  slingThickness / 2);
+    slingShape.lineTo(-slingBeltWidth / 2,  slingThickness / 2);
+    slingShape.closePath();
+
+    const halfH = h / 2 + margin;
+    const halfD = d / 2 + margin;
+
+    // 荷物を囲む3Dパス (YZ平面)
+    const path = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(0, -halfH, -halfD),
+        new THREE.Vector3(0, -halfH,  halfD),
+        new THREE.Vector3(0,  halfH,  halfD),
+        new THREE.Vector3(0,  halfH, -halfD),
+    ], true, 'catmullrom', 0.001); // trueで閉路, tensionで角の丸みを調整
+
+    // 修正点：stepsを増やして描画の破綻を防ぐ
+    const extrudeSettings = { steps: 300, bevelEnabled: false, extrudePath: path };
+    const geometry = new THREE.ExtrudeGeometry(slingShape, extrudeSettings);
+
+    slingPositions.forEach(pos => {
+        const sling = new THREE.Mesh(geometry.clone(), MATERIALS.slingMaterial);
+        sling.position.x = pos.x;
+        slingGroup.add(sling);
+    });
+}
+
+function createNylonSlingsForCoil(slingGroup, config) {
+    while (slingGroup.children.length > 0) slingGroup.remove(slingGroup.children[0]);
+    const dims = getCargoDimensions(config);
+    const outerRadius = dims.height / 2;
+    const innerRadius = (config.coilInnerDiameter / 1000) / 2;
+    const coilWidth = dims.depth;
+    
+    const slingBeltWidth = 0.04;
+    const slingThickness = 0.002;
+    const margin = 0.001;
+
+    // スリングの断面 (XY平面)
+    const slingShape = new THREE.Shape();
+    slingShape.moveTo(-slingBeltWidth / 2, -slingThickness / 2);
+    slingShape.lineTo( slingBeltWidth / 2, -slingThickness / 2);
+    slingShape.lineTo( slingBeltWidth / 2,  slingThickness / 2);
+    slingShape.lineTo(-slingBeltWidth / 2,  slingThickness / 2);
+    slingShape.closePath();
+
+    // コイルを貫通するU字の3Dパス (YZ平面)
+    const path = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(0, outerRadius + margin, -coilWidth / 2 - margin),
+        new THREE.Vector3(0, innerRadius, -coilWidth / 2 - margin),
+        new THREE.Vector3(0, innerRadius, coilWidth / 2 + margin),
+        new THREE.Vector3(0, outerRadius + margin, coilWidth / 2 + margin),
+    ], false, 'catmullrom', 0.001);
+
+    // 修正点：stepsを増やして描画の破綻を防ぐ
+    const extrudeSettings = { steps: 300, bevelEnabled: false, extrudePath: path };
+    const geometry = new THREE.ExtrudeGeometry(slingShape, extrudeSettings);
+    
+    const sling = new THREE.Mesh(geometry, MATERIALS.slingMaterial);
+    slingGroup.add(sling);
+}
+
+function getCargoDimensions(config) {
+    if (!config) return { width: 0, height: 0, depth: 0 };
+    if (config.shape === 'plate') {
+        return { width: config.plateWidth, height: config.plateHeight, depth: config.plateDepth };
+    } else if (config.shape === 'ctong') {
+        const tempMesh = createCargoMesh(config);
+        const box = new THREE.Box3().setFromObject(tempMesh.userData.mainMesh);
+        const size = box.getSize(new THREE.Vector3());
+        return { width: size.x, height: size.y, depth: size.z };
+    } else {
+        const t_m = config.coilThickness / 1000, id_m = config.coilInnerDiameter / 1000, w_m = config.coilWidth / 1000;
+        const od_m = id_m + t_m * 2;
+        return { width: od_m, height: od_m, depth: w_m };
+    }
+}
+
+function updateCargoMaterial(cargoMesh, material) {
+    const materialColors = { aluminum: 0xc8c8c8, iron: 0x404040, copper: 0xb87333, wood: 0x8b4513, plastic: 0xeeeeee };
+    if (MATERIALS.cargo) {
+        const newMaterial = cargoMesh.userData.mainMesh.children[0].material;
+        newMaterial.color.setHex(materialColors[material]);
+    }
+}
+
+</script>
+    <script>
+
+// クレーンシステム関連
+
+const CRANE_DAMPING = 0.92;
+
+/**
+ * エキスパンドメタル（網目状の床）風のテクスチャを生成します。
+ * @returns {THREE.CanvasTexture} 網目模様のテクスチャ
+ */
+function createExpandedMetalTexture() {
+    const canvas = document.createElement('canvas');
+    const size = 64;
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+
+    // 背景を透明にする
+    ctx.clearRect(0, 0, size, size);
+
+    // 網目の色と太さ
+    ctx.strokeStyle = '#666666';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+
+    // 菱形を組み合わせた網目模様を描画
+    const stepY = size / 4;
+    const stepX = size / 4;
+    for (let y = -stepY; y < size + stepY; y += stepY) {
+        for (let x = -stepX; x < size + stepX; x += stepX * 2) {
+            const offsetX = (Math.floor(y / stepY)) % 2 === 0 ? 0 : stepX;
+            ctx.moveTo(x + offsetX - stepX, y);
+            ctx.lineTo(x + offsetX, y + stepY);
+            ctx.moveTo(x + offsetX + stepX, y);
+            ctx.lineTo(x + offsetX, y + stepY);
+        }
+    }
+    ctx.stroke();
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    return texture;
+}
+
+
+/**
+ * 3D空間上の2点とたるみ量から曲線長を計算します（数値積分による近似）
+ */
+function calculateCurveLength(p1, p2, sag, steps = 30) {
+    const curve = new THREE.CatmullRomCurve3([
+        p1,
+        new THREE.Vector3().addVectors(p1, p2).multiplyScalar(0.5).add(new THREE.Vector3(0, -sag, 0)),
+        p2
+    ]);
+    return curve.getLength();
+}
+
+/**
+ * 3D空間上の2点と目標の曲線長から、適切なたるみ量（sag）を二分探索で求めます
+ */
+function findSagForLength(p1, p2, targetLength) {
+    const distance = p1.distanceTo(p2);
+    if (targetLength <= distance) return 0.01; // ほぼ直線
+
+    let low = 0;
+    let high = Math.sqrt(Math.max(0, targetLength**2 - distance**2)); // 物理的にありえる最大値
+    
+    for (let i = 0; i < 12; i++) {
+        const midSag = (low + high) / 2;
+        const currentLength = calculateCurveLength(p1, p2, midSag);
+        if (Math.abs(currentLength - targetLength) < 0.005) return midSag;
+        if (currentLength < targetLength) low = midSag; else high = midSag;
+    }
+    return (low + high) / 2;
+}
+
+const CRANE_SPECS = {
+    bridgeSpan: 20, bridgeLength: 20, maxHeight: 8, capacity: 3.0,
+    bridgeSpeed: 0.5, trolleySpeed: 0.5, hoistSpeed: 0.25,
+    masterLinkRadius: 0.08, masterLinkTubeRadius: 0.015,
+    hookScale: 0.1, hookTubeRadius: 0.03, hookOffsetY: -0.1,
+    hookSaddleBaseY: -2.0 * 0.1, sheaveRadius: 0.15,
+    girderHeight: 8.275,
+    shadowEnabled: true, floorColor: 0xe6f3ff,
+    festoonNumHooks: 10, // ケーブル用フックの数（固定）
+    festoonSegmentLength: 1.8, // ケーブルのフック間長さ
+};
+
+// 修正点：質量計算ロジックを独立した関数として定義
+function calculateCargoMass(config) {
+    let volume;
+    const density = MATERIAL_DENSITIES[config.material];
+    if (config.shape === 'plate') {
+        volume = config.plateWidth * config.plateHeight * config.plateDepth;
+    } else if (config.shape === 'ctong') {
+        const armLength = config.ctongArmLength;
+        const openingHeight = config.ctongOpeningHeight;
+        const frameThickness = config.ctongThickness / 1000;
+        const frameDepth = frameThickness * 3.0;
+        const shape = new THREE.Shape();
+        const cornerRadius = frameThickness * 1.5;
+        const bottomArmLength = armLength;
+        const topArmLength = armLength - 0.2;
+        shape.moveTo(bottomArmLength, 0);
+        shape.lineTo(cornerRadius, 0);
+        shape.quadraticCurveTo(0, 0, 0, cornerRadius);
+        shape.lineTo(0, openingHeight - cornerRadius);
+        shape.quadraticCurveTo(0, openingHeight, cornerRadius, openingHeight);
+        shape.lineTo(topArmLength, openingHeight);
+        shape.quadraticCurveTo(topArmLength + frameThickness * 0.4, openingHeight, topArmLength + frameThickness * 0.4, openingHeight + (frameThickness / 2));
+        shape.quadraticCurveTo(topArmLength + frameThickness * 0.4, openingHeight + frameThickness, topArmLength, openingHeight + frameThickness);
+        shape.lineTo(-frameThickness, openingHeight + frameThickness);
+        shape.quadraticCurveTo(-frameThickness - cornerRadius, openingHeight + frameThickness, -frameThickness - cornerRadius, openingHeight + frameThickness - cornerRadius);
+        shape.lineTo(-frameThickness - cornerRadius, cornerRadius);
+        shape.quadraticCurveTo(-frameThickness - cornerRadius, -frameThickness, -frameThickness, -frameThickness);
+        shape.lineTo(bottomArmLength, -frameThickness * 0.7);
+        shape.quadraticCurveTo(bottomArmLength + frameThickness * 0.3, -frameThickness * 0.7, bottomArmLength + frameThickness * 0.3, 0);
+        shape.quadraticCurveTo(bottomArmLength + frameThickness * 0.3, 0, bottomArmLength, 0);
+        const shapeArea = THREE.ShapeUtils.area(shape.getPoints());
+        const hookHeight = openingHeight * 0.25;
+        const hookWidth = frameDepth * 1.2;
+        const hookTubeRadius = frameThickness * 0.5;
+        const hookPath = new THREE.CatmullRomCurve3([
+            new THREE.Vector3(0, 0, -hookWidth / 2), new THREE.Vector3(0, hookHeight, -hookWidth / 2),
+            new THREE.Vector3(0, hookHeight, hookWidth / 2), new THREE.Vector3(0, 0, hookWidth / 2)
+        ]);
+        const hookVolume = (Math.PI * hookTubeRadius * hookTubeRadius) * hookPath.getLength();
+        volume = Math.abs(shapeArea) * frameDepth + hookVolume;
+    } else { // coil
+        const t_m = config.coilThickness / 1000, id_m = config.coilInnerDiameter / 1000, w_m = config.coilWidth / 1000;
+        const outerR = id_m/2 + t_m, innerR = id_m/2;
+        volume = Math.PI * (outerR**2 - innerR**2) * w_m;
+    }
+    return volume * density;
+}
+
+class CraneSystem {
+    constructor() {
+        this.initializePhysics();
+        this.initializeComponents();
+        this.setupControls();
+        this.placeNewCargo(new THREE.Vector3(0, 0, 0), false, true);
+        const initialCargo = placeableCargos[0];
+        this.pickupCandidate = initialCargo;
+        const minHeight = this.calculateMinHoistHeight(initialCargo.config);
+        this.hoistHeight = minHeight + 1.0;
+        this.attachedCargo = initialCargo;
+        this.pickupCandidate = null;
+        this.pendulum.supportPos = { x: this.trolleyPosition, z: this.bridgePosition };
+        // 修正点：初期化時にステータスを更新して初回表示を確実に行う
+        this.updateStatus();
+    }
+
+    initializePhysics() {
+        this.pendulum = {
+            length: 1.0, currentLength: 1.0, angleX: 0, angleZ: 0,
+            angleVelX: 0, angleVelZ: 0, supportPos: { x: 0, z: 0 },
+            supportVel: { x: 0, z: 0 }, lastSupportPos: { x: 0, z: 0 }
+        };
+        this.attachedCargo = null;
+    }
+
+    initializeComponents() {
+        this.bridgeGroup = new THREE.Group(); this.trolleyGroup = new THREE.Group();
+        this.hoistGroup = new THREE.Group(); this.hookGroup = new THREE.Group();
+        this.wireGroup = new THREE.Group(); this.masterLinkGroup = new THREE.Group();
+        this.factoryObjects = []; this.gridHelper = null;
+        this.girderMeshes = [];
+        this.bridgePosition = 0; this.trolleyPosition = 0; this.hoistHeight = 5.0;
+        this.velocities = { bridge: 0, trolley: 0, hoist: 0 };
+        // 修正点：加速度計算のために前フレームの速度を保持するプロパティを追加
+        this.lastVelocities = { bridge: 0, trolley: 0, hoist: 0 };
+        this.activeControls = { north: false, south: false, east: false, west: false, up: false, down: false };
+        this.coilPickupCandidate = null;
+        this.buildCrane();
+        scene.add(this.bridgeGroup);
+    }
+
+    buildCrane() {
+        this.createFactory();
+        this.bridgeGroup.position.y = CRANE_SPECS.girderHeight;
+        this.createBridge(); this.createTrolley(); this.createHoist();
+        this.createHookAndMasterLink(); this.createWire();
+        this.createFestoon();
+        scene.traverse(obj => { if (obj.isMesh) obj.castShadow = CRANE_SPECS.shadowEnabled; });
+    }
+
+    createFactory() {
+        const size = Math.max(CRANE_SPECS.bridgeSpan, CRANE_SPECS.bridgeLength);
+        this.gridHelper = new THREE.GridHelper(size, size, 0xffd700, 0xfffacd); scene.add(this.gridHelper);
+        const floorGeometry = new THREE.PlaneGeometry(size, size);
+        const floorMaterial = new THREE.MeshLambertMaterial({ color: CRANE_SPECS.floorColor, side: THREE.DoubleSide });
+        floorPlane = new THREE.Mesh(floorGeometry, floorMaterial);
+        floorPlane.rotation.x = -Math.PI / 2; floorPlane.position.y = -0.01;
+        floorPlane.name = 'floor';
+        floorPlane.receiveShadow = CRANE_SPECS.shadowEnabled;
+        scene.add(floorPlane);
+        const groundPlane = new THREE.Mesh( new THREE.PlaneGeometry(size, size), new THREE.ShadowMaterial({ opacity: 0.3, color: 0x000000 }));
+        groundPlane.rotation.x = -Math.PI / 2; groundPlane.receiveShadow = CRANE_SPECS.shadowEnabled; groundPlane.name = 'groundShadowPlane';
+        scene.add(groundPlane);
+        this.factoryObjects.push(this.gridHelper, floorPlane, groundPlane);
+        this.createFrameStructure();
+    }
+
+    createFrameStructure() {
+        const width = CRANE_SPECS.bridgeSpan;
+        const length = CRANE_SPECS.bridgeLength;
+        const runwayGeom = new THREE.BoxGeometry(0.5, 0.5, length);
+        const leftRunway = new THREE.Mesh(runwayGeom, MATERIALS.frameMaterial);
+        leftRunway.position.set(-width / 2, CRANE_SPECS.maxHeight, 0);
+        scene.add(leftRunway); this.factoryObjects.push(leftRunway);
+        const rightRunway = new THREE.Mesh(runwayGeom, MATERIALS.frameMaterial);
+        rightRunway.position.set(width / 2, CRANE_SPECS.maxHeight, 0);
+        scene.add(rightRunway); this.factoryObjects.push(rightRunway);
+        const railGeom = new THREE.BoxGeometry(0.08, 0.05, length);
+        const railY = CRANE_SPECS.maxHeight + 0.5 / 2 + 0.05 / 2;
+        const leftRail = new THREE.Mesh(railGeom, MATERIALS.railMaterial);
+        leftRail.position.set(-width / 2, railY, 0);
+        scene.add(leftRail); this.factoryObjects.push(leftRail);
+        const rightRail = new THREE.Mesh(railGeom, MATERIALS.railMaterial);
+        rightRail.position.set(width / 2, railY, 0);
+        scene.add(rightRail); this.factoryObjects.push(rightRail);
+        this.createSupportPillars();
+    }
+
+    createSupportPillars() {
+        const shape = new THREE.Shape();
+        const w_h = 0.15, h_h = 0.15, tf = 0.02, tw = 0.015;
+        shape.moveTo(-w_h, h_h); shape.lineTo(w_h, h_h);
+        shape.lineTo(w_h, h_h - tf); shape.lineTo(tw, h_h - tf);
+        shape.lineTo(tw, -h_h + tf); shape.lineTo(w_h, -h_h + tf);
+        shape.lineTo(w_h, -h_h); shape.lineTo(-w_h, -h_h);
+        shape.lineTo(-w_h, -h_h + tf); shape.lineTo(-tw, -h_h + tf);
+        shape.lineTo(-tw, h_h - tf); shape.lineTo(-w_h, h_h - tf);
+        shape.closePath();
+        const pillarGeometry = new THREE.ExtrudeGeometry(shape, { depth: CRANE_SPECS.maxHeight, bevelEnabled: false });
+        pillarGeometry.rotateX(Math.PI / 2);
+        pillarGeometry.center();
+        const h = CRANE_SPECS.maxHeight / 2;
+        const w = CRANE_SPECS.bridgeSpan / 2;
+        const l = CRANE_SPECS.bridgeLength / 2;
+        
+        const positions = [
+            [-w, h, -l], [-w, h, -l/2], [-w, h, 0], [-w, h, l/2], [-w, h, l],
+            [w, h, -l], [w, h, -l/2], [w, h, 0], [w, h, l/2], [w, h, l]
+        ];
+        positions.forEach(pos => {
+            const pillar = new THREE.Mesh(pillarGeometry, MATERIALS.pillarMaterial);
+            pillar.position.set(...pos);
+            scene.add(pillar);
+            this.factoryObjects.push(pillar);
+        });
+    }
+
+    _createTextSignTexture(text, width, height, options = {}) {
+        const { isSymbol = false, bgColor = 'rgba(255, 255, 255, 0.9)', fontColor = 'black', fontSize = height * 0.7 } = options;
+        const canvas = document.createElement('canvas');
+        const resolutionFactor = 256;
+        canvas.width = width * resolutionFactor;
+        canvas.height = height * resolutionFactor;
+        const context = canvas.getContext('2d');
+        context.fillStyle = bgColor;
+        context.fillRect(0, 0, canvas.width, canvas.height);
+
+        if (isSymbol) {
+            context.fillStyle = '#2d6e3e';
+            const crossX = canvas.width / 2, crossY = canvas.height / 2;
+            const crossW = canvas.width * 0.6, crossH = canvas.height * 0.15;
+            context.fillRect(crossX - crossW / 2, crossY - crossH / 2, crossW, crossH);
+            context.fillRect(crossX - crossH / 2, crossY - crossW / 2, crossH, crossW);
+        } else {
+            context.font = `bold ${Math.floor(fontSize * resolutionFactor)}px "MS Gothic", "Osaka-mono", monospace`;
+            context.fillStyle = fontColor;
+            context.textAlign = 'center';
+            context.textBaseline = 'middle';
+            context.fillText(text, canvas.width / 2, canvas.height / 2);
+        }
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.needsUpdate = true;
+        return texture;
+    }
+
+    createBridge() {
+        this.girderMeshes = [];
+        const girderLength = CRANE_SPECS.bridgeSpan;
+        const leftGirder = this.createGirder(girderLength, MATERIALS.craneYellow);
+        leftGirder.position.set(0, 0, -0.6);
+        leftGirder.castShadow = true;
+        leftGirder.userData.isGirder = true;
+        this.bridgeGroup.add(leftGirder);
+        this.girderMeshes.push(leftGirder);
+        const rightGirder = this.createGirder(girderLength, MATERIALS.craneYellow);
+        rightGirder.position.set(0, 0, 0.6);
+        rightGirder.castShadow = true;
+        rightGirder.userData.isGirder = true;
+        this.bridgeGroup.add(rightGirder);
+        this.girderMeshes.push(rightGirder);
+        const catwalkWidth = 1.0;
+        const leftCatwalk = this.createCatwalk(girderLength, catwalkWidth, -1);
+        leftCatwalk.position.z = -0.6 - (0.15 / 2) - (catwalkWidth / 2);
+        this.bridgeGroup.add(leftCatwalk);
+        const rightCatwalk = this.createCatwalk(girderLength, catwalkWidth, 1);
+        rightCatwalk.position.z = 0.6 + (0.15 / 2) + (catwalkWidth / 2);
+        this.bridgeGroup.add(rightCatwalk);
+        
+        // 安全第一と定格荷重の表示を追加
+        const signChars = ['安', '全', '＋', '第', '一'];
+        const signHeight = 0.35;
+        const signWidth = 0.35;
+        const signZ = 0.6 + 0.15 + 0.01;
+        const girderSpan = CRANE_SPECS.bridgeSpan;
+
+        for (let i = 0; i < signChars.length; i++) {
+            const char = signChars[i];
+            const isPlusSymbol = char === '＋';
+            const positionRatio = 0.3 + (i * 0.1); // 30%から70%に配置
+            const positionX = -girderSpan / 2 + girderSpan * positionRatio;
+            
+            const texture = this._createTextSignTexture(char, signWidth, signHeight, { isSymbol: isPlusSymbol });
+            const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true });
+            const geometry = new THREE.PlaneGeometry(signWidth, signHeight);
+            const sign = new THREE.Mesh(geometry, material);
+            sign.position.set(positionX, 0, signZ);
+            this.bridgeGroup.add(sign);
+        }
+
+        // 定格荷重の銘板
+        const capacityText = '15t';
+        const capacityPlateWidth = signHeight * 2;
+        const capacityPlateHeight = signHeight;
+        const capacityTexture = this._createTextSignTexture(capacityText, capacityPlateWidth, capacityPlateHeight);
+        const capacityMaterial = new THREE.MeshBasicMaterial({ map: capacityTexture, transparent: true });
+        const capacityGeometry = new THREE.PlaneGeometry(capacityPlateWidth, capacityPlateHeight);
+        const capacitySign = new THREE.Mesh(capacityGeometry, capacityMaterial);
+        const capacityPositionX = -girderSpan / 2 + girderSpan * 0.8;
+        capacitySign.position.set(capacityPositionX, 0, signZ);
+        this.bridgeGroup.add(capacitySign);
+
+        const railGeom = new THREE.BoxGeometry(girderLength, 0.05, 0.08);
+        const rail1 = new THREE.Mesh(railGeom, MATERIALS.railMaterial);
+        rail1.position.set(0, 0.225, -0.6);
+        rail1.castShadow = true;
+        this.bridgeGroup.add(rail1);
+        const rail2 = new THREE.Mesh(railGeom, MATERIALS.railMaterial);
+        rail2.position.set(0, 0.225, 0.6);
+        rail2.castShadow = true;
+        this.bridgeGroup.add(rail2);
+        this.createEndCarriages();
+    }
+
+    createCatwalk(length, width, railingSide) {
+        const catwalkGroup = new THREE.Group();
+        const girderTopY = 0.2;
+        const frameHeight = 0.05;
+        const frameWidth = 0.05;
+        const frameMaterial = new THREE.MeshLambertMaterial({ color: 0x555555 });
+    
+        // 長手方向のフレーム
+        const longFrameGeom = new THREE.BoxGeometry(length, frameHeight, frameWidth);
+        const outerFrame = new THREE.Mesh(longFrameGeom, frameMaterial);
+        outerFrame.position.set(0, girderTopY - frameHeight / 2, railingSide * (width / 2 - frameWidth / 2));
+        catwalkGroup.add(outerFrame);
+        const innerFrame = new THREE.Mesh(longFrameGeom, frameMaterial);
+        innerFrame.position.set(0, girderTopY - frameHeight / 2, -railingSide * (width / 2 - frameWidth / 2));
+        catwalkGroup.add(innerFrame);
+    
+        // 短手方向のフレーム（梁）
+        const postInterval = 2.0;
+        const numPosts = Math.floor(length / postInterval) + 1;
+        const shortFrameGeom = new THREE.BoxGeometry(frameWidth, frameHeight, width - frameWidth * 2);
+    
+        for (let i = 0; i < numPosts; i++) {
+            const x = -length / 2 + i * postInterval;
+            const shortFrame = new THREE.Mesh(shortFrameGeom, frameMaterial);
+            shortFrame.position.set(x, girderTopY - frameHeight / 2, 0);
+            catwalkGroup.add(shortFrame);
+        }
+    
+        // 網目状の床（セクションごと）
+        const gridTexture = createExpandedMetalTexture();
+        const sectionLength = postInterval - frameWidth;
+        const sectionWidth = width - frameWidth * 2;
+        
+        const floorMaterial = new THREE.MeshLambertMaterial({
+            map: gridTexture,
+            transparent: true,
+            alphaTest: 0.1,
+            side: THREE.DoubleSide
+        });
+        const floorGeom = new THREE.PlaneGeometry(sectionLength, sectionWidth);
+    
+        for (let i = 0; i < numPosts - 1; i++) {
+            const x = -length / 2 + frameWidth / 2 + i * postInterval + sectionLength / 2;
+            const floorSection = new THREE.Mesh(floorGeom, floorMaterial);
+            const newTexture = gridTexture.clone();
+            newTexture.repeat.set(sectionLength * 2, sectionWidth * 2);
+            newTexture.needsUpdate = true;
+            floorSection.material = floorMaterial.clone();
+            floorSection.material.map = newTexture;
+
+            floorSection.rotation.x = -Math.PI / 2;
+            floorSection.position.set(x, girderTopY, 0);
+            catwalkGroup.add(floorSection);
+        }
+    
+        // 手すり
+        const handrailBaseY = girderTopY;
+        const handrailMaterial = new THREE.MeshLambertMaterial({ color: 0x555555 });
+        const handrailHeight = 0.8;
+        const postRadius = 0.02;
+        const postHeight = handrailHeight;
+        const postGeom = new THREE.CylinderGeometry(postRadius, postRadius, postHeight, 8);
+        const railingZ = railingSide * ((width / 2) - postRadius);
+    
+        for (let i = 0; i < numPosts; i++) {
+            const x = -length / 2 + i * postInterval;
+            const post = new THREE.Mesh(postGeom, handrailMaterial);
+            post.position.set(x, handrailBaseY + postHeight / 2, railingZ);
+            catwalkGroup.add(post);
+        }
+        const railGeom = new THREE.CylinderGeometry(postRadius, postRadius, length, 8);
+        const topRail = new THREE.Mesh(railGeom, handrailMaterial);
+        topRail.rotation.z = Math.PI / 2;
+        topRail.position.set(0, handrailBaseY + handrailHeight, railingZ);
+        catwalkGroup.add(topRail);
+        const middleRail = topRail.clone();
+        middleRail.position.y = handrailBaseY + handrailHeight / 2;
+        catwalkGroup.add(middleRail);
+        
+        return catwalkGroup;
+    }
+
+    createGirder(length, material) {
+        const shape = new THREE.Shape(); const w = 0.15, h = 0.2, tf = 0.025, tw = 0.015; shape.moveTo(-w, h); shape.lineTo(w, h); shape.lineTo(w, h - tf); shape.lineTo(tw, h - tf); shape.lineTo(tw, -h + tf); shape.lineTo(w, -h + tf); shape.lineTo(w, -h); shape.lineTo(-w, -h); shape.lineTo(-w, -h + tf); shape.lineTo(-tw, -h + tf); shape.lineTo(-tw, h - tf); shape.lineTo(-w, h - tf); shape.closePath();
+        const geometry = new THREE.ExtrudeGeometry(shape, { depth: length, bevelEnabled: false }); geometry.center(); geometry.rotateY(Math.PI / 2);
+        return new THREE.Mesh(geometry, material);
+    }
+
+    createEndCarriages() {
+        const carriageGeometry = new THREE.BoxGeometry(0.6, 0.3, 3.0);
+        const carriageY = 0.05;
+        const leftCarriage = new THREE.Mesh(carriageGeometry, MATERIALS.craneYellow);
+        leftCarriage.position.set(-CRANE_SPECS.bridgeSpan/2, carriageY, 0);
+        leftCarriage.castShadow = true;
+        this.bridgeGroup.add(leftCarriage);
+        const rightCarriage = new THREE.Mesh(carriageGeometry, MATERIALS.craneYellow);
+        rightCarriage.position.set(CRANE_SPECS.bridgeSpan/2, carriageY, 0);
+        rightCarriage.castShadow = true;
+        this.bridgeGroup.add(rightCarriage);
+        const motorGeometry = new THREE.CylinderGeometry(0.08, 0.08, 0.3, 16);
+        const motorMaterial = MATERIALS.hoistBlue;
+        const motorXOffset = 0.3 + 0.15;
+        const motorZOffset = 1.0;
+        const leftMotor = new THREE.Mesh(motorGeometry, motorMaterial);
+        leftMotor.rotateZ(Math.PI / 2);
+        leftMotor.position.set(-CRANE_SPECS.bridgeSpan/2 + motorXOffset, carriageY, motorZOffset);
+        leftMotor.castShadow = true;
+        this.bridgeGroup.add(leftMotor);
+        const rightMotor = new THREE.Mesh(motorGeometry, motorMaterial);
+        rightMotor.rotateZ(Math.PI / 2);
+        rightMotor.position.set(CRANE_SPECS.bridgeSpan/2 - motorXOffset, carriageY, motorZOffset);
+        rightMotor.castShadow = true;
+        this.bridgeGroup.add(rightMotor);
+    }
+
+    createTrolley() {
+        const trolleyGroup = new THREE.Group();
+        const frame = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.12, 1.6), MATERIALS.hoistBlue);
+        frame.position.y = 0.3;
+        trolleyGroup.add(frame);
+        const boxHeight = 0.25 * 1.2;
+        const boxY = 0.1 + boxHeight / 2;
+        const connectionBox = new THREE.Mesh(new THREE.BoxGeometry(0.8, boxHeight, 0.8), MATERIALS.hoistBlue);
+        connectionBox.position.y = boxY;
+        trolleyGroup.add(connectionBox);
+        const hoistBody = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.8, 32), MATERIALS.hoistBlue);
+        hoistBody.rotateX(Math.PI / 2);
+        hoistBody.position.y = 0;
+        trolleyGroup.add(hoistBody);
+        const motor = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.2, 32), MATERIALS.hoistBlue);
+        motor.rotateX(Math.PI / 2);
+        motor.position.set(0, 0, 0.5);
+        trolleyGroup.add(motor);
+        const wheelGeo = new THREE.CylinderGeometry(0.08, 0.08, 0.06, 24);
+        const wheelPositions = [
+            [-0.3, 0.25, 0.7], [0.3, 0.25, 0.7],
+            [-0.3, 0.25, -0.7], [0.3, 0.25, -0.7]
+        ];
+        wheelPositions.forEach(pos => { const wheel = new THREE.Mesh(wheelGeo, MATERIALS.wheelMaterial); wheel.rotateX(Math.PI / 2); wheel.position.set(pos[0], pos[1], pos[2]); trolleyGroup.add(wheel); });
+        this.trolleyGroup.add(trolleyGroup); this.bridgeGroup.add(this.trolleyGroup);
+    }
+
+    createHoist() {}
+
+    createHookAndMasterLink() {
+        this.hookGroup.add(this.createHookBlockAssembly());
+        this.masterLinkGroup.add(this.createMasterLink());
+        scene.add(this.hookGroup, this.masterLinkGroup);
+        this.updateHookPosition();
+    }
+
+    createHookBlockAssembly() {
+        const group = new THREE.Group();
+        const sheave = new THREE.Mesh(new THREE.CylinderGeometry(0.3/2, 0.3/2, 0.1, 32), MATERIALS.hookBlockBlue); sheave.rotateX(Math.PI / 2); group.add(sheave);
+        const plateGeo = new THREE.BoxGeometry(0.2, 0.18, 0.04);
+    
+        const yorkPlate1 = new THREE.Mesh(plateGeo, MATERIALS.hookBlockYellow);
+        yorkPlate1.position.set(0, -0.05, -(0.1 + 0.03)/2 - 0.04/2);
+    
+        const yorkPlate2 = new THREE.Mesh(plateGeo, MATERIALS.hookBlockYellow);
+        yorkPlate2.position.set(0, -0.05, (0.1 + 0.03)/2 + 0.04/2);
+    
+        // 荷重表示用のテクスチャ、マテリアル、ジオメトリを共通で作成
+        const capacityText = '15t';
+        const textHeight = 0.1;
+        const textWidth = textHeight * 1.5;
+        const capacityTexture = this._createTextSignTexture(capacityText, textWidth, textHeight, {
+            bgColor: '#ffd700', // MATERIALS.hookBlockYellow の色
+            fontSize: textHeight * 0.6,
+            fontColor: 'black'
+        });
+        const capacityMaterial = new THREE.MeshBasicMaterial({ map: capacityTexture });
+        const capacityGeometry = new THREE.PlaneGeometry(textWidth, textHeight);
+    
+        // プレート1（-Z側）のサイン
+        const capacitySign1 = new THREE.Mesh(capacityGeometry, capacityMaterial);
+        capacitySign1.position.z = -(0.04 / 2 + 0.001); // プレートの外面(-Z側)に配置
+        capacitySign1.rotation.y = Math.PI; // 外側を向くように回転
+        yorkPlate1.add(capacitySign1);
+    
+        // プレート2（+Z側）のサイン
+        const capacitySign2 = new THREE.Mesh(capacityGeometry, capacityMaterial);
+        capacitySign2.position.z = (0.04 / 2 + 0.001); // プレートの外面(+Z側)に配置
+        yorkPlate2.add(capacitySign2);
+    
+        group.add(yorkPlate1, yorkPlate2);
+        
+        const hookCurve = new THREE.CatmullRomCurve3([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, -0.8, 0), new THREE.Vector3(0.8, -1.8, 0), new THREE.Vector3(0, -2.5, 0), new THREE.Vector3(-0.7, -1.8, 0), new THREE.Vector3(-0.6, -1.4, 0)].map(p => p.multiplyScalar(CRANE_SPECS.hookScale)));
+        const hook = new THREE.Mesh(new THREE.TubeGeometry(hookCurve, 48, CRANE_SPECS.hookTubeRadius, 16, false), MATERIALS.shackle); hook.position.y = CRANE_SPECS.hookOffsetY; group.add(hook);
+        const latchHingePoint = new THREE.Vector3(0, -0.9, 0).multiplyScalar(CRANE_SPECS.hookScale); const latchTipPoint = new THREE.Vector3(-0.6, -1.4, 0).multiplyScalar(CRANE_SPECS.hookScale); const latchVector = new THREE.Vector3().subVectors(latchTipPoint, latchHingePoint);
+        const latch = new THREE.Mesh(new THREE.BoxGeometry(latchVector.length(), 0.03, 0.01), MATERIALS.darkMetal); latch.position.copy(latchHingePoint).add(latchVector.clone().multiplyScalar(0.5)); latch.position.y += CRANE_SPECS.hookOffsetY; latch.rotation.z = Math.atan2(latchVector.y, latchVector.x); group.add(latch);
+        const sheavePin = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 2 * Math.abs(yorkPlate1.position.z), 16), MATERIALS.darkMetal); sheavePin.rotateX(Math.PI/2); group.add(sheavePin);
+        return group;
+    }
+
+    createMasterLink() {
+        const masterLink = new THREE.Mesh(new THREE.TorusGeometry(CRANE_SPECS.masterLinkRadius, CRANE_SPECS.masterLinkTubeRadius, 16, 48), MATERIALS.shackle);
+        masterLink.rotation.x = Math.PI/2; masterLink.rotation.y = Math.PI/2;
+        return masterLink;
+    }
+
+    createFestoon() {
+        const railMountOffset = 0.3;
+        const railLength = CRANE_SPECS.bridgeSpan - railMountOffset * 2;
+        const railRadius = 0.03;
+        const railGeometry = new THREE.CylinderGeometry(railRadius, railRadius, railLength, 12);
+        const railMaterial = new THREE.MeshLambertMaterial({ color: 0xE0E0E0 });
+        this.festoonRail = new THREE.Mesh(railGeometry, railMaterial);
+        this.festoonRail.rotateZ(Math.PI / 2);
+        const railY = 0.05; // 走行装置モーターの高さ
+        const railZ = 1.1;
+        this.festoonRail.position.set(0, railY, railZ);
+        this.bridgeGroup.add(this.festoonRail);
+
+        const supportGeom = new THREE.BoxGeometry(0.05, 0.2, 0.05);
+        const westSupport = new THREE.Mesh(supportGeom, railMaterial);
+        westSupport.position.set(-(CRANE_SPECS.bridgeSpan / 2 - railMountOffset), railY - 0.1, railZ);
+        this.bridgeGroup.add(westSupport);
+        const eastSupport = new THREE.Mesh(supportGeom, railMaterial);
+        eastSupport.position.set(CRANE_SPECS.bridgeSpan / 2 - railMountOffset, railY - 0.1, railZ);
+        this.bridgeGroup.add(eastSupport);
+
+        const connectionBoxGeom = new THREE.BoxGeometry(0.1, 0.1, 0.1);
+        const connectionBox = new THREE.Mesh(connectionBoxGeom, MATERIALS.darkMetal);
+        const startX = -(CRANE_SPECS.bridgeSpan / 2) + railMountOffset;
+        connectionBox.position.set(startX, railY, railZ + 0.05);
+        this.bridgeGroup.add(connectionBox);
+        
+        this.festoonGroup = new THREE.Group();
+        this.bridgeGroup.add(this.festoonGroup);
+
+        this.festoonCables = [];
+        this.festoonHooks = [];
+        const hookMaterial = new THREE.MeshLambertMaterial({ color: 0xffd700 });
+
+        for (let i = 0; i < CRANE_SPECS.festoonNumHooks + 1; i++) {
+            const cableGeom = new THREE.TubeGeometry(new THREE.LineCurve3(new THREE.Vector3(), new THREE.Vector3(0.1,0,0)), 20, 0.02, 8, false);
+            const cable = new THREE.Mesh(cableGeom, MATERIALS.cableBlack);
+            this.festoonCables.push(cable);
+            this.festoonGroup.add(cable);
+        }
+        for (let i = 0; i < CRANE_SPECS.festoonNumHooks; i++) {
+            const hookGeom = new THREE.CylinderGeometry(0.015, 0.015, 0.15, 8);
+            const hook = new THREE.Mesh(hookGeom, hookMaterial);
+            this.festoonHooks.push(hook);
+            this.festoonGroup.add(hook);
+        }
+    }
+
+    updateFestoon() {
+        if (!this.festoonRail) return;
+
+        const railMountOffset = 0.3;
+        const startX = -(CRANE_SPECS.bridgeSpan / 2) + railMountOffset;
+        const railPos = this.festoonRail.position;
+
+        const cableSpan = this.trolleyPosition - startX;
+        if (cableSpan < 0.2) {
+            this.festoonGroup.visible = false;
+            return;
+        }
+        this.festoonGroup.visible = true;
+
+        const numHooks = CRANE_SPECS.festoonNumHooks;
+        const numSegments = numHooks + 1;
+        const hookSpacing = cableSpan / numSegments;
+
+        let wireStartPos = new THREE.Vector3(startX, railPos.y, railPos.z + 0.05);
+
+        for (let i = 0; i < numSegments; i++) {
+            const cable = this.festoonCables[i];
+            const hook = i < numHooks ? this.festoonHooks[i] : null;
+
+            let wireEndPos;
+            if (i < numHooks) {
+                const hookX = startX + hookSpacing * (i + 1);
+                const hookPosOnRail = new THREE.Vector3(hookX, railPos.y, railPos.z);
+                const hookLength = 0.15;
+                
+                hook.position.copy(hookPosOnRail);
+                hook.position.y -= hookLength / 2;
+
+                wireEndPos = hookPosOnRail;
+                wireEndPos.y -= hookLength;
+            } else {
+                wireEndPos = new THREE.Vector3(this.trolleyPosition, 0.05, 0.8);
+            }
+
+            const sag = findSagForLength(wireStartPos, wireEndPos, CRANE_SPECS.festoonSegmentLength);
+            const midPoint = new THREE.Vector3().addVectors(wireStartPos, wireEndPos).multiplyScalar(0.5);
+            midPoint.y -= sag;
+
+            const curve = new THREE.CatmullRomCurve3([wireStartPos, midPoint, wireEndPos]);
+            const newGeom = new THREE.TubeGeometry(curve, 20, 0.02, 8, false);
+            cable.geometry.dispose();
+            cable.geometry = newGeom;
+
+            wireStartPos = wireEndPos;
+        }
+    }
+    
+    placeNewCargo(position, isFromDoubleClick = false, placeImmediately = false) {
+        const config = JSON.parse(JSON.stringify(DEFAULT_CARGO_CONFIG));
+        
+        if (isFromDoubleClick) {
+            config.shape = CARGO_PLACEMENT_SETTINGS.defaultShape;
+        }
+        
+        const mesh = createCargoMesh(config);
+        const cargoObject = {
+            mesh,
+            config,
+            physicsState: {
+                isFalling: false,
+                velocity: { x: 0, y: 0, z: 0 },
+                angularVelocity: { x: 0, y: 0, z: 0 },
+                isTipping: false,
+                rotationProgress: 0,
+                pivot: null,
+                axis: null,
+                rotationSign: 1,
+                support: null,
+                lastCollisionTime: 0,
+                isRotating: false,
+                targetRotationY: 0
+            }
+        };
+
+        // 修正点：荷物生成時に質量を計算する
+        cargoObject.config.mass = calculateCargoMass(config);
+
+        mesh.userData.parent = cargoObject;
+        placeableCargos.push(cargoObject);
+        scene.add(mesh);
+        cargoObject.physicsState.targetRotationY = mesh.rotation.y;
+
+        if (placeImmediately || (isFromDoubleClick && CARGO_PLACEMENT_SETTINGS.mode === 'place')) {
+            const dims = getCargoDimensions(config);
+            mesh.position.set(position.x, dims.height / 2, position.z);
+            cargoObject.physicsState.support = floorPlane;
+        } else {
+            mesh.position.set(position.x, 15, position.z);
+            cargoObject.physicsState.isFalling = true;
+            cargoObject.physicsState.velocity.y = 0;
+        }
+    }
+
+    calculateSlingSpan(config) {
+        if (config.shape === 'plate') {
+            const ratio = config.slingPositionRatio / 10;
+            const offset = (0.5 - ratio) * config.plateWidth;
+            return Math.abs(2 * offset);
+        } else if (config.shape === 'ctong') {
+            return 0.1; 
+        } else {
+            const dims = getCargoDimensions(config);
+            return dims.depth;
+        }
+    }
+
+    calculateGeometry(config) {
+        const hookSaddleLocalY = CRANE_SPECS.hookSaddleBaseY + CRANE_SPECS.hookOffsetY;
+        const hookBlockY = this.hoistHeight + this.bridgeGroup.position.y - 8.5;
+        const hookSaddleGlobalY = hookBlockY + hookSaddleLocalY;
+        const ringInnerRadius = CRANE_SPECS.masterLinkRadius - CRANE_SPECS.masterLinkTubeRadius;
+        const masterLinkCenterY = hookSaddleGlobalY - ringInnerRadius;
+        let verticalDistance;
+
+        if (config.shape === 'ctong') {
+            const cargo = this.attachedCargo || this.pickupCandidate;
+            const liftingPoint = cargo?.mesh.userData.liftingPoint || new THREE.Vector3(0, getCargoDimensions(config).height, 0);
+            verticalDistance = liftingPoint.y;
+        } else {
+            const slingSpanL = this.calculateSlingSpan(config);
+            const slingSpanW = getCargoDimensions(config).depth;
+
+            const horizontalDist = Math.sqrt(Math.pow(slingSpanL / 2, 2) + Math.pow(slingSpanW / 2, 2));
+
+            const angleRad = config.slingAngle * Math.PI / 180;
+            const halfAngleRad = angleRad / 2;
+
+            if (Math.tan(halfAngleRad) < 1e-6) {
+                verticalDistance = 1000;
+            } else {
+                verticalDistance = horizontalDist / Math.tan(halfAngleRad);
+            }
+        }
+        return { masterLinkCenterY, verticalDistance };
+    }
+
+    setupControls() {
+        this.setupPendantControls();
+        this.setupKeyboardControls();
+        this.setupSettingsModal();
+        this.setupCargoEditModal();
+    }
+
+    setupPendantControls() {
+        const buttons = { powerOnBtn: () => this.powerOn(), powerOffBtn: () => this.powerOff(), northBtn: () => this.setControl('north', true), southBtn: () => this.setControl('south', true), eastBtn: () => this.setControl('east', true), westBtn: () => this.setControl('west', true), upBtn: () => this.setControl('up', true), downBtn: () => this.setControl('down', true), emergencyBtn: () => this.emergencyStop() };
+        Object.entries(buttons).forEach(([id, action]) => { const btn = document.getElementById(id); btn.addEventListener('mousedown', action); btn.addEventListener('touchstart', action); });
+        ['north', 'south', 'east', 'west', 'up', 'down'].forEach(dir => { const btn = document.getElementById(dir + 'Btn'); const release = () => this.setControl(dir, false); btn.addEventListener('mouseup', release); btn.addEventListener('mouseleave', release); btn.addEventListener('touchend', release); });
+        this.makePendantDraggable();
+    }
+
+    setupKeyboardControls() {
+        window.addEventListener('keydown', (e) => { if (cameraMode !== 'firstPerson') return; switch(e.key.toLowerCase()) { case 'w': keyControls.w = true; break; case 'a': keyControls.a = true; break; case 's': keyControls.s = true; break; case 'd': keyControls.d = true; break; case ' ': keyControls.space = true; e.preventDefault(); break; case 'shift': keyControls.shift = true; break; case 'arrowup': keyControls.up = true; e.preventDefault(); break; case 'arrowdown': keyControls.down = true; e.preventDefault(); break; case 'arrowleft': keyControls.left = true; e.preventDefault(); break; case 'arrowright': keyControls.right = true; e.preventDefault(); break; } });
+        window.addEventListener('keyup', (e) => { switch(e.key.toLowerCase()) { case 'w': keyControls.w = false; break; case 'a': keyControls.a = false; break; case 's': keyControls.s = false; break; case 'd': keyControls.d = false; break; case ' ': keyControls.space = false; break; case 'shift': keyControls.shift = false; break; case 'arrowup': keyControls.up = false; break; case 'arrowdown': keyControls.down = false; break; case 'arrowleft': keyControls.left = false; break; case 'arrowright': keyControls.right = false; break; } });
+    }
+
+    setupSettingsModal() {
+        document.getElementById('settingsBtn').addEventListener('click', () => { document.getElementById('settingsModal').style.display = 'block'; this.loadCurrentSettings(); });
+        document.getElementById('closeSettingsBtn').addEventListener('click', () => { document.getElementById('settingsModal').style.display = 'none'; });
+        
+        document.getElementById('buildingHeight').addEventListener('input', () => {
+            const value = parseFloat(document.getElementById('buildingHeight').value);
+            document.getElementById('buildingHeightValue').textContent = value.toFixed(1) + 'm';
+            this.applySettings();
+            this.rebuildFactory();
+        });
+
+        ['bridgeSpeed', 'trolleySpeed', 'hoistSpeed', 'dampingFactor'].forEach(id => {
+            document.getElementById(id).addEventListener('input', () => {
+                const value = parseFloat(document.getElementById(id).value);
+                let text = value.toFixed(1);
+                if (id === 'hoistSpeed') text = value.toFixed(2);
+                if (id === 'dampingFactor') text = value.toFixed(3);
+                document.getElementById(id + 'Value').textContent = text;
+                this.applySettings();
+            });
+        });
+        
+        document.getElementById('cargoPlacementMode').addEventListener('change', (e) => {
+            CARGO_PLACEMENT_SETTINGS.mode = e.target.value;
+        });
+        document.getElementById('defaultCargoShape').addEventListener('change', (e) => {
+            CARGO_PLACEMENT_SETTINGS.defaultShape = e.target.value;
+        });
+        
+        document.getElementById('cameraMode').addEventListener('change', (e) => { const newMode = e.target.checked ? 'firstPerson' : 'thirdPerson'; document.getElementById('cameraModeLabel').textContent = newMode === 'firstPerson' ? '1人称視点' : '3人称視点'; document.getElementById('fpInstructions').style.display = newMode === 'firstPerson' ? 'block' : 'none'; switchCameraMode(newMode); });
+        document.getElementById('groundEnabled').addEventListener('change', () => this.applySettings());
+        document.getElementById('shadowEnabled').addEventListener('change', () => this.applySettings());
+        document.getElementById('floorColor').addEventListener('input', (e) => { CRANE_SPECS.floorColor = parseInt(e.target.value.replace('#', '0x'), 16); if (floorPlane) floorPlane.material.color.setHex(CRANE_SPECS.floorColor); });
+        document.getElementById('resetFloorColor').addEventListener('click', () => { CRANE_SPECS.floorColor = 0xfafafa; 
+        document.getElementById('floorColor').value = '#fafafa'; if (floorPlane) floorPlane.material.color.setHex(CRANE_SPECS.floorColor); });
+        this.makeModalDraggable(document.getElementById('settingsModal'));
+    }
+
+    setupCargoEditModal() {
+        const modal = document.getElementById('cargoEditModal');
+        document.getElementById('closeCargoEditBtn').addEventListener('click', () => { modal.style.display = 'none'; selectedCargo = null; });
+        document.getElementById('deleteCargoBtn').addEventListener('click', () => this.deleteSelectedCargo());
+        document.getElementById('rotateCargoLeftBtn').addEventListener('click', () => this.rotateSelectedCargo(-Math.PI / 2));
+        document.getElementById('rotateCargoRightBtn').addEventListener('click', () => this.rotateSelectedCargo(Math.PI / 2));
+        const updateCargo = () => { if (selectedCargo) this.updateSelectedCargo(); };
+        document.getElementById('cargoShape').addEventListener('change', (e) => {
+            const shape = e.target.value;
+            document.getElementById('plateSettings').style.display = shape === 'plate' ? 'block' : 'none';
+            document.getElementById('coilSettings').style.display = shape === 'coil' ? 'block' : 'none';
+            document.getElementById('ctongSettings').style.display = shape === 'ctong' ? 'block' : 'none';
+            document.getElementById('slingAngleSetting').style.display = (shape === 'plate' || shape === 'coil') ? 'block' : 'none';
+            document.getElementById('slingPositionSetting').style.display = shape === 'plate' ? 'block' : 'none';
+            if(shape === 'ctong' && document.getElementById('cargoMaterial').value !== 'iron') {
+                document.getElementById('cargoMaterial').value = 'iron';
+            }
+            updateCargo();
+        });
+        ['cargoPlateWidth', 'cargoPlateHeight', 'cargoPlateDepth', 'slingAngle',
+         'cargoCoilThickness', 'cargoCoilInnerDiameter', 'cargoCoilWidth',
+         'cargoCtongArmLength', 'cargoCtongOpeningHeight', 'cargoCtongThickness'].forEach(id => {
+            document.getElementById(id).addEventListener('input', updateCargo);
+        });
+
+        document.getElementById('slingPosition').addEventListener('input', () => {
+            if (!selectedCargo) return;
+
+            const config = selectedCargo.config;
+            const W = parseFloat(document.getElementById('cargoPlateDepth').value);
+
+            const L_old = this.calculateSlingSpan({ ...config, slingPositionRatio: config.slingPositionRatio });
+            const angle_old_rad = config.slingAngle * Math.PI / 180;
+            const d_old = Math.sqrt(Math.pow(L_old / 2, 2) + Math.pow(W / 2, 2));
+            
+            let S = 1.0;
+            if (Math.sin(angle_old_rad / 2) > 1e-6) {
+                S = d_old / Math.sin(angle_old_rad / 2);
+            }
+
+            const newSlingPositionRatio = parseFloat(document.getElementById('slingPosition').value);
+            const L_new = this.calculateSlingSpan({ ...config, slingPositionRatio: newSlingPositionRatio, plateWidth: parseFloat(document.getElementById('cargoPlateWidth').value) });
+            
+            const d_new = Math.sqrt(Math.pow(L_new / 2, 2) + Math.pow(W / 2, 2));
+            let newSlingAngleDeg;
+
+            if (S > d_new) {
+                const new_half_angle_rad = Math.asin(d_new / S);
+                newSlingAngleDeg = (new_half_angle_rad * 2) * 180 / Math.PI;
+            } else {
+                newSlingAngleDeg = 120;
+            }
+
+            const slingAngleInput = document.getElementById('slingAngle');
+            const slingAngleValueEl = document.getElementById('slingAngleValue');
+            newSlingAngleDeg = Math.max(parseFloat(slingAngleInput.min), Math.min(parseFloat(slingAngleInput.max), newSlingAngleDeg));
+            slingAngleInput.value = newSlingAngleDeg;
+            slingAngleValueEl.textContent = Math.round(newSlingAngleDeg) + '°';
+            
+            updateCargo();
+        });
+
+        document.getElementById('cargoMaterial').addEventListener('change', updateCargo);
+        document.getElementById('cargoPosX').addEventListener('change', updateCargo);
+        document.getElementById('cargoPosZ').addEventListener('change', updateCargo);
+        this.makeModalDraggable(modal);
+    }
+
+    updateSelectedCargo() {
+        if (!selectedCargo) return;
+        const oldMesh = selectedCargo.mesh;
+        const oldRotationY = oldMesh.rotation.y;
+        const oldDims = getCargoDimensions(selectedCargo.config);
+        const oldPosition = oldMesh.position.clone();
+        const config = selectedCargo.config;
+        config.shape = document.getElementById('cargoShape').value;
+        config.material = document.getElementById('cargoMaterial').value;
+        config.plateWidth = parseFloat(document.getElementById('cargoPlateWidth').value);
+        config.plateHeight = parseFloat(document.getElementById('cargoPlateHeight').value);
+        config.plateDepth = parseFloat(document.getElementById('cargoPlateDepth').value);
+        config.slingPositionRatio = parseFloat(document.getElementById('slingPosition').value);
+        config.slingAngle = parseFloat(document.getElementById('slingAngle').value);
+        config.coilThickness = parseInt(document.getElementById('cargoCoilThickness').value);
+        config.coilInnerDiameter = parseInt(document.getElementById('cargoCoilInnerDiameter').value);
+        config.coilWidth = parseInt(document.getElementById('cargoCoilWidth').value);
+        config.ctongArmLength = parseFloat(document.getElementById('cargoCtongArmLength').value);
+        config.ctongOpeningHeight = parseFloat(document.getElementById('cargoCtongOpeningHeight').value);
+        config.ctongThickness = parseInt(document.getElementById('cargoCtongThickness').value);
+        selectedCargo.mesh = createCargoMesh(config);
+        selectedCargo.mesh.rotation.y = oldRotationY;
+        selectedCargo.mesh.userData.parent = selectedCargo;
+        scene.remove(oldMesh);
+        scene.add(selectedCargo.mesh);
+        const newX = parseFloat(document.getElementById('cargoPosX').value);
+        const newZ = parseFloat(document.getElementById('cargoPosZ').value);
+        const newDims = getCargoDimensions(config);
+        const sizeChangeX = newDims.width - oldDims.width;
+        const sizeChangeY = newDims.height - oldDims.height;
+        const sizeChangeZ = newDims.depth - oldDims.depth;
+        selectedCargo.mesh.position.set(newX, oldPosition.y - oldDims.height/2 + newDims.height/2, newZ);
+
+        for (const otherCargo of placeableCargos) {
+            if (otherCargo === selectedCargo) continue;
+            if (otherCargo.physicsState.support === selectedCargo) {
+                otherCargo.mesh.position.y += sizeChangeY;
+                this.checkStabilityWithPhysics(otherCargo);
+            }
+            const otherDims = getCargoDimensions(otherCargo.config);
+            const dx = Math.abs(otherCargo.mesh.position.x - selectedCargo.mesh.position.x);
+            const dy = Math.abs(otherCargo.mesh.position.y - selectedCargo.mesh.position.y);
+            const dz = Math.abs(otherCargo.mesh.position.z - selectedCargo.mesh.position.z);
+            const touchThreshold = 0.01;
+            const halfWidthSum = (newDims.width + otherDims.width) / 2 + touchThreshold;
+            const halfHeightSum = (newDims.height + otherDims.height) / 2 + touchThreshold;
+            const halfDepthSum = (newDims.depth + otherDims.depth) / 2 + touchThreshold;
+
+            if (dx < halfWidthSum && dy < halfHeightSum && dz < halfDepthSum) {
+                if (sizeChangeX > 0 && dx > 0.01) {
+                    const overlapX = halfWidthSum - dx;
+                    const pushX = overlapX * Math.sign(otherCargo.mesh.position.x - selectedCargo.mesh.position.x);
+                    otherCargo.mesh.position.x += pushX;
+                    otherCargo.physicsState.velocity.x = pushX * 2;
+                }
+                if (sizeChangeZ > 0 && dz > 0.01) {
+                    const overlapZ = halfDepthSum - dz;
+                    const pushZ = overlapZ * Math.sign(otherCargo.mesh.position.z - selectedCargo.mesh.position.z);
+                    otherCargo.mesh.position.z += pushZ;
+                    otherCargo.physicsState.velocity.z = pushZ * 2;
+                }
+                this.checkStabilityWithPhysics(otherCargo);
+            }
+        }
+        if (this.attachedCargo === selectedCargo) {
+            this.updateWire();
+        }
+        this.updateCargoUI(config);
+        updateCargoMaterial(selectedCargo.mesh, config.material);
+    }
+
+    deleteSelectedCargo() {
+        if (!selectedCargo) return;
+        for (const otherCargo of placeableCargos) {
+            if (otherCargo.physicsState.support === selectedCargo) {
+                otherCargo.physicsState.isFalling = true;
+                otherCargo.physicsState.support = null;
+            }
+        }
+        scene.remove(selectedCargo.mesh);
+        placeableCargos = placeableCargos.filter(c => c !== selectedCargo);
+        if (this.attachedCargo === selectedCargo) this.attachedCargo = null;
+        selectedCargo = null;
+        document.getElementById('cargoEditModal').style.display = 'none';
+    }
+
+    updateCargoUI(config) {
+        document.getElementById('slingPositionValue').textContent = config.slingPositionRatio.toFixed(1);
+        document.getElementById('slingAngleValue').textContent = config.slingAngle.toFixed(0) + '°';
+        document.getElementById('cargoPlateWidthValue').textContent = config.plateWidth.toFixed(1) + 'm';
+        document.getElementById('cargoPlateHeightValue').textContent = config.plateHeight.toFixed(2) + 'm';
+        document.getElementById('cargoPlateDepthValue').textContent = config.plateDepth.toFixed(1) + 'm';
+        document.getElementById('cargoCoilThicknessValue').textContent = config.coilThickness + 'mm';
+        document.getElementById('cargoCoilInnerDiameterValue').textContent = config.coilInnerDiameter + 'mm';
+        document.getElementById('cargoCoilWidthValue').textContent = config.coilWidth + 'mm';
+        document.getElementById('cargoCtongArmLengthValue').textContent = config.ctongArmLength.toFixed(1) + 'm';
+        document.getElementById('cargoCtongOpeningHeightValue').textContent = config.ctongOpeningHeight.toFixed(2) + 'm';
+        document.getElementById('cargoCtongThicknessValue').textContent = config.ctongThickness + 'mm';
+        
+        // 修正点：質量計算を独立した関数に委譲
+        config.mass = calculateCargoMass(config);
+        document.getElementById('calculatedWeight').textContent = (config.mass / 1000).toFixed(1) + 't';
+    }
+
+    makeModalDraggable(modal) {
+        const content = modal.querySelector('.settings-content');
+        const handle = content.querySelector('.settings-header h3');
+        let isDragging = false, offset = { x: 0, y: 0 };
+        handle.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            const rect = content.getBoundingClientRect();
+            offset = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+            content.style.transform = 'none';
+            document.body.style.userSelect = 'none';
+        });
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            let x = e.clientX - offset.x, y = e.clientY - offset.y;
+            const maxX = window.innerWidth - content.offsetWidth, maxY = window.innerHeight - content.offsetHeight;
+            x = Math.max(0, Math.min(x, maxX));
+            y = Math.max(0, Math.min(y, maxY));
+            content.style.left = `${x}px`;
+            content.style.top = `${y}px`;
+        });
+        document.addEventListener('mouseup', () => {
+            isDragging = false;
+            document.body.style.userSelect = '';
+        });
+    }
+
+    loadCurrentSettings() {
+        document.getElementById('buildingHeight').value = CRANE_SPECS.maxHeight;
+        document.getElementById('buildingHeightValue').textContent = CRANE_SPECS.maxHeight.toFixed(1) + 'm';
+        document.getElementById('bridgeSpeed').value = CRANE_SPECS.bridgeSpeed;
+        document.getElementById('bridgeSpeedValue').textContent = CRANE_SPECS.bridgeSpeed.toFixed(1);
+        document.getElementById('trolleySpeed').value = CRANE_SPECS.trolleySpeed;
+        document.getElementById('trolleySpeedValue').textContent = CRANE_SPECS.trolleySpeed.toFixed(1);
+        document.getElementById('hoistSpeed').value = CRANE_SPECS.hoistSpeed;
+        document.getElementById('hoistSpeedValue').textContent = CRANE_SPECS.hoistSpeed.toFixed(2);
+        document.getElementById('dampingFactor').value = PHYSICS.dampingFactor;
+        document.getElementById('dampingFactorValue').textContent = PHYSICS.dampingFactor.toFixed(3);
+        document.getElementById('cameraMode').checked = cameraMode === 'firstPerson';
+        document.getElementById('cameraModeLabel').textContent = cameraMode === 'firstPerson' ? '1人称視点' : '3人称視点';
+        document.getElementById('groundEnabled').checked = this.gridHelper ? this.gridHelper.visible : true;
+        document.getElementById('shadowEnabled').checked = CRANE_SPECS.shadowEnabled;
+        
+        document.getElementById('cargoPlacementMode').value = CARGO_PLACEMENT_SETTINGS.mode;
+        document.getElementById('defaultCargoShape').value = CARGO_PLACEMENT_SETTINGS.defaultShape;
+    }
+
+    applySettings() {
+        CRANE_SPECS.maxHeight = parseFloat(document.getElementById('buildingHeight').value);
+        CRANE_SPECS.girderHeight = CRANE_SPECS.maxHeight + 0.275;
+        this.bridgeGroup.position.y = CRANE_SPECS.girderHeight;
+        CRANE_SPECS.bridgeSpeed = parseFloat(document.getElementById('bridgeSpeed').value);
+        CRANE_SPECS.trolleySpeed = parseFloat(document.getElementById('trolleySpeed').value);
+        CRANE_SPECS.hoistSpeed = parseFloat(document.getElementById('hoistSpeed').value);
+        PHYSICS.dampingFactor = parseFloat(document.getElementById('dampingFactor').value);
+        if(this.gridHelper) this.gridHelper.visible = document.getElementById('groundEnabled').checked;
+        if(floorPlane) floorPlane.visible = document.getElementById('groundEnabled').checked;
+        CRANE_SPECS.shadowEnabled = document.getElementById('shadowEnabled').checked;
+        renderer.shadowMap.enabled = CRANE_SPECS.shadowEnabled;
+        sunLight.castShadow = CRANE_SPECS.shadowEnabled;
+        scene.traverse(object => { if (object.isMesh) { object.castShadow = CRANE_SPECS.shadowEnabled; if (object.name === 'groundShadowPlane' || object.name === 'floor') object.receiveShadow = CRANE_SPECS.shadowEnabled; } if (object.material) object.material.needsUpdate = true; });
+    }
+
+    rebuildFactory() {
+        this.factoryObjects.forEach(obj => scene.remove(obj));
+        this.factoryObjects = [];
+        this.gridHelper = null;
+        this.createFactory();
+    }
+
+    makePendantDraggable() {
+        const pendant = document.getElementById('pendant');
+        let isDraggingPendant = false, pendantOffset = { x: 0, y: 0 };
+        pendant.addEventListener('mousedown', (e) => { if (e.target.classList.contains('pendant-button')) return; isDraggingPendant = true; const rect = pendant.getBoundingClientRect(); pendantOffset = { x: e.clientX - rect.left, y: e.clientY - rect.top }; pendant.style.cursor = 'grabbing'; });
+        document.addEventListener('mousemove', (e) => { if (!isDraggingPendant) return; const x = e.clientX - pendantOffset.x, y = e.clientY - pendantOffset.y; pendant.style.left = Math.max(0, Math.min(window.innerWidth - pendant.offsetWidth, x)) + 'px'; pendant.style.top = Math.max(0, Math.min(window.innerHeight - pendant.offsetHeight, y)) + 'px'; pendant.style.right = 'auto'; pendant.style.transform = 'none'; });
+        document.addEventListener('mouseup', () => { isDraggingPendant = false; pendant.style.cursor = 'move'; });
+    }
+
+    powerOn() { if (isEmergencyStop) return; isPowerOn = true; document.getElementById('powerOnBtn').classList.add('active'); document.getElementById('powerOffBtn').classList.remove('active'); this.updateStatus(); }
+    powerOff() { isPowerOn = false; document.getElementById('powerOnBtn').classList.remove('active'); document.getElementById('powerOffBtn').classList.add('active'); this.stopAllMovement(); this.updateStatus(); }
+    emergencyStop() { isEmergencyStop = !isEmergencyStop; const btn = document.getElementById('emergencyBtn'); if (isEmergencyStop) { isPowerOn = false; document.getElementById('powerOnBtn').classList.remove('active'); document.getElementById('powerOffBtn').classList.add('active'); btn.style.background = '#ff4444'; this.stopAllMovement(); } else { btn.style.background = ''; } this.updateStatus(); }
+    setControl(direction, active) { if (!isPowerOn || isEmergencyStop) return; this.activeControls[direction] = active; document.getElementById(direction + 'Btn').style.background = active ? 'var(--button-active)' : ''; }
+    stopAllMovement() { Object.keys(this.activeControls).forEach(key => this.activeControls[key] = false); this.velocities = { bridge: 0, trolley: 0, hoist: 0 }; }
+    updateCameraZoom(delta) { if (cameraMode !== 'thirdPerson') return; camera.position.multiplyScalar(1 + delta * 0.001); const distance = camera.position.length(); if (distance < 5) camera.position.normalize().multiplyScalar(5); if (distance > 30) camera.position.normalize().multiplyScalar(30); camera.lookAt(0, 5, 0); }
+    
+    rotateSelectedCargo(angle) {
+        if (!selectedCargo || selectedCargo.physicsState.isRotating) return;
+        const isAttached = this.attachedCargo === selectedCargo || (this.attachedCargo && this.attachedCargo.mesh.userData.heldCargo === selectedCargo);
+        if (isAttached) {
+            selectedCargo.physicsState.isRotating = true;
+            selectedCargo.physicsState.targetRotationY += angle;
+        } else {
+            selectedCargo.mesh.rotation.y += angle;
+            selectedCargo.physicsState.targetRotationY = selectedCargo.mesh.rotation.y;
+        }
+    }
+
+    updateStatus(deltaTime = 0) {
+        document.getElementById('powerStatus').textContent = isPowerOn ? 'ON' : 'OFF';
+        document.getElementById('bridgePos').textContent = this.bridgePosition.toFixed(1) + 'm';
+        document.getElementById('trolleyPos').textContent = this.trolleyPosition.toFixed(1) + 'm';
+        document.getElementById('hoistHeight').textContent = this.hoistHeight.toFixed(1) + 'm';
+        document.getElementById('wireLength').textContent = this.calculateWireLength().toFixed(1) + 'm';
+        document.getElementById('cargoHeightStatus').textContent = this.calculateCargoHeight().toFixed(1) + 'm';
+
+        let totalMass = 0;
+        let dynamicForce = 0;
+        let numSlings = 0;
+
+        if (this.attachedCargo) {
+            const cargo = this.attachedCargo;
+            if (cargo.config.shape === 'plate') {
+                // 修正点：吊り点位置が中央(5.0)の場合、ワイヤーは2本として計算
+                numSlings = (cargo.config.slingPositionRatio === 5.0) ? 2 : 4;
+            } else if (cargo.config.shape === 'coil') {
+                numSlings = 2;
+            } else if (cargo.config.shape === 'ctong') {
+                numSlings = 1;
+            }
+
+            let heldMass = 0;
+            if (cargo.config.shape === 'ctong' && cargo.mesh.userData.heldCargo) {
+                heldMass = cargo.mesh.userData.heldCargo.config.mass;
+            }
+            totalMass = cargo.config.mass + heldMass;
+
+            if (totalMass > 0) {
+                const g = PHYSICS.gravity;
+                const L = this.pendulum.currentLength;
+                const angularVelSq = this.pendulum.angleVelX**2 + this.pendulum.angleVelZ**2;
+                const totalAngle = Math.sqrt(this.pendulum.angleX**2 + this.pendulum.angleZ**2);
+                
+                // 修正点：巻き上げ・下げの加速度を考慮した動的荷重を計算
+                const hoistAcceleration = deltaTime > 1e-5 ? (this.velocities.hoist - this.lastVelocities.hoist) / deltaTime : 0;
+                dynamicForce = totalMass * ((g + hoistAcceleration) * Math.cos(totalAngle) + L * angularVelSq);
+            }
+        }
+        
+        // 「吊り荷重量」(静的)の表示
+        const staticWeightInTons = totalMass / 1000;
+        document.getElementById('loadWeight').textContent = staticWeightInTons.toFixed(1) + 't';
+
+        // 「ワイヤー荷重」(動的)の表示
+        const dynamicLoadInTons = dynamicForce > 0 ? (dynamicForce / PHYSICS.gravity / 1000) : 0;
+        let wireLoadText;
+        if (!isFinite(dynamicLoadInTons) || isNaN(dynamicLoadInTons) || !this.attachedCargo) {
+            wireLoadText = '0.00t / -本';
+        } else {
+            wireLoadText = `${dynamicLoadInTons.toFixed(2)}t / ${numSlings}本`;
+        }
+        document.getElementById('slingTension').textContent = wireLoadText;
+
+
+        const pickupStatusEl = document.getElementById('pickupStatus');
+        if (this.attachedCargo && this.attachedCargo.config.shape === 'ctong' && this.coilPickupCandidate) {
+            pickupStatusEl.textContent = 'コイル可';
+            pickupStatusEl.className = 'status-value possible';
+        } else if (!this.attachedCargo && this.pickupCandidate) {
+            pickupStatusEl.textContent = '可能';
+            pickupStatusEl.className = 'status-value possible';
+        } else {
+            pickupStatusEl.textContent = '不可';
+            pickupStatusEl.className = 'status-value impossible';
+        }
+
+        if (this.pendulum) {
+            const totalAngle = Math.sqrt(this.pendulum.angleX**2 + this.pendulum.angleZ**2);
+            const angleDeg = (totalAngle * 180 / Math.PI);
+            document.getElementById('swingAngle').textContent = angleDeg.toFixed(1) + '°';
+            const warningEl = document.getElementById('swingWarning');
+            if (this.attachedCargo && angleDeg > 10) { warningEl.textContent = '警告'; warningEl.classList.add('warning'); }
+            else { warningEl.textContent = '正常'; warningEl.classList.remove('warning'); }
+        }
+
+        const statusEl = document.getElementById('cargoStatus');
+        if (this.attachedCargo) { 
+            let statusText = '吊り上げ中';
+            if(this.attachedCargo.config.shape === 'ctong' && this.attachedCargo.mesh.userData.heldCargo) {
+                statusText = 'コイル吊り中';
+            }
+            statusEl.textContent = statusText; 
+            statusEl.className = 'status-value attached'; 
+        } else { 
+            statusEl.textContent = '空'; 
+            statusEl.className = 'status-value detached'; 
+        }
+    }
+}
+
+</script>
+    <script>
+
+// START OF FILE main.js
+
+// メイン処理・UI・イベント処理
+
+let scene, camera, renderer, sunLight;
+let craneSystem;
+let isPowerOn = false, isEmergencyStop = false;
+let isDragging = false, lastMousePos = { x: 0, y: 0 };
+let cameraMode = 'thirdPerson';
+let cameraFPV = { yaw: -Math.PI / 2, pitch: 0, position: { x: 6, y: 1.7, z: -2 } };
+let keyControls = { w: false, a: false, s: false, d: false, space: false, shift: false, up: false, down: false, left: false, right: false };
+let floorPlane = null;
+let placeableCargos = [];
+let selectedCargo = null;
+let draggedCargo = null;
+let clickedCargoOnMouseDown = null;
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+let mouseDownPos = { x: 0, y: 0 };
+
+const MATERIALS = {
+    craneYellow: new THREE.MeshLambertMaterial({ color: 0xffa500 }),
+    darkMetal: new THREE.MeshLambertMaterial({ color: 0x333333 }),
+    wire: new THREE.MeshLambertMaterial({ color: 0x555555 }),
+    cargo: null, shackle: new THREE.MeshLambertMaterial({ color: 0xffd700 }),
+    hookBlockBlue: new THREE.MeshLambertMaterial({ color: 0x00529b }),
+    hookBlockYellow: new THREE.MeshLambertMaterial({ color: 0xffd700 }),
+    frameMaterial: new THREE.MeshLambertMaterial({ color: 0x98FB98 }),
+    pillarMaterial: new THREE.MeshLambertMaterial({ color: 0x98FB98 }),
+    wheelMaterial: new THREE.MeshLambertMaterial({ color: 0x222222 }),
+    railMaterial: new THREE.MeshLambertMaterial({ color: 0x888888 }),
+    slingMaterial: new THREE.MeshLambertMaterial({ color: 0xadd8e6 }),
+    hoistBlue: new THREE.MeshLambertMaterial({ color: 0x4169E1 }),
+    cableBlack: new THREE.MeshLambertMaterial({ color: 0x333333 })
+};
+
+function init() {
+    scene = new THREE.Scene(); scene.background = new THREE.Color(0xe6f3ff);
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000); camera.position.set(0, 10, 15); camera.lookAt(0, 5, 0);
+    renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('canvas'), antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight); renderer.shadowMap.enabled = CRANE_SPECS.shadowEnabled; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    setupLighting();
+    MATERIALS.cargo = new THREE.MeshStandardMaterial({ color: 0xc8c8c8, metalness: 0.7, roughness: 0.25, envMapIntensity: 1.0 });
+    craneSystem = new CraneSystem();
+    setupUI();
+    renderer.domElement.addEventListener('mousedown', onCanvasMouseDown, false);
+    renderer.domElement.addEventListener('dblclick', onCanvasDblClick, false);
+    window.addEventListener('mouseup', onWindowMouseUp, false);
+    window.addEventListener('mousemove', onWindowMouseMove, false);
+    window.addEventListener('resize', onWindowResize, false);
+    window.addEventListener('wheel', onWindowMouseWheel, { passive: false });
+    animate();
+}
+
+function setupLighting() {
+    // 1. アンビエントライトをさらに明るくする
+    //    色を 0xaaaaaa → 0xe0e0e0 (ほぼ白) に変更
+    //    強度を 1.0 → 1.2 に少し戻す
+    scene.add(new THREE.AmbientLight(0xe0e0e0, 1.2));
+
+    // 2. 太陽光（直接光）の強度を上げる
+    //    強度を 1.8 → 2.0 に変更
+    sunLight = new THREE.DirectionalLight(0xffffff, 2.0);
+    sunLight.position.set(20, 20, 10);
+    sunLight.castShadow = CRANE_SPECS.shadowEnabled;
+    sunLight.shadow.mapSize.width = 2048; sunLight.shadow.mapSize.height = 2048;
+    sunLight.shadow.camera.near = 0.5; sunLight.shadow.camera.far = 50;
+    sunLight.shadow.camera.left = -20; sunLight.shadow.camera.right = 20;
+    sunLight.shadow.camera.top = 20; sunLight.shadow.camera.bottom = -20;
+    scene.add(sunLight);
+    
+    // 補助光も少し調整
+    const fillLight1 = new THREE.DirectionalLight(0xe6f3ff, 1.0); // 0.9 → 1.0
+    fillLight1.position.set(-10, 15, -10);
+    scene.add(fillLight1);
+    const fillLight2 = new THREE.DirectionalLight(0xfffacd, 0.6); // 0.5 → 0.6
+    fillLight2.position.set(0, -5, 0);
+    scene.add(fillLight2);
+}
+
+function setupUI() {
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('hud').style.display = 'block';
+}
+
+// CraneSystemのメソッドを追加で定義
+CraneSystem.prototype.update = function(deltaTime) {
+    if (deltaTime <= 0 || deltaTime > 0.1) return;
+    this.updateMovement(deltaTime);
+    this.updatePhysics(deltaTime);
+    this.updateCargoPhysics(deltaTime);
+
+    // 回転アニメーション処理
+    for (const cargo of placeableCargos) {
+        if (cargo.physicsState.isRotating) {
+            const isAttached = (this.attachedCargo === cargo || (this.attachedCargo && this.attachedCargo.mesh.userData.heldCargo === cargo));
+            if (isAttached) {
+                const currentRotation = cargo.mesh.rotation.y;
+                const targetRotation = cargo.physicsState.targetRotationY;
+                
+                let diff = targetRotation - currentRotation;
+                while (diff <= -Math.PI) diff += 2 * Math.PI;
+                while (diff > Math.PI) diff -= 2 * Math.PI;
+
+                const rotationSpeed = Math.PI / 1.5; // 1.5秒で90度
+
+                if (Math.abs(diff) < 0.02) {
+                    cargo.mesh.rotation.y = targetRotation;
+                    cargo.physicsState.isRotating = false;
+                } else {
+                    const rotationStep = Math.sign(diff) * rotationSpeed * deltaTime;
+                    if (Math.abs(rotationStep) >= Math.abs(diff)) {
+                       cargo.mesh.rotation.y = targetRotation;
+                       cargo.physicsState.isRotating = false;
+                    } else {
+                       cargo.mesh.rotation.y += rotationStep;
+                    }
+                }
+            } else {
+                cargo.physicsState.isRotating = false;
+            }
+        }
+    }
+
+    this.updateVisuals();
+    if (this.attachedCargo) {
+        const cargoA = this.attachedCargo;
+        const posA = cargoA.mesh.position;
+        const boxA = new THREE.Box3().setFromObject(cargoA.mesh.userData.mainMesh);
+
+        for (const cargoB of placeableCargos) {
+            if (cargoA === cargoB) continue;
+            if (cargoA.mesh.userData.heldCargo === cargoB) continue;
+            
+            if (hasPreciseCollision(cargoA, cargoB)) {
+                const boxB = new THREE.Box3().setFromObject(cargoB.mesh.userData.mainMesh);
+                const centerA = new THREE.Vector3(); boxA.getCenter(centerA);
+                const centerB = new THREE.Vector3(); boxB.getCenter(centerB);
+                const sizeA = new THREE.Vector3(); boxA.getSize(sizeA);
+                const sizeB = new THREE.Vector3(); boxB.getSize(sizeB);
+
+                const penetration = new THREE.Vector3(
+                    (sizeA.x + sizeB.x) / 2 - Math.abs(centerA.x - centerB.x),
+                    (sizeA.y + sizeB.y) / 2 - Math.abs(centerA.y - centerB.y),
+                    (sizeA.z + sizeB.z) / 2 - Math.abs(centerA.z - centerB.z)
+                );
+
+                if (penetration.x > 0 && penetration.y > 0 && penetration.z > 0) {
+                    const overlap = new THREE.Vector3();
+                    if (penetration.x < penetration.z) {
+                        overlap.x = penetration.x * Math.sign(centerA.x - centerB.x);
+                    } else {
+                        overlap.z = penetration.z * Math.sign(centerA.z - centerB.z);
+                    }
+                    
+                    posA.add(overlap);
+                    
+                    const impulseStrength = 0.2;
+                    this.pendulum.angleVelX += (overlap.x / this.pendulum.currentLength) * impulseStrength;
+                    this.pendulum.angleVelZ += (overlap.z / this.pendulum.currentLength) * impulseStrength;
+                    
+                    if (!cargoB.physicsState.isFalling && !cargoB.physicsState.isTipping) {
+                         cargoB.physicsState.isFalling = true;
+                         cargoB.physicsState.support = null;
+                         const pushStrength = 2.0;
+                         cargoB.physicsState.velocity.x = -overlap.x * pushStrength;
+                         cargoB.physicsState.velocity.z = -overlap.z * pushStrength;
+                    }
+                    
+                    this.updateLoadPosition();
+                    this.updateWire();
+                }
+            }
+        }
+    }
+
+    this.updateStatus(deltaTime);
+    this.lastVelocities = { ...this.velocities };
+};
+
+CraneSystem.prototype.updateMovement = function(deltaTime) {
+    if (!isPowerOn || isEmergencyStop) {
+        this.velocities.bridge *= CRANE_DAMPING;
+        this.velocities.trolley *= CRANE_DAMPING;
+        this.velocities.hoist *= CRANE_DAMPING;
+    } else {
+        const dt = deltaTime;
+        if (this.activeControls.north) this.velocities.bridge = Math.max(this.velocities.bridge - CRANE_SPECS.bridgeSpeed * dt, -CRANE_SPECS.bridgeSpeed);
+        else if (this.activeControls.south) this.velocities.bridge = Math.min(this.velocities.bridge + CRANE_SPECS.bridgeSpeed * dt, CRANE_SPECS.bridgeSpeed);
+        else this.velocities.bridge *= CRANE_DAMPING;
+        if (this.activeControls.east) this.velocities.trolley = Math.min(this.velocities.trolley + CRANE_SPECS.trolleySpeed * dt, CRANE_SPECS.trolleySpeed);
+        else if (this.activeControls.west) this.velocities.trolley = Math.max(this.velocities.trolley - CRANE_SPECS.trolleySpeed * dt, -CRANE_SPECS.trolleySpeed);
+        else this.velocities.trolley *= CRANE_DAMPING;
+        if (this.activeControls.up) this.velocities.hoist = Math.min(this.velocities.hoist + CRANE_SPECS.hoistSpeed * dt, CRANE_SPECS.hoistSpeed);
+        else if (this.activeControls.down) this.velocities.hoist = Math.max(this.velocities.hoist - CRANE_SPECS.hoistSpeed * dt, -CRANE_SPECS.hoistSpeed);
+        else this.velocities.hoist *= CRANE_DAMPING;
+    }
+    this.bridgePosition = Math.max(-CRANE_SPECS.bridgeLength / 2, Math.min(CRANE_SPECS.bridgeLength / 2, this.bridgePosition + this.velocities.bridge * deltaTime));
+    this.trolleyPosition = Math.max(-CRANE_SPECS.bridgeSpan / 2, Math.min(CRANE_SPECS.bridgeSpan / 2, this.trolleyPosition + this.velocities.trolley * deltaTime));
+    this.hoistHeight += this.velocities.hoist * deltaTime;
+
+    this.findPickupCandidate();
+
+    if (this.attachedCargo) {
+        const cargo = this.attachedCargo;
+        if (cargo.config.shape === 'ctong' && cargo.mesh.userData.heldCargo && this.velocities.hoist < 0) {
+            const heldCoil = cargo.mesh.userData.heldCargo;
+            const coilWorldPos = new THREE.Vector3();
+            heldCoil.mesh.getWorldPosition(coilWorldPos);
+            const coilDims = getCargoDimensions(heldCoil.config);
+            const contactInfo = this.checkCargoContact(heldCoil, coilWorldPos, true);
+
+            if (contactInfo.hasContact && coilWorldPos.y - coilDims.height / 2 < contactInfo.contactPoint.y + 0.1) {
+                const worldQuaternion = new THREE.Quaternion();
+                heldCoil.mesh.getWorldQuaternion(worldQuaternion);
+                scene.attach(heldCoil.mesh);
+                heldCoil.mesh.position.copy(coilWorldPos);
+                heldCoil.mesh.quaternion.copy(worldQuaternion);
+
+                cargo.mesh.userData.heldCargo = null;
+                heldCoil.physicsState.isFalling = true;
+                heldCoil.physicsState.support = null;
+                heldCoil.physicsState.velocity.y = this.velocities.hoist;
+            }
+        } else if (this.velocities.hoist <= 0) {
+            const cargoBottomY = this.calculateCargoBottomY(cargo.config);
+            const contactInfo = this.checkCargoContact(cargo, cargo.mesh.position, true);
+            if (contactInfo.hasContact && contactInfo.contactPoint.y >= cargoBottomY - 0.05) {
+                this.attachedCargo = null;
+                cargo.physicsState.isFalling = true;
+                cargo.physicsState.velocity.y = this.velocities.hoist;
+                if (contactInfo.contactNormal) {
+                    const angle = Math.acos(contactInfo.contactNormal.dot(new THREE.Vector3(0, 1, 0)));
+                    if (angle > 0.1) {
+                        cargo.physicsState.angularVelocity.x = contactInfo.contactNormal.z * 0.5;
+                        cargo.physicsState.angularVelocity.z = -contactInfo.contactNormal.x * 0.5;
+                    }
+                }
+                this.pendulum.angleX = 0; this.pendulum.angleZ = 0;
+                this.pendulum.angleVelX = 0; this.pendulum.angleVelZ = 0;
+            }
+        }
+    } else {
+        if (this.pickupCandidate && this.activeControls.up) {
+            const minHoistForPickup = this.calculateMinHoistHeight(this.pickupCandidate.config);
+            if (this.hoistHeight < minHoistForPickup) {
+                this.hoistHeight = Math.min(minHoistForPickup, this.hoistHeight + this.velocities.hoist * deltaTime);
+            }
+            if (this.hoistHeight >= minHoistForPickup) {
+                this.hoistHeight = minHoistForPickup;
+                this.attachedCargo = this.pickupCandidate;
+                this.attachedCargo.physicsState.support = null;
+                this.pendulum.supportPos = { x: this.trolleyPosition, z: this.bridgePosition };
+            }
+        }
+    }
+
+    if (this.attachedCargo && this.attachedCargo.config.shape === 'ctong' && this.coilPickupCandidate && this.activeControls.up) {
+        const cTong = this.attachedCargo;
+        const coil = this.coilPickupCandidate;
+        
+        cTong.mesh.userData.heldCargo = coil;
+        coil.physicsState.isFalling = false;
+        coil.physicsState.support = cTong;
+        
+        cTong.mesh.attach(coil.mesh);
+
+        const coilDims = getCargoDimensions(coil.config);
+        const cTongArmThickness = cTong.config.ctongThickness / 1000 * 1.5;
+        coil.mesh.position.set(coilDims.width / 2, cTongArmThickness / 2, 0);
+        coil.mesh.rotation.set(0, 0, 0);
+        
+        this.coilPickupCandidate = null;
+    }
+
+    this.hoistHeight = Math.min(this.bridgeGroup.position.y - 1.0, this.hoistHeight);
+    const hookBottomY = this.hoistHeight + this.bridgeGroup.position.y - 8.5 + CRANE_SPECS.hookOffsetY - 0.5;
+    if (hookBottomY <= 0) {
+        this.hoistHeight = Math.max(this.hoistHeight, -this.bridgeGroup.position.y + 9.0);
+        if (this.velocities.hoist < 0) this.velocities.hoist = 0;
+    }
+};
+
+CraneSystem.prototype.findPickupCandidate = function() {
+    const candidates = [];
+    const hookPos = new THREE.Vector2(this.trolleyPosition, this.bridgePosition);
+    const unattachedCargos = placeableCargos.filter(c => c !== this.attachedCargo && !c.physicsState.isTipping && !c.physicsState.isFalling && (!this.attachedCargo || this.attachedCargo.mesh.userData.heldCargo !== c));
+    for (const cargo of unattachedCargos) {
+        const cargoPos = new THREE.Vector2(cargo.mesh.position.x, cargo.mesh.position.z);
+        const dims = getCargoDimensions(cargo.config);
+        if (Math.abs(hookPos.x - cargoPos.x) < dims.width / 2 &&
+            Math.abs(hookPos.y - cargoPos.y) < dims.depth / 2) {
+            candidates.push(cargo);
+        }
+    }
+    candidates.sort((a, b) => (b.mesh.position.y + getCargoDimensions(b.config).height / 2) - (a.mesh.position.y + getCargoDimensions(a.config).height / 2));
+    this.pickupCandidate = candidates.length > 0 ? candidates[0] : null;
+
+    this.coilPickupCandidate = null;
+    if (this.attachedCargo && this.attachedCargo.config.shape === 'ctong' && !this.attachedCargo.mesh.userData.heldCargo) {
+        const cTong = this.attachedCargo;
+        
+        const armLocalPos = new THREE.Vector3(cTong.config.ctongArmLength * 0.7, cTong.config.ctongOpeningHeight / 2, 0);
+        if (cTong.mesh.userData.hollowInfo && cTong.mesh.userData.hollowInfo.centerOffset) {
+            armLocalPos.sub(cTong.mesh.userData.hollowInfo.centerOffset);
+        }
+        const armWorldPos = cTong.mesh.localToWorld(armLocalPos);
+
+        for (const cargo of unattachedCargos) {
+            if (cargo.config.shape !== 'coil') continue;
+            
+            const coil = cargo;
+            const coilInnerRadius = (coil.config.coilInnerDiameter / 1000) / 2;
+            const coilHalfWidth = (coil.config.coilWidth / 1000) / 2;
+
+            const armPosInCoilLocal = coil.mesh.worldToLocal(armWorldPos.clone());
+            
+            const distSq = armPosInCoilLocal.x**2 + armPosInCoilLocal.y**2;
+            const isInsideHole = distSq < coilInnerRadius**2;
+            const isWithinWidth = Math.abs(armPosInCoilLocal.z) < coilHalfWidth;
+
+            if (isInsideHole && isWithinWidth) {
+                this.coilPickupCandidate = coil;
+                break;
+            }
+        }
+    }
+};
+
+CraneSystem.prototype.calculateCargoBottomY = function(config) {
+    if (!this.attachedCargo) return 0;
+    const geo = this.calculateGeometry(config);
+    const dims = getCargoDimensions(this.attachedCargo.config);
+    const masterLinkY = this.attachedCargo.config.shape === 'ctong' ? 
+        this.hookGroup.position.y + CRANE_SPECS.hookSaddleBaseY : 
+        geo.masterLinkCenterY;
+    const loadCenterY = masterLinkY - geo.verticalDistance;
+    return loadCenterY - dims.height/2;
+};
+
+CraneSystem.prototype.calculateMinHoistHeight = function(config) {
+    const geo = this.calculateGeometry(config);
+    const girderY = this.bridgeGroup.position.y;
+    const loadTopY = this.pickupCandidate.mesh.position.y + getCargoDimensions(config).height / 2;
+    let requiredJunctionY;
+    if (config.shape === 'ctong') {
+         requiredJunctionY = loadTopY + geo.verticalDistance;
+    } else {
+         requiredJunctionY = loadTopY + geo.verticalDistance;
+    }
+
+    const hookSaddleLocalY = CRANE_SPECS.hookSaddleBaseY + CRANE_SPECS.hookOffsetY;
+    const ringInnerRadius = CRANE_SPECS.masterLinkRadius - CRANE_SPECS.masterLinkTubeRadius;
+    
+    let K;
+    if (config.shape === 'ctong') {
+        K = girderY - 8.5 + hookSaddleLocalY;
+    } else {
+        K = girderY - 8.5 + hookSaddleLocalY - ringInnerRadius;
+    }
+
+    return requiredJunctionY - K;
+};
+
+CraneSystem.prototype.updatePhysics = function(deltaTime) {
+    if (!this.pendulum || deltaTime <= 0 || !this.attachedCargo) return;
+    const supportAccelX = (this.velocities.trolley - (this.pendulum.supportVel.x || 0)) / deltaTime;
+    const supportAccelZ = (this.velocities.bridge - (this.pendulum.supportVel.z || 0)) / deltaTime;
+    this.pendulum.supportVel = { x: this.velocities.trolley, z: this.velocities.bridge };
+    this.pendulum.supportPos = { x: this.trolleyPosition, z: this.bridgePosition };
+    const L = Math.max(0.1, this.calculateWireLength());
+    this.pendulum.currentLength = L;
+    const g = PHYSICS.gravity;
+    const angularAccelX = (-g * Math.sin(this.pendulum.angleX) - supportAccelX * Math.cos(this.pendulum.angleX)) / L - PHYSICS.airResistance * this.pendulum.angleVelX;
+    const angularAccelZ = (-g * Math.sin(this.pendulum.angleZ) - supportAccelZ * Math.cos(this.pendulum.angleZ)) / L - PHYSICS.airResistance * this.pendulum.angleVelZ;
+    this.pendulum.angleVelX += angularAccelX * deltaTime; this.pendulum.angleVelZ += angularAccelZ * deltaTime;
+    this.pendulum.angleVelX *= PHYSICS.dampingFactor; this.pendulum.angleVelZ *= PHYSICS.dampingFactor;
+    this.pendulum.angleX += this.pendulum.angleVelX * deltaTime; this.pendulum.angleZ += this.pendulum.angleVelZ * deltaTime;
+    this.pendulum.angleX = Math.max(-PHYSICS.maxSwingAngle, Math.min(PHYSICS.maxSwingAngle, this.pendulum.angleX));
+    this.pendulum.angleZ = Math.max(-PHYSICS.maxSwingAngle, Math.min(PHYSICS.maxSwingAngle, this.pendulum.angleZ));
+};
+
+CraneSystem.prototype.checkCargoContact = function(cargo, position, includeAttached = false) {
+    const dims = getCargoDimensions(cargo.config);
+    const testPoints = this.getCargoTestPoints(cargo, position);
+    let hasContact = false;
+    let lowestContactY = -Infinity;
+    let contactPoint = null;
+    let contactObject = null;
+    let contactNormal = new THREE.Vector3(0, 1, 0);
+    const potentialSupports = [
+        floorPlane,
+        ...this.girderMeshes,
+        ...placeableCargos.filter(c => {
+            if (c === cargo) return false;
+            if (!includeAttached && c === this.attachedCargo) return false;
+            if (this.attachedCargo?.mesh.userData.heldCargo === c) return false;
+            return c && c.mesh && c.mesh.userData && c.mesh.userData.mainMesh && c.mesh.userData.mainMesh.children.length > 0;
+        }).map(c => c.mesh.userData.mainMesh.children[0])
+    ].filter(Boolean);
+
+    for (const point of testPoints) {
+        const rayOrigin = new THREE.Vector3(point.x, position.y + dims.height, point.z);
+        raycaster.set(rayOrigin, new THREE.Vector3(0, -1, 0));
+        const intersects = raycaster.intersectObjects(potentialSupports, true);
+        if (intersects.length > 0) {
+            const contact = intersects[0];
+            if (contact.point.y > lowestContactY && contact.distance < dims.height * 2) {
+                let newContactObject = null;
+                if (contact.object.name === 'floor') {
+                    newContactObject = floorPlane;
+                } else if (contact.object.userData.isGirder) {
+                    newContactObject = contact.object;
+                } else if (contact.object.userData.parentCargo && contact.object.userData.parentCargo.userData.parent) {
+                    newContactObject = contact.object.userData.parentCargo.userData.parent;
+                }
+                
+                if (newContactObject) {
+                    hasContact = true;
+                    lowestContactY = contact.point.y;
+                    contactPoint = contact.point.clone();
+                    contactObject = newContactObject;
+                    if (contact.face) {
+                        contactNormal = contact.face.normal.clone();
+                        contactNormal.transformDirection(contact.object.matrixWorld);
+                    }
+                }
+            }
+        }
+    }
+    return { hasContact, contactPoint, contactObject, contactNormal };
+};
+
+CraneSystem.prototype.getCargoTestPoints = function(cargo, position) {
+    const config = cargo.config;
+    const offsets = [];
+
+    if (config.shape === 'plate') {
+        const dims = getCargoDimensions(config);
+        const marginRatio = 0.9;
+        const w = dims.width / 2 * marginRatio;
+        const d = dims.depth / 2 * marginRatio;
+        offsets.push(
+            new THREE.Vector3(0, 0, 0),
+            new THREE.Vector3(w, 0, d), new THREE.Vector3(w, 0, -d),
+            new THREE.Vector3(-w, 0, d), new THREE.Vector3(-w, 0, -d)
+        );
+    } else if (config.shape === 'coil') {
+        const dims = getCargoDimensions(config);
+        const outerR = dims.height / 2;
+        const halfDepth = dims.depth / 2 * 0.9;
+        const numPoints = 4;
+        
+        for (let i = 0; i <= numPoints; i++) {
+            const angle = Math.PI + (i / numPoints) * Math.PI;
+            const r = outerR;
+            const x = Math.cos(angle) * r;
+            const y = Math.sin(angle) * r;
+            offsets.push(new THREE.Vector3(x, y, -halfDepth));
+            offsets.push(new THREE.Vector3(x, y, halfDepth));
+        }
+
+    } else if (config.shape === 'ctong') {
+        const hollowInfo = cargo.mesh.userData.hollowInfo;
+        if (!hollowInfo) { return [position]; }
+        
+        const centerOffset = hollowInfo.centerOffset;
+        const halfDepth = (config.ctongThickness / 1000 * 3.0) / 2 * 0.9;
+        const armLength = config.ctongArmLength;
+        const frameThickness = config.ctongThickness / 1000;
+        const cornerRadius = frameThickness * 1.5;
+        const bottomY = -frameThickness;
+
+        const tempOffsets = [
+            new THREE.Vector3(-frameThickness - cornerRadius / 2, bottomY, -halfDepth),
+            new THREE.Vector3(-frameThickness / 2, bottomY, -halfDepth),
+            new THREE.Vector3(-frameThickness - cornerRadius / 2, bottomY, halfDepth),
+            new THREE.Vector3(-frameThickness / 2, bottomY, halfDepth),
+            new THREE.Vector3(cornerRadius, bottomY, -halfDepth),
+            new THREE.Vector3(armLength / 2, bottomY, -halfDepth),
+            new THREE.Vector3(armLength * 0.9, bottomY, -halfDepth),
+            new THREE.Vector3(cornerRadius, bottomY, halfDepth),
+            new THREE.Vector3(armLength / 2, bottomY, halfDepth),
+            new THREE.Vector3(armLength * 0.9, bottomY, halfDepth)
+        ];
+
+        tempOffsets.forEach(offset => offsets.push(offset.sub(centerOffset)));
+    }
+
+    const points = [];
+    offsets.forEach(offset => {
+        const point = position.clone().add(offset.applyQuaternion(cargo.mesh.quaternion));
+        points.push(point);
+    });
+    return points;
+};
+
+// 修正点：エラーの原因となっていた関数を修正
+CraneSystem.prototype.checkStabilityWithPhysics = function(cargo) {
+    if (!cargo || !cargo.physicsState.support || cargo.physicsState.isTipping) return;
+    const supportObject = cargo.physicsState.support;
+
+    // supportObjectがcargoオブジェクトでない場合（＝floorPlaneの場合）はチェックをスキップ
+    // これにより、floorPlaneが再生成された際にもエラーが発生しなくなる
+    if (!supportObject.config) {
+        // supportObjectが現在のfloorPlaneでない場合、それは古いfloorPlaneへの参照（stale reference）
+        // この場合、cargoを再び落下状態に戻して新しい床を見つけさせる
+        if (supportObject !== floorPlane) {
+            cargo.physicsState.isFalling = true;
+            cargo.physicsState.support = null;
+        }
+        return;
+    }
+    
+    // 以下はsupportObjectが他のcargoオブジェクトである場合の処理
+    const bottomMesh = supportObject.mesh.userData.mainMesh.children[0];
+    bottomMesh.updateWorldMatrix(true, false);
+    const bottomBBox = new THREE.Box3().setFromObject(bottomMesh);
+    const topCenter = cargo.mesh.position;
+    const dims = getCargoDimensions(cargo.config);
+    const centerOfMass = topCenter.clone();
+    const supportMargin = 0.02;
+
+    if (centerOfMass.x >= bottomBBox.min.x + supportMargin &&
+        centerOfMass.x <= bottomBBox.max.x - supportMargin &&
+        centerOfMass.z >= bottomBBox.min.z + supportMargin &&
+        centerOfMass.z <= bottomBBox.max.z - supportMargin) {
+        return;
+    }
+    const state = cargo.physicsState;
+    const dx_min = topCenter.x - (bottomBBox.min.x + supportMargin);
+    const dx_max = topCenter.x - (bottomBBox.max.x - supportMargin);
+    const dz_min = topCenter.z - (bottomBBox.min.z + supportMargin);
+    const dz_max = topCenter.z - (bottomBBox.max.z - supportMargin);
+    let pivotEdge = 'none', overhang = 0, slideDirection = new THREE.Vector3();
+    if (dx_min < 0) { overhang = -dx_min; pivotEdge = 'x_min'; slideDirection.x = -1; }
+    if (dx_max > 0 && dx_max > overhang) { overhang = dx_max; pivotEdge = 'x_max'; slideDirection.x = 1; }
+    if (dz_min < 0 && -dz_min > overhang) { overhang = -dz_min; pivotEdge = 'z_min'; slideDirection.z = -1; }
+    if (dz_max > 0 && dz_max > overhang) { overhang = dz_max; pivotEdge = 'z_max'; slideDirection.z = 1; }
+    const tiltAngle = Math.atan2(overhang, dims.height / 2);
+    const frictionAngle = Math.atan(PHYSICS.friction);
+
+    if (tiltAngle > frictionAngle) {
+        state.isTipping = true; state.rotationProgress = 0;
+        const pivotY = bottomBBox.max.y;
+        const pivot = new THREE.Vector3(topCenter.x, pivotY, topCenter.z);
+        const axis = new THREE.Vector3();
+        if (pivotEdge === 'x_min') { pivot.x = bottomBBox.min.x; axis.set(0, 0, 1); state.rotationSign = -1; }
+        else if (pivotEdge === 'x_max') { pivot.x = bottomBBox.max.x; axis.set(0, 0, 1); state.rotationSign = 1; }
+        else if (pivotEdge === 'z_min') { pivot.z = bottomBBox.min.z; axis.set(1, 0, 0); state.rotationSign = 1; }
+        else if (pivotEdge === 'z_max') { pivot.z = bottomBBox.max.z; axis.set(1, 0, 0); state.rotationSign = -1; }
+        state.pivot = pivot; state.axis = axis;
+    } else {
+        state.isFalling = true; state.support = null;
+        const slideSpeed = overhang * PHYSICS.gravity * PHYSICS.slidingFriction * 0.1;
+        state.velocity.x += slideDirection.x * slideSpeed;
+        state.velocity.z += slideDirection.z * slideSpeed;
+    }
+};
+
+CraneSystem.prototype.updateCargoPhysics = function(deltaTime) {
+    for (const cargo of placeableCargos) {
+        if(this.attachedCargo && this.attachedCargo.mesh.userData.heldCargo === cargo) continue;
+        const state = cargo.physicsState;
+        if (state.isFalling) this.updateFallingCargo(cargo, deltaTime);
+        else if (state.isTipping) this.updateTippingCargo(cargo, deltaTime);
+        else if (state.support) this.checkStabilityWithPhysics(cargo);
+    }
+};
+
+CraneSystem.prototype.updateFallingCargo = function(cargo, deltaTime) {
+    const state = cargo.physicsState;
+    const dims = getCargoDimensions(cargo.config);
+    state.velocity.y -= PHYSICS.gravity * deltaTime;
+    state.velocity.x *= (1 - PHYSICS.airResistance * deltaTime);
+    state.velocity.y *= (1 - PHYSICS.airResistance * deltaTime * 0.5);
+    state.velocity.z *= (1 - PHYSICS.airResistance * deltaTime);
+    state.angularVelocity.x *= (1 - PHYSICS.rollingResistance);
+    state.angularVelocity.y *= (1 - PHYSICS.rollingResistance);
+    state.angularVelocity.z *= (1 - PHYSICS.rollingResistance);
+    const newPosition = cargo.mesh.position.clone().add(new THREE.Vector3(state.velocity.x, state.velocity.y, state.velocity.z).multiplyScalar(deltaTime));
+    const vertices = this.getCargoVertices(cargo);
+    let minVertexY = Infinity;
+    for (const v of vertices) minVertexY = Math.min(minVertexY, v.y);
+    const cargoBottomY = minVertexY + state.velocity.y * deltaTime;
+    const contactInfo = this.checkCargoContact(cargo, newPosition);
+
+    if (contactInfo.hasContact && cargoBottomY <= contactInfo.contactPoint.y + 0.02) {
+        // [修正点] isMeshプロパティをチェックして、オブジェクトがMeshである場合のみuserDataにアクセスする
+        const isGirderCollision = contactInfo.contactObject && contactInfo.contactObject.isMesh && contactInfo.contactObject.userData.isGirder;
+        const impactSpeed = Math.abs(state.velocity.y);
+        const currentTime = performance.now() / 1000;
+        if (impactSpeed > 0.1 && currentTime - state.lastCollisionTime > 0.1) {
+            const normal = contactInfo.contactNormal;
+            const v = new THREE.Vector3(state.velocity.x, state.velocity.y, state.velocity.z);
+            const vn = v.dot(normal);
+            if (vn < 0) {
+                const reflect = v.clone().sub(normal.clone().multiplyScalar(2 * vn));
+                state.velocity.x = reflect.x * PHYSICS.restitution;
+                state.velocity.y = reflect.y * PHYSICS.restitution;
+                state.velocity.z = reflect.z * PHYSICS.restitution;
+                const randomSpin = (Math.random() - 0.5) * 0.5;
+                state.angularVelocity.x += normal.z * impactSpeed * 0.2 + randomSpin;
+                state.angularVelocity.z += -normal.x * impactSpeed * 0.2 + randomSpin;
+            }
+            state.lastCollisionTime = currentTime;
+        } else {
+            newPosition.y = contactInfo.contactPoint.y - (minVertexY - cargo.mesh.position.y);
+            state.velocity.y *= -PHYSICS.restitution * 0.5;
+            state.velocity.x *= (1 - PHYSICS.friction * 5 * deltaTime);
+            state.velocity.z *= (1 - PHYSICS.friction * 5 * deltaTime);
+
+            const totalSpeed = Math.sqrt(state.velocity.x**2 + state.velocity.y**2 + state.velocity.z**2);
+            const angularSpeed = Math.sqrt(state.angularVelocity.x**2 + state.angularVelocity.y**2 + state.angularVelocity.z**2);
+            
+            if (!isGirderCollision && totalSpeed < PHYSICS.stabilityThreshold && angularSpeed < PHYSICS.stabilityThreshold) {
+                state.isFalling = false;
+                state.support = contactInfo.contactObject;
+                state.velocity = { x: 0, y: 0, z: 0 };
+                state.angularVelocity = {x:0, y:0, z:0};
+                cargo.mesh.position.copy(newPosition);
+                this.checkStabilityWithPhysics(cargo);
+            }
+        }
+    }
+    cargo.mesh.position.copy(newPosition);
+    cargo.mesh.rotation.x += state.angularVelocity.x * deltaTime;
+    cargo.mesh.rotation.y += state.angularVelocity.y * deltaTime;
+    cargo.mesh.rotation.z += state.angularVelocity.z * deltaTime;
+    if (minVertexY < 0) {
+        cargo.mesh.position.y -= minVertexY;
+        state.velocity.y = 0;
+        state.isFalling = false;
+        state.support = floorPlane;
+    }
+};
+
+CraneSystem.prototype.updateTippingCargo = function(cargo, deltaTime) {
+    const state = cargo.physicsState;
+    const dims = getCargoDimensions(cargo.config);
+    const tippingSpeed = Math.sqrt(PHYSICS.gravity / dims.height) * 1.5;
+    const rotationAmount = state.rotationSign * tippingSpeed * deltaTime;
+    const newProgress = state.rotationProgress + Math.abs(rotationAmount);
+    const finalAngle = Math.PI / 2;
+    let effectiveRotation = rotationAmount;
+    if (newProgress >= finalAngle) {
+        effectiveRotation = state.rotationSign * (finalAngle - state.rotationProgress);
+        state.isTipping = false; state.isFalling = true;
+        const tipVelocity = tippingSpeed * Math.min(dims.width, dims.depth) / 2;
+        state.velocity.x = state.axis.z * state.rotationSign * tipVelocity * 0.5;
+        state.velocity.z = -state.axis.x * state.rotationSign * tipVelocity * 0.5;
+    }
+    this.rotateAroundPoint(cargo.mesh, state.pivot, state.axis, effectiveRotation);
+    state.rotationProgress += Math.abs(effectiveRotation);
+    const vertices = this.getCargoVertices(cargo);
+    let minVertexY = Infinity;
+    for (const v of vertices) minVertexY = Math.min(minVertexY, v.y);
+    let supportTopY = 0;
+    if (state.support && state.support !== floorPlane) {
+        supportTopY = state.support.mesh.position.y + getCargoDimensions(state.support.config).height / 2;
+    }
+    if (minVertexY < supportTopY) {
+        cargo.mesh.position.y += supportTopY - minVertexY;
+        state.pivot.y += supportTopY - minVertexY;
+    }
+};
+
+CraneSystem.prototype.getCargoVertices = function(cargo) {
+    const config = cargo.config;
+    const localVertices = [];
+
+    if (config.shape === 'plate') {
+        const dims = getCargoDimensions(config);
+        const hw = dims.width / 2, hh = dims.height / 2, hd = dims.depth / 2;
+        localVertices.push(
+            new THREE.Vector3(-hw, -hh, -hd), new THREE.Vector3( hw, -hh, -hd),
+            new THREE.Vector3(-hw,  hh, -hd), new THREE.Vector3( hw,  hh, -hd),
+            new THREE.Vector3(-hw, -hh,  hd), new THREE.Vector3( hw, -hh,  hd),
+            new THREE.Vector3(-hw,  hh,  hd), new THREE.Vector3( hw,  hh,  hd)
+        );
+    } else if (config.shape === 'coil') {
+        const dims = getCargoDimensions(config);
+        const outerR = dims.height / 2;
+        const innerR = (config.coilInnerDiameter / 1000) / 2;
+        const halfDepth = dims.depth / 2;
+        const numAngles = 8;
+        for (let i = 0; i < numAngles; i++) {
+            const angle = (i / numAngles) * Math.PI * 2;
+            const cos = Math.cos(angle);
+            const sin = Math.sin(angle);
+            localVertices.push(new THREE.Vector3(cos * outerR, sin * outerR, -halfDepth));
+            localVertices.push(new THREE.Vector3(cos * outerR, sin * outerR,  halfDepth));
+            localVertices.push(new THREE.Vector3(cos * innerR, sin * innerR, -halfDepth));
+            localVertices.push(new THREE.Vector3(cos * innerR, sin * innerR,  halfDepth));
+        }
+    } else if (config.shape === 'ctong') {
+        const hollowInfo = cargo.mesh.userData.hollowInfo;
+        if (!hollowInfo) return [];
+
+        const centerOffset = hollowInfo.centerOffset;
+        const armLength = config.ctongArmLength;
+        const openingHeight = config.ctongOpeningHeight;
+        const frameThickness = config.ctongThickness / 1000;
+        const halfDepth = (config.ctongThickness / 1000 * 3.0) / 2;
+        
+        const points = [
+            new THREE.Vector3(armLength, 0, 0), new THREE.Vector3(0, 0, 0),
+            new THREE.Vector3(0, openingHeight, 0), new THREE.Vector3(-frameThickness, openingHeight + frameThickness, 0),
+            new THREE.Vector3(-frameThickness, -frameThickness, 0)
+        ];
+        points.forEach(p => {
+            localVertices.push(p.clone().add(new THREE.Vector3(0,0, halfDepth)));
+            localVertices.push(p.clone().add(new THREE.Vector3(0,0, -halfDepth)));
+        });
+
+        localVertices.forEach(v => v.sub(centerOffset));
+    }
+
+    cargo.mesh.updateWorldMatrix(true, false);
+    return localVertices.map(v => v.clone().applyMatrix4(cargo.mesh.matrixWorld));
+};
+
+CraneSystem.prototype.rotateAroundPoint = function(obj, point, axis, angle) {
+    const q = new THREE.Quaternion().setFromAxisAngle(axis, angle);
+    obj.position.sub(point);
+    obj.position.applyQuaternion(q);
+    obj.position.add(point);
+    obj.quaternion.premultiply(q);
+};
+
+CraneSystem.prototype.updateVisuals = function() {
+    this.bridgeGroup.position.z = this.bridgePosition;
+    this.trolleyGroup.position.x = this.trolleyPosition;
+    this.updateHookPosition();
+    this.updateMasterLinkPosition();
+    this.updateLoadPosition();
+    this.updateWire();
+    this.updateFestoon();
+};
+
+CraneSystem.prototype.updateHookPosition = function() { if (!this.pendulum) return; const L = this.pendulum.currentLength || this.pendulum.length; const swingOffsetX = L * Math.sin(this.pendulum.angleX); const swingOffsetZ = L * Math.sin(this.pendulum.angleZ); const hookY = this.hoistHeight + this.bridgeGroup.position.y - 8.5; this.hookGroup.position.set(this.trolleyPosition + swingOffsetX, hookY, this.bridgePosition + swingOffsetZ); this.hookGroup.rotation.set(this.pendulum.angleZ, 0, -this.pendulum.angleX); };
+
+CraneSystem.prototype.updateMasterLinkPosition = function() {
+    if (!this.pendulum || !this.attachedCargo || this.attachedCargo.config.shape === 'ctong') {
+        this.masterLinkGroup.visible = false;
+        return;
+    }
+    this.masterLinkGroup.visible = true;
+    const L = this.pendulum.currentLength || this.pendulum.length; const masterLinkX = this.trolleyPosition + L * Math.sin(this.pendulum.angleX); const masterLinkZ = this.bridgePosition + L * Math.sin(this.pendulum.angleZ); const geo = this.calculateGeometry(this.attachedCargo.config); this.masterLinkGroup.position.set(masterLinkX, geo.masterLinkCenterY, masterLinkZ); this.masterLinkGroup.rotation.set(this.pendulum.angleZ, 0, -this.pendulum.angleX);
+};
+
+CraneSystem.prototype.updateLoadPosition = function() {
+    if (!this.pendulum || !this.attachedCargo) return;
+    const cargo = this.attachedCargo;
+    const geo = this.calculateGeometry(cargo.config);
+    const dims = getCargoDimensions(cargo.config);
+    
+    let junctionY;
+    if (cargo.config.shape === 'ctong') {
+        const hookTipOffset = new THREE.Vector3(0, CRANE_SPECS.hookSaddleBaseY, 0);
+        const worldHookTipPos = this.hookGroup.localToWorld(hookTipOffset.clone());
+        junctionY = worldHookTipPos.y;
+    } else {
+        junctionY = this.masterLinkGroup.position.y;
+    }
+
+    const loadCenterY = junctionY - geo.verticalDistance - dims.height / 2;
+    
+    const loadX = this.hookGroup.position.x;
+    const loadZ = this.hookGroup.position.z;
+    
+    cargo.mesh.position.set(loadX, loadCenterY, loadZ);
+    
+    const currentYRotation = cargo.mesh.rotation.y;
+    cargo.mesh.rotation.set(this.pendulum.angleZ, currentYRotation, -this.pendulum.angleX);
+};
+
+CraneSystem.prototype.updateWire = function() { if (!this.wireSystem) return; this.updateUpperWires(); this.updateSlingWires(); };
+
+CraneSystem.prototype.updateUpperWires = function() { const wireSpacing = CRANE_SPECS.sheaveRadius * 2, startY = this.bridgeGroup.position.y - 0.1, endY = this.hookGroup.position.y; const positions = [{ startX: -wireSpacing / 2, endX: -wireSpacing / 2 }, { startX: wireSpacing / 2, endX: wireSpacing / 2 }]; this.wireSystem.upperWires.forEach((wire, i) => { const start = new THREE.Vector3(this.trolleyPosition + positions[i].startX, startY, this.bridgePosition); const end = new THREE.Vector3(this.hookGroup.position.x + positions[i].endX, endY, this.hookGroup.position.z); this.positionWire(wire, start, end); }); };
+
+CraneSystem.prototype.positionWire = function(wire, startVec, endVec) { const distance = startVec.distanceTo(endVec); wire.position.copy(startVec).add(endVec).divideScalar(2); wire.scale.y = distance; wire.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), endVec.clone().sub(startVec).normalize()); };
+
+CraneSystem.prototype.updateSlingWires = function() {
+    this.wireSystem.slingWires.forEach(wire => wire.visible = !!this.attachedCargo);
+    if (!this.attachedCargo) return;
+
+    const cargo = this.attachedCargo;
+    let junctionPoint;
+
+    if (cargo.config.shape === 'ctong') {
+        const hookTipOffset = new THREE.Vector3(0, CRANE_SPECS.hookSaddleBaseY, 0);
+        junctionPoint = this.hookGroup.localToWorld(hookTipOffset.clone());
+        const liftingPointWorld = cargo.mesh.localToWorld(cargo.mesh.userData.liftingPoint.clone());
+        this.positionWire(this.wireSystem.slingWires[0], junctionPoint, liftingPointWorld);
+        this.wireSystem.slingWires[0].visible = true;
+        for (let i = 1; i < 4; i++) {
+            this.wireSystem.slingWires[i].visible = false;
+        }
+    } else {
+        junctionPoint = this.masterLinkGroup.position.clone();
+        junctionPoint.y -= CRANE_SPECS.masterLinkRadius;
+        if (cargo.config.shape === 'plate') {
+            const {plateWidth:w, plateHeight:h, plateDepth:d, slingPositionRatio:ratio} = cargo.config;
+            const offset = (0.5 - ratio/10) * w;
+            const lugPositions = [[offset, h/2, d/2], [offset, h/2, -d/2], [-offset, h/2, d/2], [-offset, h/2, -d/2]];
+            for (let i = 0; i < 4; i++) {
+                const lugWorldPos = cargo.mesh.localToWorld(new THREE.Vector3(...lugPositions[i]));
+                this.positionWire(this.wireSystem.slingWires[i], junctionPoint, lugWorldPos);
+                this.wireSystem.slingWires[i].visible = true;
+            }
+        } else { // Coil
+            const dims = getCargoDimensions(cargo.config);
+            const lugLocalPos1 = new THREE.Vector3(0, dims.height/2, dims.depth/2);
+            const lugLocalPos2 = new THREE.Vector3(0, dims.height/2, -dims.depth/2);
+            const lugWorldPos1 = cargo.mesh.localToWorld(lugLocalPos1.clone());
+            const lugWorldPos2 = cargo.mesh.localToWorld(lugLocalPos2.clone());
+            this.positionWire(this.wireSystem.slingWires[0], junctionPoint, lugWorldPos1);
+            this.positionWire(this.wireSystem.slingWires[1], junctionPoint, lugWorldPos2);
+            this.wireSystem.slingWires[0].visible = true; this.wireSystem.slingWires[1].visible = true;
+            this.wireSystem.slingWires[2].visible = false; this.wireSystem.slingWires[3].visible = false;
+        }
+    }
+};
+
+CraneSystem.prototype.createWire = function() {
+    this.wireSystem = { upperWires: [], slingWires: [] };
+    for (let i = 0; i < 2; i++) this.wireSystem.upperWires.push(this.createDirectWire());
+    for (let i = 0; i < 4; i++) this.wireSystem.slingWires.push(this.createDirectWire());
+    this.wireSystem.upperWires.forEach(w => this.wireGroup.add(w));
+    this.wireSystem.slingWires.forEach(w => this.wireGroup.add(w));
+    scene.add(this.wireGroup); this.updateWire();
+};
+
+CraneSystem.prototype.createDirectWire = function() { return new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 1), MATERIALS.wire); };
+
+CraneSystem.prototype.calculateWireLength = function() { const trolleyY = this.bridgeGroup.position.y; const hookTopY = this.hoistHeight + this.bridgeGroup.position.y - 8.5 + 0.15; return Math.max(0, trolleyY - hookTopY); };
+
+CraneSystem.prototype.calculateCargoHeight = function() { if (!this.attachedCargo) {
+    const groundCargos = placeableCargos.filter(c => c !== this.attachedCargo);
+    if (groundCargos.length > 0) {
+        return 0.0;
+    }
+    return 0.0;
+} return Math.max(0, this.attachedCargo.mesh.position.y - getCargoDimensions(this.attachedCargo.config).height/2); };
+
+function onCanvasMouseDown(event) {
+    if (event.target.closest('.pendant-switch, .settings-modal')) return;
+    mouseDownPos.x = event.clientX;
+    mouseDownPos.y = event.clientY;
+    clickedCargoOnMouseDown = null;
+    mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+    raycaster.setFromCamera(mouse, camera);
+    const cargoMeshes = placeableCargos.map(c => c.mesh.userData.mainMesh).filter(Boolean);
+    const intersects = raycaster.intersectObjects(cargoMeshes, true);
+    if (intersects.length > 0) {
+        let hitObject = intersects[0].object;
+        let cargoGroup = null;
+        while(hitObject && !cargoGroup) {
+            if (hitObject.userData.parentCargo) {
+                cargoGroup = hitObject.userData.parentCargo;
+            }
+            hitObject = hitObject.parent;
+        }
+
+        if (cargoGroup && cargoGroup.userData.parent) {
+            const cargo = cargoGroup.userData.parent;
+            clickedCargoOnMouseDown = cargo;
+            isDragging = false;
+            if (selectedCargo === cargo && craneSystem.attachedCargo !== cargo && !cargo.physicsState.isTipping && !cargo.physicsState.isFalling) {
+                draggedCargo = cargo;
+                renderer.domElement.style.cursor = 'grabbing';
+            }
+        }
+    } else {
+        isDragging = true;
+        lastMousePos = { x: event.clientX, y: event.clientY };
+    }
+}
+
+function onCanvasDblClick(event) {
+    mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+    raycaster.setFromCamera(mouse, camera);
+    const stackableObjects = [floorPlane, ...placeableCargos.map(c => c.mesh.userData.mainMesh.children[0]).filter(Boolean)];
+    const intersects = raycaster.intersectObjects(stackableObjects);
+    if (intersects.length > 0) {
+        craneSystem.placeNewCargo(intersects[0].point, true);
+    }
+}
+
+function showCargoEditModal(cargo) {
+    const modal = document.getElementById('cargoEditModal');
+    const config = cargo.config;
+    document.getElementById('cargoShape').value = config.shape;
+    document.getElementById('plateSettings').style.display = config.shape === 'plate' ? 'block' : 'none';
+    document.getElementById('coilSettings').style.display = config.shape === 'coil' ? 'block' : 'none';
+    document.getElementById('ctongSettings').style.display = config.shape === 'ctong' ? 'block' : 'none';
+    document.getElementById('slingAngleSetting').style.display = (config.shape === 'plate' || config.shape === 'coil') ? 'block' : 'none';
+    document.getElementById('slingPositionSetting').style.display = config.shape === 'plate' ? 'block' : 'none';
+
+    document.getElementById('cargoMaterial').value = config.material;
+    document.getElementById('cargoPlateWidth').value = config.plateWidth;
+    document.getElementById('cargoPlateHeight').value = config.plateHeight;
+    document.getElementById('cargoPlateDepth').value = config.plateDepth;
+    document.getElementById('slingPosition').value = config.slingPositionRatio;
+    document.getElementById('slingAngle').value = config.slingAngle;
+    document.getElementById('cargoCoilThickness').value = config.coilThickness;
+    document.getElementById('cargoCoilInnerDiameter').value = config.coilInnerDiameter;
+    document.getElementById('cargoCoilWidth').value = config.coilWidth;
+    document.getElementById('cargoCtongArmLength').value = config.ctongArmLength;
+    document.getElementById('cargoCtongOpeningHeight').value = config.ctongOpeningHeight;
+    document.getElementById('cargoCtongThickness').value = config.ctongThickness;
+
+    document.getElementById('cargoPosX').value = cargo.mesh.position.x.toFixed(1);
+    document.getElementById('cargoPosZ').value = cargo.mesh.position.z.toFixed(1);
+    
+    const isAttached = (craneSystem.attachedCargo === cargo || (craneSystem.attachedCargo && craneSystem.attachedCargo.mesh.userData.heldCargo === cargo));
+    const isTipping = cargo.physicsState.isTipping;
+    const isFalling = cargo.physicsState.isFalling;
+    
+    const isPositionMovable = !(isAttached || isTipping || isFalling);
+    document.getElementById('cargoPosX').disabled = !isPositionMovable;
+    document.getElementById('cargoPosZ').disabled = !isPositionMovable;
+    document.getElementById('deleteCargoBtn').disabled = !isPositionMovable;
+
+    const isRotationDisabled = isTipping || isFalling;
+    document.getElementById('rotateCargoLeftBtn').disabled = isRotationDisabled;
+    document.getElementById('rotateCargoRightBtn').disabled = isRotationDisabled;
+    
+    craneSystem.updateCargoUI(config);
+    modal.style.display = 'block';
+}
+
+function updateCameraPosition(deltaX, deltaY) {
+    const sensitivity = 0.005;
+    if (cameraMode === 'thirdPerson') {
+        const spherical = new THREE.Spherical().setFromVector3(camera.position);
+        spherical.theta -= deltaX * sensitivity;
+        spherical.phi = Math.max(0.1, Math.min(Math.PI - 0.1, spherical.phi - deltaY * sensitivity));
+        camera.position.setFromSpherical(spherical);
+        camera.lookAt(0, 5, 0);
+    } else {
+        cameraFPV.yaw += deltaX * sensitivity;
+        cameraFPV.pitch += deltaY * sensitivity;
+        cameraFPV.pitch = Math.max(-Math.PI / 2 + 0.1, Math.min(Math.PI / 2 - 0.1, cameraFPV.pitch));
+    }
+}
+
+function switchCameraMode(newMode) {
+    cameraMode = newMode;
+    if (cameraMode === 'thirdPerson') {
+        camera.position.set(0, 10, 15);
+        camera.lookAt(0, 5, 0);
+        camera.rotation.order = 'YXZ';
+        document.getElementById('fpInstructions').style.display = 'none';
+    } else {
+        cameraFPV.position = { x: 6, y: 1.7, z: -2 };
+        camera.position.set(cameraFPV.position.x, cameraFPV.position.y, cameraFPV.position.z);
+        if (craneSystem && craneSystem.attachedCargo) {
+            camera.lookAt(craneSystem.attachedCargo.mesh.position);
+        } else {
+            camera.lookAt(0, 1, 0);
+        }
+        const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
+        cameraFPV.yaw = euler.y;
+        cameraFPV.pitch = euler.x;
+        document.getElementById('fpInstructions').style.display = 'block';
+    }
+}
+
+function updateFirstPersonMovement(deltaTime) {
+    if (cameraMode !== 'firstPerson') return;
+    const moveSpeed = 5 * deltaTime, vertSpeed = 3 * deltaTime;
+    const moveVector = new THREE.Vector3();
+    if (keyControls.w || keyControls.up) moveVector.z -= moveSpeed;
+    if (keyControls.s || keyControls.down) moveVector.z += moveSpeed;
+    if (keyControls.a || keyControls.left) moveVector.x -= moveSpeed;
+    if (keyControls.d || keyControls.right) moveVector.x += moveSpeed;
+    moveVector.applyQuaternion(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), cameraFPV.yaw));
+    cameraFPV.position.x += moveVector.x;
+    cameraFPV.position.z += moveVector.z;
+    if (keyControls.space) cameraFPV.position.y += vertSpeed;
+    if (keyControls.shift) cameraFPV.position.y -= vertSpeed;
+    cameraFPV.position.y = Math.max(0.5, Math.min(15, cameraFPV.position.y));
+    camera.position.set(cameraFPV.position.x, cameraFPV.position.y, cameraFPV.position.z);
+}
+
+let lastTime = 0;
+function animate(currentTime) {
+    requestAnimationFrame(animate);
+    const deltaTime = (currentTime - lastTime) / 1000;
+    lastTime = currentTime;
+    if (cameraMode === 'firstPerson') {
+        camera.rotation.set(cameraFPV.pitch, cameraFPV.yaw, 0, 'YXZ');
+        updateFirstPersonMovement(deltaTime);
+    }
+    if (craneSystem && deltaTime < 0.1) craneSystem.update(deltaTime);
+    renderer.render(scene, camera);
+}
+
+function onWindowResize() {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+function onWindowMouseUp(e) {
+    isDragging = false;
+    renderer.domElement.style.cursor = 'grab';
+    if (draggedCargo) {
+        draggedCargo.physicsState.isFalling = true;
+        if (selectedCargo === draggedCargo) {
+            document.getElementById('cargoPosX').value = draggedCargo.mesh.position.x.toFixed(1);
+            document.getElementById('cargoPosZ').value = draggedCargo.mesh.position.z.toFixed(1);
+        }
+        draggedCargo = null;
+    }
+    else if (clickedCargoOnMouseDown) {
+        const dist = Math.hypot(e.clientX - mouseDownPos.x, e.clientY - mouseDownPos.y);
+        if (dist < 5) {
+            selectedCargo = clickedCargoOnMouseDown;
+            showCargoEditModal(selectedCargo);
+        }
+    }
+    clickedCargoOnMouseDown = null;
+}
+
+function onWindowMouseMove(e) {
+    if (draggedCargo) {
+        mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+        mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+        raycaster.setFromCamera(mouse, camera);
+        const intersects = raycaster.intersectObject(floorPlane);
+        if (intersects.length > 0) {
+            const point = intersects[0].point;
+            draggedCargo.mesh.position.x = point.x;
+            draggedCargo.mesh.position.z = point.z;
+        }
+        return;
+    }
+    if (!isDragging) return;
+    const deltaX = e.clientX - lastMousePos.x;
+    const deltaY = e.clientY - lastMousePos.y;
+    updateCameraPosition(deltaX, deltaY);
+    lastMousePos = { x: e.clientX, y: e.clientY };
+}
+
+function onWindowMouseWheel(e) {
+    const settingsModal = document.getElementById('settingsModal');
+    const cargoEditModal = document.getElementById('cargoEditModal');
+    let isMouseOverModal = false;
+
+    const visibleModal = [settingsModal, cargoEditModal].find(modal => modal.style.display !== 'none');
+
+    if (visibleModal) {
+        const content = visibleModal.querySelector('.settings-content');
+        const rect = content.getBoundingClientRect();
+        if (e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom) {
+            isMouseOverModal = true;
+        }
+    }
+    
+    if (isMouseOverModal) {
+        // モーダル上でのスクロールはデフォルト動作に任せる
+    } else {
+        // モーダル外ならズーム操作
+        if (craneSystem) {
+            e.preventDefault();
+            craneSystem.updateCameraZoom(e.deltaY);
+        }
+    }
+}
+
+init();
+
+</script>
+
+</body></html>

@@ -1,0 +1,1535 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>アルミコイル転倒シミュレーション Ver.20.1 (Features Restored)</title>
+    
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --primary-color: #007AFF;
+            --accent-color: #5856D6;
+            --bg-glass: rgba(255, 255, 255, 0.92);
+            --kpi-glass: rgba(20, 20, 30, 0.90);
+            --text-main: #333;
+            --text-light: #fff;
+            --danger-color: #FF3B30;
+            --safe-color: #34C759;
+            --machine-green: #2E8B57;
+            --warning-yellow: #FFCC00;
+            --border-radius: 12px;
+            --shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.15);
+        }
+
+        body { margin: 0; overflow: hidden; font-family: 'Noto Sans JP', sans-serif; background-color: #f0f2f5; color: var(--text-main); }
+        #canvas-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; }
+
+        /* UI Panel */
+        #ui-panel {
+            position: absolute; top: 20px; left: 20px; width: 380px;
+            background: var(--bg-glass); backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-radius: var(--border-radius); box-shadow: var(--shadow);
+            z-index: 10; display: flex; flex-direction: column; max-height: 95vh;
+            border: 1px solid rgba(255,255,255,0.6);
+        }
+        .panel-header { padding: 15px 20px; border-bottom: 1px solid rgba(0,0,0,0.05); }
+        .panel-header h1 { font-size: 18px; margin: 0; color: #1a1a1a; display: flex; align-items: center; gap: 10px; }
+        
+        .accordion { flex-grow: 1; overflow-y: auto; padding: 5px 0; }
+        .accordion-item { border-bottom: 1px solid rgba(0,0,0,0.05); }
+        .accordion-header {
+            padding: 12px 20px; cursor: pointer; font-weight: 700; font-size: 13px;
+            display: flex; justify-content: space-between; align-items: center;
+            color: #444; transition: background 0.2s;
+        }
+        .accordion-header:hover { background: rgba(0,0,0,0.02); }
+        .accordion-header.active { color: var(--primary-color); background: rgba(0, 122, 255, 0.05); }
+        .accordion-header i.fa-chevron-down { transition: transform 0.3s; font-size: 12px; }
+        .accordion-header.active i.fa-chevron-down { transform: rotate(180deg); }
+        .accordion-content { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; background: rgba(255,255,255,0.4); }
+        .content-inner { padding: 15px 20px; }
+
+        /* Controls */
+        .control-group { margin-bottom: 14px; }
+        label { display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; margin-bottom: 6px; color: #555; }
+        
+        .input-row { display: flex; align-items: center; gap: 8px; }
+        input[type=range] { flex-grow: 1; cursor: pointer; accent-color: var(--primary-color); height: 4px; }
+        
+        .stepper-group { display: flex; align-items: center; background: rgba(255,255,255,0.8); border: 1px solid #ddd; border-radius: 6px; padding: 2px; }
+        .step-btn {
+            background: none; border: none; width: 24px; height: 24px; cursor: pointer;
+            color: #666; display: flex; justify-content: center; align-items: center; font-size: 10px;
+            transition: background 0.2s; border-radius: 4px;
+        }
+        .step-btn:hover { background: rgba(0,0,0,0.05); color: var(--primary-color); }
+        .step-btn:active { background: rgba(0,0,0,0.1); }
+        
+        input[type=number] {
+            width: 50px; border: none; text-align: center; font-size: 13px; background: transparent;
+            -moz-appearance: textfield; outline: none; font-weight: 500;
+        }
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        
+        .unit { font-size: 11px; color: #888; width: 25px; text-align: left; margin-left: 4px; }
+        
+        .total-width-display { font-size: 11px; color: #666; text-align: right; margin-top: 4px; font-family: monospace; }
+        .limit-warn { color: var(--danger-color); font-weight: bold; }
+
+        /* Switches */
+        .switch-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px dashed #ddd; }
+        .switch { position: relative; display: inline-block; width: 40px; height: 22px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .3s; border-radius: 34px; }
+        .slider:before { position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; }
+        input:checked + .slider { background-color: var(--primary-color); }
+        input:checked + .slider:before { transform: translateX(18px); }
+        .switch.green input:checked + .slider { background-color: var(--machine-green); }
+        .switch.yellow input:checked + .slider { background-color: var(--warning-yellow); }
+
+        /* Footer */
+        .panel-footer { padding: 15px 20px; background: rgba(255,255,255,0.5); border-top: 1px solid rgba(0,0,0,0.05); border-radius: 0 0 var(--border-radius) var(--border-radius); }
+        .btn-group { display: flex; gap: 10px; }
+        
+        /* Fixed Button Styles */
+        button.action-btn {
+            flex: 1; padding: 12px; border: none; border-radius: 8px; font-weight: 700; cursor: pointer;
+            transition: transform 0.1s, box-shadow 0.2s; display: flex; justify-content: center; align-items: center; gap: 8px; font-size: 14px;
+        }
+        button.action-btn:active { transform: scale(0.98); }
+        
+        button.action-btn.btn-primary { 
+            background: linear-gradient(135deg, var(--primary-color), var(--accent-color)); 
+            color: white; 
+            box-shadow: 0 4px 12px rgba(0, 122, 255, 0.4); 
+        }
+        button.action-btn.btn-primary:hover {
+            box-shadow: 0 6px 16px rgba(0, 122, 255, 0.5);
+            filter: brightness(1.05);
+        }
+        
+        button.action-btn.btn-secondary { background: #fff; color: #333; border: 1px solid #ddd; }
+        button.action-btn.btn-secondary:hover { background: #f8f8f8; }
+
+        /* KPI */
+        #kpi-overlay {
+            position: absolute; top: 20px; right: 20px; width: 280px;
+            background: var(--kpi-glass); backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px); padding: 20px;
+            border-radius: var(--border-radius); color: var(--text-light);
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); z-index: 10;
+        }
+        .kpi-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: rgba(255,255,255,0.6); margin-bottom: 15px; }
+        .kpi-item { margin-bottom: 15px; }
+        .kpi-label { font-size: 12px; color: rgba(255,255,255,0.8); margin-bottom: 4px; }
+        .kpi-value { font-size: 24px; font-weight: 700; font-family: monospace; }
+        .kpi-unit { font-size: 14px; color: rgba(255,255,255,0.6); margin-left: 4px; }
+        .kpi-status { margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.2); text-align: center; font-weight: bold; font-size: 16px; }
+        .status-safe { color: var(--safe-color); text-shadow: 0 0 10px rgba(52, 199, 89, 0.4); }
+        .status-danger { color: var(--danger-color); text-shadow: 0 0 10px rgba(255, 59, 48, 0.4); }
+        .status-warning { color: var(--warning-yellow); text-shadow: 0 0 10px rgba(255, 204, 0, 0.4); }
+        .status-simulating { color: #00D4FF; text-shadow: 0 0 10px rgba(0, 212, 255, 0.4); }
+        .status-stable { color: #00FF88; text-shadow: 0 0 10px rgba(0, 255, 136, 0.4); }
+        .status-icon { font-size: 20px; margin-right: 8px; }
+        .status-detail { font-size: 11px; color: rgba(255,255,255,0.7); margin-top: 5px; font-weight: normal; }
+
+        .toast {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.85); color: white; padding: 16px 24px;
+            border-radius: 30px; font-weight: 500; pointer-events: none;
+            opacity: 0; transition: opacity 0.3s; z-index: 100;
+            white-space: nowrap; box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+        .toast i { margin-right: 8px; color: #FFD700; }
+        .hint { font-size: 10px; color: #888; margin-top: 2px; }
+        
+        .sub-control-group {
+            background: rgba(0,0,0,0.03);
+            border-radius: 8px;
+            padding: 10px;
+            margin-bottom: 14px;
+            border: 1px solid rgba(0,0,0,0.05);
+        }
+        .mode-toggle-group {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(0,0,0,0.04);
+            padding: 6px 12px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+        }
+        .mode-label { font-size: 11px; font-weight: 600; color: #555; }
+        .mode-switch-container { display: flex; align-items: center; gap: 8px; }
+        .mode-option { font-size: 10px; color: #999; font-weight: 600; transition: color 0.2s; }
+        .mode-option.active { color: var(--primary-color); }
+        
+        .disabled-control { opacity: 0.5; pointer-events: none; }
+    </style>
+    
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+                "cannon-es": "https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js"
+            }
+        }
+    </script>
+</head>
+<body>
+
+    <div id="canvas-container"></div>
+    <div id="toast-msg" class="toast"><i class="fa-solid fa-triangle-exclamation"></i></div>
+
+    <!-- UI Panel -->
+    <div id="ui-panel">
+        <div class="panel-header">
+            <h1><i class="fa-solid fa-cube"></i> COIL SIM <small style="font-size:11px; color:#888;">Ver.20.1</small></h1>
+        </div>
+
+        <div class="accordion">
+            <!-- Coil Spec -->
+            <div class="accordion-item">
+                <div class="accordion-header active">
+                    <span><i class="fa-solid fa-layer-group"></i> コイルサイズ調整</span>
+                    <i class="fa-solid fa-chevron-down"></i>
+                </div>
+                <div class="accordion-content" style="max-height: 1200px;">
+                    <div class="content-inner">
+                        <!-- 内径設定 -->
+                        <div class="control-group">
+                            <label>内径 (ID) <span style="font-weight:normal; font-size:10px;">Default: 420mm</span></label>
+                            <div class="input-row">
+                                <input type="range" id="range-id" min="300" max="800" step="10" value="420">
+                                <div class="stepper-group">
+                                    <button class="step-btn minus" data-id="id"><i class="fa-solid fa-minus"></i></button>
+                                    <input type="number" id="num-id" value="420">
+                                    <button class="step-btn plus" data-id="id"><i class="fa-solid fa-plus"></i></button>
+                                </div>
+                                <span class="unit">mm</span>
+                            </div>
+                        </div>
+
+                        <!-- モード切替 -->
+                        <div class="mode-toggle-group">
+                            <span class="mode-label">サイズ調整基準</span>
+                            <div class="mode-switch-container">
+                                <span id="label-mode-od" class="mode-option">外径</span>
+                                <label class="switch" style="width:36px; height:20px;">
+                                    <input type="checkbox" id="check-size-mode" checked>
+                                    <span class="slider"></span>
+                                </label>
+                                <span id="label-mode-thick" class="mode-option active">肉厚</span>
+                            </div>
+                        </div>
+
+                        <div class="sub-control-group">
+                            <!-- 外径設定 -->
+                            <div class="control-group" id="group-od">
+                                <label>外径 (OD)</label>
+                                <div class="input-row">
+                                    <input type="range" id="range-od" min="500" max="2200" step="1" value="1214">
+                                    <div class="stepper-group">
+                                        <button class="step-btn minus" data-id="od"><i class="fa-solid fa-minus"></i></button>
+                                        <input type="number" id="num-od" value="1214">
+                                        <button class="step-btn plus" data-id="od"><i class="fa-solid fa-plus"></i></button>
+                                    </div>
+                                    <span class="unit">mm</span>
+                                </div>
+                            </div>
+                            <!-- 肉厚設定 -->
+                            <div class="control-group" id="group-thickness">
+                                <label>肉厚 (Thickness) <span style="font-weight:normal; font-size:10px;">Default: 397mm</span></label>
+                                <div class="input-row">
+                                    <input type="range" id="range-thick" min="10" max="900" step="1" value="397">
+                                    <div class="stepper-group">
+                                        <button class="step-btn minus" data-id="thick"><i class="fa-solid fa-minus"></i></button>
+                                        <input type="number" id="num-thick" value="397">
+                                        <button class="step-btn plus" data-id="thick"><i class="fa-solid fa-plus"></i></button>
+                                    </div>
+                                    <span class="unit">mm</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="control-group">
+                            <label>1条あたりの幅 (Width)</label>
+                            <div class="input-row">
+                                <input type="range" id="range-width" min="30" max="800" step="0.1" value="55.3">
+                                <div class="stepper-group">
+                                    <button class="step-btn minus" data-id="width"><i class="fa-solid fa-minus"></i></button>
+                                    <input type="number" id="num-width" value="55.3">
+                                    <button class="step-btn plus" data-id="width"><i class="fa-solid fa-plus"></i></button>
+                                </div>
+                                <span class="unit">mm</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Position & Layout -->
+            <div class="accordion-item">
+                <div class="accordion-header">
+                    <span><i class="fa-solid fa-arrows-left-right-to-line"></i> 配置・構成設定</span>
+                    <i class="fa-solid fa-chevron-down"></i>
+                </div>
+                <div class="accordion-content">
+                    <div class="content-inner">
+                         <div class="control-group">
+                            <label>配置位置調整 (Position Shift)</label>
+                            <div class="input-row">
+                                <input type="range" id="range-pos" min="-1000" max="1000" step="10" value="0">
+                                <div class="stepper-group">
+                                    <button class="step-btn minus" data-id="pos"><i class="fa-solid fa-minus"></i></button>
+                                    <input type="number" id="num-pos" value="0">
+                                    <button class="step-btn plus" data-id="pos"><i class="fa-solid fa-plus"></i></button>
+                                </div>
+                                <span class="unit">mm</span>
+                            </div>
+                            <div class="hint" style="text-align:right;">+ 前方向 / - 後方向</div>
+                        </div>
+
+                        <div class="control-group">
+                            <label>条数 (Strips)</label>
+                            <div class="input-row">
+                                <input type="range" id="range-strips" min="1" max="40" step="1" value="22">
+                                <div class="stepper-group">
+                                    <button class="step-btn minus" data-id="strips"><i class="fa-solid fa-minus"></i></button>
+                                    <input type="number" id="num-strips" value="22">
+                                    <button class="step-btn plus" data-id="strips"><i class="fa-solid fa-plus"></i></button>
+                                </div>
+                                <span class="unit">条</span>
+                            </div>
+                        </div>
+                        
+                        <div class="control-group">
+                            <label>条間ギャップ (Gap)</label>
+                            <div class="input-row">
+                                <input type="range" id="range-gap" min="0.1" max="50" step="0.1" value="0.1">
+                                <div class="stepper-group">
+                                    <button class="step-btn minus" data-id="gap"><i class="fa-solid fa-minus"></i></button>
+                                    <input type="number" id="num-gap" value="0.1" step="0.1">
+                                    <button class="step-btn plus" data-id="gap"><i class="fa-solid fa-plus"></i></button>
+                                </div>
+                                <span class="unit">mm</span>
+                            </div>
+                        </div>
+
+                        <div style="font-size:11px; font-weight:600; color:#666; margin:15px 0 10px 0; border-top:1px solid #ddd; padding-top:12px;">
+                            <i class="fa-solid fa-angles-right"></i> 転倒角度設定
+                        </div>
+                        <div class="control-group">
+                            <label>傾斜角度 (Angle)</label>
+                            <div class="input-row">
+                                <input type="range" id="range-angle" min="0" max="45" step="0.1" value="5">
+                                <div class="stepper-group">
+                                    <button class="step-btn minus" data-id="angle"><i class="fa-solid fa-minus"></i></button>
+                                    <input type="number" id="num-angle" value="5">
+                                    <button class="step-btn plus" data-id="angle"><i class="fa-solid fa-plus"></i></button>
+                                </div>
+                                <span class="unit">°</span>
+                            </div>
+                        </div>
+                        <div class="control-group">
+                            <label>重心オフセット (Offset)</label>
+                            <div class="input-row">
+                                <input type="range" id="range-offset" min="0" max="600" step="0.1" value="104">
+                                <div class="stepper-group">
+                                    <button class="step-btn minus" data-id="offset"><i class="fa-solid fa-minus"></i></button>
+                                    <input type="number" id="num-offset" value="104">
+                                    <button class="step-btn plus" data-id="offset"><i class="fa-solid fa-plus"></i></button>
+                                </div>
+                                <span class="unit">mm</span>
+                            </div>
+                        </div>
+                        
+                        <div class="control-group">
+                            <label>条間摩擦係数 (Friction)</label>
+                            <div class="input-row">
+                                <input type="range" id="range-friction" min="0.0000" max="0.0200" step="0.0001" value="0.0010">
+                                <div class="stepper-group">
+                                    <button class="step-btn minus" data-id="friction"><i class="fa-solid fa-minus"></i></button>
+                                    <input type="number" id="num-friction" value="0.0010" step="0.0001">
+                                    <button class="step-btn plus" data-id="friction"><i class="fa-solid fa-plus"></i></button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 幅制限設定 -->
+                        <div class="sub-control-group">
+                            <div class="switch-row" style="margin-bottom:8px; border:none; padding-bottom:0;">
+                                <span class="switch-label" style="font-size:12px; font-weight:600; color:#555;">幅リミット / フレーム長</span>
+                                <label class="switch yellow">
+                                    <input type="checkbox" id="check-limit" checked>
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                            <div class="control-group" id="limit-controls" style="margin-bottom:0;">
+                                <div class="input-row">
+                                    <input type="range" id="range-limit" min="500" max="6000" step="10" value="1500">
+                                    <div class="stepper-group">
+                                        <button class="step-btn minus" data-id="limit"><i class="fa-solid fa-minus"></i></button>
+                                        <input type="number" id="num-limit" value="1500">
+                                        <button class="step-btn plus" data-id="limit"><i class="fa-solid fa-plus"></i></button>
+                                    </div>
+                                    <span class="unit">mm</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="total-width-display">
+                            Total Set Width: <span id="disp-total-width">1217</span> mm <span id="limit-msg"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Floor & Sheet -->
+            <div class="accordion-item">
+                <div class="accordion-header">
+                    <span><i class="fa-solid fa-rug"></i> 床面・ゴムシート設定</span>
+                    <i class="fa-solid fa-chevron-down"></i>
+                </div>
+                <div class="accordion-content">
+                    <div class="content-inner">
+                        <div style="font-size:12px; color:#555; margin-bottom:10px;">
+                            <i class="fa-solid fa-info-circle"></i> ゴムシートはM型（V溝）形状で、両端が10mm高く、中央が設定高さとなります。
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Initial Conditions -->
+            <div class="accordion-item">
+                <div class="accordion-header">
+                    <span><i class="fa-solid fa-crosshairs"></i> 重心表示</span>
+                    <i class="fa-solid fa-chevron-down"></i>
+                </div>
+                <div class="accordion-content">
+                    <div class="content-inner">
+                        <div class="switch-row">
+                            <span class="switch-label"><i class="fa-solid fa-crosshairs"></i> 重心を表示</span>
+                            <label class="switch">
+                                <input type="checkbox" id="check-cog">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Fence -->
+            <div class="accordion-item">
+                <div class="accordion-header">
+                    <span><i class="fa-solid fa-shield-halved"></i> 柵・フレーム設定</span>
+                    <i class="fa-solid fa-chevron-down"></i>
+                </div>
+                <div class="accordion-content">
+                    <div class="content-inner">
+                        <div class="switch-row">
+                            <span class="switch-label"><i class="fa-solid fa-border-all"></i> 柵を表示</span>
+                            <label class="switch green">
+                                <input type="checkbox" id="check-fence" checked>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <div id="fence-settings">
+                            <div class="control-group">
+                                <label>支柱間隔 (Pitch) & フレーム幅</label>
+                                <div class="input-row">
+                                    <input type="range" id="range-pitch" min="300" max="2000" step="50" value="500">
+                                    <div class="stepper-group">
+                                        <button class="step-btn minus" data-id="pitch"><i class="fa-solid fa-minus"></i></button>
+                                        <input type="number" id="num-pitch" value="500">
+                                        <button class="step-btn plus" data-id="pitch"><i class="fa-solid fa-plus"></i></button>
+                                    </div>
+                                    <span class="unit">mm</span>
+                                </div>
+                            </div>
+                            <div class="control-group">
+                                <label>パイプ径 (25A=34mm)</label>
+                                <div class="input-row">
+                                    <input type="range" id="range-pipe" min="15" max="100" step="0.1" value="34">
+                                    <div class="stepper-group">
+                                        <button class="step-btn minus" data-id="pipe"><i class="fa-solid fa-minus"></i></button>
+                                        <input type="number" id="num-pipe" value="34">
+                                        <button class="step-btn plus" data-id="pipe"><i class="fa-solid fa-plus"></i></button>
+                                    </div>
+                                    <span class="unit">mm</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Lighting -->
+            <div class="accordion-item">
+                <div class="accordion-header">
+                    <span><i class="fa-solid fa-lightbulb"></i> 光源設定</span>
+                    <i class="fa-solid fa-chevron-down"></i>
+                </div>
+                <div class="accordion-content">
+                    <div class="content-inner">
+                        <div class="control-group">
+                            <label>環境光強度</label>
+                            <div class="input-row">
+                                <input type="range" id="range-ambient" min="0" max="2" step="0.1" value="0.8">
+                                <div class="stepper-group">
+                                    <button class="step-btn minus" data-id="ambient"><i class="fa-solid fa-minus"></i></button>
+                                    <input type="number" id="num-ambient" value="0.8" step="0.1">
+                                    <button class="step-btn plus" data-id="ambient"><i class="fa-solid fa-plus"></i></button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="control-group">
+                            <label>主光源強度</label>
+                            <div class="input-row">
+                                <input type="range" id="range-main-light" min="0" max="3" step="0.1" value="1.2">
+                                <div class="stepper-group">
+                                    <button class="step-btn minus" data-id="main-light"><i class="fa-solid fa-minus"></i></button>
+                                    <input type="number" id="num-main-light" value="1.2" step="0.1">
+                                    <button class="step-btn plus" data-id="main-light"><i class="fa-solid fa-plus"></i></button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="control-group">
+                            <label>補助光強度</label>
+                            <div class="input-row">
+                                <input type="range" id="range-fill-light" min="0" max="2" step="0.1" value="0.5">
+                                <div class="stepper-group">
+                                    <button class="step-btn minus" data-id="fill-light"><i class="fa-solid fa-minus"></i></button>
+                                    <input type="number" id="num-fill-light" value="0.5" step="0.1">
+                                    <button class="step-btn plus" data-id="fill-light"><i class="fa-solid fa-plus"></i></button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Restored Light Position Controls -->
+                        <div style="font-size:11px; font-weight:600; color:#666; margin:15px 0 10px 0; border-top:1px solid #ddd; padding-top:12px;">
+                            <i class="fa-solid fa-location-dot"></i> 主光源位置
+                        </div>
+                        <div class="control-group">
+                            <label>X座標</label>
+                            <div class="input-row">
+                                <input type="range" id="range-light-x" min="-20" max="20" step="0.5" value="5">
+                                <div class="stepper-group">
+                                    <button class="step-btn minus" data-id="light-x"><i class="fa-solid fa-minus"></i></button>
+                                    <input type="number" id="num-light-x" value="5" step="0.5">
+                                    <button class="step-btn plus" data-id="light-x"><i class="fa-solid fa-plus"></i></button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="control-group">
+                            <label>Y座標（高さ）</label>
+                            <div class="input-row">
+                                <input type="range" id="range-light-y" min="1" max="25" step="0.5" value="12">
+                                <div class="stepper-group">
+                                    <button class="step-btn minus" data-id="light-y"><i class="fa-solid fa-minus"></i></button>
+                                    <input type="number" id="num-light-y" value="12" step="0.5">
+                                    <button class="step-btn plus" data-id="light-y"><i class="fa-solid fa-plus"></i></button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="control-group">
+                            <label>Z座標</label>
+                            <div class="input-row">
+                                <input type="range" id="range-light-z" min="-20" max="20" step="0.5" value="5">
+                                <div class="stepper-group">
+                                    <button class="step-btn minus" data-id="light-z"><i class="fa-solid fa-minus"></i></button>
+                                    <input type="number" id="num-light-z" value="5" step="0.5">
+                                    <button class="step-btn plus" data-id="light-z"><i class="fa-solid fa-plus"></i></button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Physics Damping -->
+            <div class="accordion-item">
+                <div class="accordion-header">
+                    <span><i class="fa-solid fa-wave-square"></i> 物理挙動調整</span>
+                    <i class="fa-solid fa-chevron-down"></i>
+                </div>
+                <div class="accordion-content">
+                    <div class="content-inner">
+                        <div class="control-group">
+                            <label>直線減衰 (Linear Damping)</label>
+                            <div class="input-row">
+                                <input type="range" id="range-linear-damp" min="0.01" max="0.8" step="0.01" value="0.1">
+                                <div class="stepper-group">
+                                    <button class="step-btn minus" data-id="linear-damp"><i class="fa-solid fa-minus"></i></button>
+                                    <input type="number" id="num-linear-damp" value="0.1" step="0.01">
+                                    <button class="step-btn plus" data-id="linear-damp"><i class="fa-solid fa-plus"></i></button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="control-group">
+                            <label>回転減衰 (Angular Damping)</label>
+                            <div class="input-row">
+                                <input type="range" id="range-angular-damp" min="0.01" max="0.8" step="0.01" value="0.1">
+                                <div class="stepper-group">
+                                    <button class="step-btn minus" data-id="angular-damp"><i class="fa-solid fa-minus"></i></button>
+                                    <input type="number" id="num-angular-damp" value="0.1" step="0.01">
+                                    <button class="step-btn plus" data-id="angular-damp"><i class="fa-solid fa-plus"></i></button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel-footer">
+            <div class="btn-group">
+                <button class="action-btn btn-secondary" id="btn-reset"><i class="fa-solid fa-rotate-left"></i> リセット</button>
+                <button class="action-btn btn-primary" id="btn-start"><i class="fa-solid fa-play"></i> START</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- KPI Overlay -->
+    <div id="kpi-overlay">
+        <div class="kpi-title"><i class="fa-solid fa-chart-pie"></i> SIMULATION DATA</div>
+        <div class="kpi-item">
+            <div class="kpi-label">TOTAL COIL WEIGHT</div>
+            <span id="kpi-mass" class="kpi-value">---</span><span class="kpi-unit">kg</span>
+        </div>
+        <div class="kpi-item">
+            <div class="kpi-label">YIELD MOMENT (FRAME)</div>
+            <span id="kpi-limit" class="kpi-value">---</span><span class="kpi-unit">kNm</span>
+        </div>
+        <div class="kpi-item">
+            <div class="kpi-label">LOAD MOMENT (CURRENT)</div>
+            <span id="kpi-force" class="kpi-value">0.0</span><span class="kpi-unit">kNm</span>
+        </div>
+        <div class="kpi-item" style="border-top: 1px solid rgba(255,255,255,0.1); padding-top: 10px; margin-top: 5px;">
+            <div class="kpi-label">FENCE CONTACT</div>
+            <div style="display: flex; justify-content: space-between; margin-top: 5px;">
+                <div style="flex: 1; text-align: center;">
+                    <div style="font-size: 10px; color: rgba(255,255,255,0.6);">前側 (+Z)</div>
+                    <div style="font-size: 16px; font-weight: 700; font-family: monospace;">
+                        <span id="fence-front-count">0</span><span style="font-size: 12px; color: rgba(255,255,255,0.6); margin-left: 3px;">条</span>
+                    </div>
+                    <div style="font-size: 10px; color: rgba(255,255,255,0.6); margin-top: 2px;">
+                        <span id="fence-front-moment">0.0</span> kNm
+                    </div>
+                </div>
+                <div style="flex: 1; text-align: center; border-left: 1px solid rgba(255,255,255,0.1);">
+                    <div style="font-size: 10px; color: rgba(255,255,255,0.6);">後側 (-Z)</div>
+                    <div style="font-size: 16px; font-weight: 700; font-family: monospace;">
+                        <span id="fence-back-count">0</span><span style="font-size: 12px; color: rgba(255,255,255,0.6); margin-left: 3px;">条</span>
+                    </div>
+                    <div style="font-size: 10px; color: rgba(255,255,255,0.6); margin-top: 2px;">
+                        <span id="fence-back-moment">0.0</span> kNm
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div id="kpi-status" class="kpi-status status-safe">
+            <div id="status-main">READY</div>
+            <div id="status-detail" class="status-detail"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import * as CANNON from 'cannon-es';
+
+        const config = {
+            aluminumDensity: 2700,
+            steelYieldStrength: 290 * 1000000, 
+            fenceHeight: 1.05,
+            fenceColor: 0xFFD700,
+            sheetColor: 0x333333,
+            collisionGroups: { GROUND: 1, COIL: 2, FENCE: 4, SHEET: 8, FRAME: 16 }
+        };
+
+        let state = {
+            numStrips: 22, gap: 0.0001, 
+            innerDiameter: 0.420, // Default 420mm
+            od: 1.214, // Calculated from ID + 2*Thick(397)
+            thickness: 0.397, // Default 397mm
+            width: 0.0553, 
+            angle: 5, offset: 0.104, frameHeight: 0.05,
+            posShift: 0, // Position offset
+            sizeMode: 'thickness', // 'od' or 'thickness'
+            showCoG: false, hasFence: true,
+            fencePitch: 0.5, fencePipeDiameter: 0.034, 
+            singleCoilMass: 0, totalMass: 0, yieldMoment: 0,
+            isSimulating: false, 
+            limitEnabled: true, limitValue: 1.5,
+            coilFriction: 0.001, 
+            ambientIntensity: 0.8,
+            mainLightIntensity: 1.2,
+            fillLightIntensity: 0.5,
+            lightPosX: 5, lightPosY: 12, lightPosZ: 5,
+            linearDamping: 0.1, angularDamping: 0.1
+        };
+
+        let scene, camera, renderer, controls;
+        let coilMeshes = [], coilBodies = [], fencePosts = [], cogVisuals = [], connectingBars = [];
+        let fenceGroup, sheetGroup, frameGroup, cogGroup;
+        let world, groundBody, sheetBody, frameBodies = [];
+        let matGround, matAluminum, matSteel, matSheet, matFrame;
+        let timeStep = 1 / 60, lastCallTime;
+        let contactMatCoilCoil, contactMatCoilGround, contactMatCoilFence;
+        let ambientLight, dirLight, fillLight;
+        let dom = {};
+
+        document.querySelectorAll('.accordion-header').forEach(header => {
+            header.addEventListener('click', () => {
+                header.classList.toggle('active');
+                const content = header.nextElementSibling;
+                content.style.maxHeight = header.classList.contains('active') ? content.scrollHeight + "px" : 0;
+            });
+        });
+
+        function initDOM() {
+            dom = {
+                kpiMass: document.getElementById('kpi-mass'),
+                kpiLimit: document.getElementById('kpi-limit'),
+                kpiForce: document.getElementById('kpi-force'),
+                kpiStatus: document.getElementById('kpi-status'),
+                statusMain: document.getElementById('status-main'),
+                statusDetail: document.getElementById('status-detail'),
+                fenceFrontCount: document.getElementById('fence-front-count'),
+                fenceFrontMoment: document.getElementById('fence-front-moment'),
+                fenceBackCount: document.getElementById('fence-back-count'),
+                fenceBackMoment: document.getElementById('fence-back-moment'),
+                toast: document.getElementById('toast-msg'),
+                dispTotalWidth: document.getElementById('disp-total-width'),
+                limitMsg: document.getElementById('limit-msg'),
+                fenceCheck: document.getElementById('check-fence'),
+                fenceArea: document.getElementById('fence-settings'),
+                cogCheck: document.getElementById('check-cog'),
+                limitCheck: document.getElementById('check-limit'),
+                limitControls: document.getElementById('limit-controls'),
+                btnStart: document.getElementById('btn-start'),
+                btnReset: document.getElementById('btn-reset'),
+                
+                checkSizeMode: document.getElementById('check-size-mode'),
+                labelModeOd: document.getElementById('label-mode-od'),
+                labelModeThick: document.getElementById('label-mode-thick'),
+                groupOd: document.getElementById('group-od'),
+                groupThick: document.getElementById('group-thickness')
+            };
+        }
+
+        function init() {
+            initDOM();
+
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color('#f0f2f5');
+
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(4.0, 3.0, 5.0);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.target.set(0, 0.8, 0);
+
+            ambientLight = new THREE.AmbientLight(0xffffff, state.ambientIntensity);
+            scene.add(ambientLight);
+            
+            dirLight = new THREE.DirectionalLight(0xffffff, state.mainLightIntensity);
+            dirLight.castShadow = true;
+            scene.add(dirLight);
+            
+            fillLight = new THREE.DirectionalLight(0xffffff, state.fillLightIntensity);
+            scene.add(fillLight);
+
+            scene.add(new THREE.GridHelper(20, 20, 0xcccccc, 0xe5e5e5));
+            const floorMesh = new THREE.Mesh(new THREE.PlaneGeometry(20, 20), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8 }));
+            floorMesh.rotation.x = -Math.PI / 2;
+            floorMesh.receiveShadow = true;
+            scene.add(floorMesh);
+
+            cogGroup = new THREE.Group();
+            cogGroup.visible = false;
+            scene.add(cogGroup);
+
+            initPhysics();
+            
+            // --- Controls Setup ---
+            setupControl('id', 1000, updateDimFromId);
+            setupControl('od', 1000, updateDimFromOd);
+            setupControl('thick', 1000, updateDimFromThick);
+            
+            setupControl('width', 1000);
+            setupControl('strips', 1);
+            setupControl('gap', 1000);
+            setupControl('pos', 1000); // Position shift
+            
+            setupControl('angle', 1, (v) => { 
+                state.angle = v; 
+                calculateOffsetFromAngle(); 
+                updateControlDisplay('offset', state.offset * 1000, 1000); 
+            });
+            setupControl('offset', 1000, (v) => { 
+                state.offset = v; 
+                calculateAngleFromOffset(); 
+                updateControlDisplay('angle', state.angle, 1); 
+            });
+            setupControl('pitch', 1000);
+            setupControl('pipe', 1000);
+            setupControl('limit', 1000); 
+            
+            setupControl('friction', 1, (v) => {
+                state.coilFriction = v;
+                if(contactMatCoilCoil) contactMatCoilCoil.friction = v;
+                if(contactMatCoilGround) contactMatCoilGround.friction = v * 0.5; 
+                if(contactMatCoilFence) contactMatCoilFence.friction = v * 2;
+            });
+            
+            setupControl('ambient', 1, (v) => { if(ambientLight) ambientLight.intensity = v; });
+            setupControl('main-light', 1, (v) => { if(dirLight) dirLight.intensity = v; });
+            setupControl('fill-light', 1, (v) => { if(fillLight) fillLight.intensity = v; });
+            
+            // Light Position Controls Restored
+            setupControl('light-x', 1, (v) => { state.lightPosX = v; });
+            setupControl('light-y', 1, (v) => { state.lightPosY = v; });
+            setupControl('light-z', 1, (v) => { state.lightPosZ = v; });
+            
+            setupControl('linear-damp', 1);
+            setupControl('angular-damp', 1);
+
+            // Listeners
+            dom.fenceCheck.addEventListener('change', () => {
+                state.hasFence = dom.fenceCheck.checked;
+                dom.fenceArea.style.opacity = state.hasFence ? 1 : 0.5; dom.fenceArea.style.pointerEvents = state.hasFence ? 'auto' : 'none';
+                handleParamChange();
+            });
+            dom.limitCheck.addEventListener('change', () => { updateStateFromDOM(); handleParamChange(); });
+            dom.cogCheck.addEventListener('change', () => { state.showCoG = dom.cogCheck.checked; syncVisuals(); });
+            
+            // Mode Switch Listener
+            dom.checkSizeMode.addEventListener('change', updateSizeMode);
+            
+            dom.btnStart.addEventListener('click', () => {
+                coilBodies.forEach(b => {
+                    b.velocity.set(0, 0, 0);
+                    b.angularVelocity.set(0, 0, 0);
+                    b.wakeUp();
+                });
+                state.isSimulating = true;
+                updateStatus('simulating', 'シミュレーション中', '物理演算を実行しています...');
+                dom.fenceFrontCount.innerText = "0"; dom.fenceBackCount.innerText = "0";
+            });
+            
+            dom.btnReset.addEventListener('click', () => {
+                state.isSimulating = false;
+                resetCoilPosition();
+                updateStatus('safe', 'READY', '初期状態に配置されました');
+            });
+
+            // Initialize Controls
+            updateSizeMode();
+            updateStateFromDOM();
+            recreateObjects();
+            window.addEventListener('resize', onWindowResize);
+            animate();
+        }
+
+        // --- Dimension Logic ---
+        function updateSizeMode() {
+            const isThickMode = dom.checkSizeMode.checked; // Checked = Thickness Mode
+            state.sizeMode = isThickMode ? 'thickness' : 'od';
+            
+            dom.labelModeThick.classList.toggle('active', isThickMode);
+            dom.labelModeOd.classList.toggle('active', !isThickMode);
+            
+            dom.groupThick.classList.toggle('disabled-control', !isThickMode);
+            dom.groupOd.classList.toggle('disabled-control', isThickMode);
+        }
+
+        function updateDimFromId() {
+            // ID changed. Update dependent value based on mode.
+            const newId = parseFloat(document.getElementById('num-id').value) / 1000;
+            if (state.sizeMode === 'thickness') {
+                // Keep thickness, change OD
+                const newOd = newId + (state.thickness * 2);
+                updateControlDisplay('od', newOd * 1000, 1000);
+            } else {
+                // Keep OD, change thickness
+                let newThick = (state.od - newId) / 2;
+                if(newThick < 0.01) newThick = 0.01;
+                updateControlDisplay('thick', newThick * 1000, 1000);
+            }
+        }
+
+        function updateDimFromOd() {
+            // OD changed (User input). Change Thickness.
+            const newOd = parseFloat(document.getElementById('num-od').value) / 1000;
+            let newThick = (newOd - state.innerDiameter) / 2;
+            if(newThick < 0.01) newThick = 0.01;
+            updateControlDisplay('thick', newThick * 1000, 1000);
+        }
+
+        function updateDimFromThick() {
+            // Thickness changed (User input). Change OD.
+            const newThick = parseFloat(document.getElementById('num-thick').value) / 1000;
+            const newOd = state.innerDiameter + (newThick * 2);
+            updateControlDisplay('od', newOd * 1000, 1000);
+        }
+
+        function setupControl(id, scale, callback) {
+            const range = document.getElementById(`range-${id}`);
+            const number = document.getElementById(`num-${id}`);
+            const btnMinus = document.querySelector(`.step-btn.minus[data-id="${id}"]`);
+            const btnPlus = document.querySelector(`.step-btn.plus[data-id="${id}"]`);
+
+            if(!range) return;
+
+            const update = (val, origin) => {
+                let v = parseFloat(val);
+                if (isNaN(v)) return;
+                
+                const min = parseFloat(range.min);
+                const max = parseFloat(range.max);
+                if (v < min) v = min;
+                if (v > max) v = max;
+
+                if (origin !== 'range') range.value = v;
+                if (origin !== 'number') number.value = v;
+
+                if (callback) callback(v / scale); // Execute specific logic
+                
+                updateStateFromDOM();
+                const realtimeControls = ['friction', 'ambient', 'main-light', 'fill-light', 'light-x', 'light-y', 'light-z', 'linear-damp', 'angular-damp'];
+                if(!realtimeControls.includes(id)) handleParamChange();
+            };
+
+            range.addEventListener('input', e => update(e.target.value, 'range'));
+            number.addEventListener('change', e => update(e.target.value, 'number'));
+            
+            if(btnMinus) btnMinus.addEventListener('click', () => {
+                let v = parseFloat(number.value) - parseFloat(range.step);
+                update(Math.round(v * 10000) / 10000, 'button');
+            });
+            if(btnPlus) btnPlus.addEventListener('click', () => {
+                let v = parseFloat(number.value) + parseFloat(range.step);
+                update(Math.round(v * 10000) / 10000, 'button');
+            });
+        }
+
+        function updateControlDisplay(id, val, scale = 1) {
+            const r = document.getElementById(`range-${id}`);
+            const n = document.getElementById(`num-${id}`);
+            const displayVal = val / scale; 
+            if(r) r.value = val;
+            if(n) {
+                const decimals = (scale === 1 && id === 'friction') ? 4 : (displayVal % 1 !== 0) ? 2 : 0;
+                n.value = displayVal.toFixed(decimals);
+            }
+        }
+
+        function updateStateFromDOM() {
+            state.innerDiameter = parseFloat(document.getElementById('num-id').value) / 1000;
+            state.od = parseFloat(document.getElementById('num-od').value) / 1000;
+            state.thickness = parseFloat(document.getElementById('num-thick').value) / 1000;
+            
+            state.width = parseFloat(document.getElementById('num-width').value) / 1000;
+            state.numStrips = parseInt(document.getElementById('num-strips').value);
+            state.gap = parseFloat(document.getElementById('num-gap').value) / 1000;
+            state.posShift = parseFloat(document.getElementById('num-pos').value) / 1000;
+            
+            state.angle = parseFloat(document.getElementById('num-angle').value);
+            state.offset = parseFloat(document.getElementById('num-offset').value) / 1000;
+            
+            state.hasFence = dom.fenceCheck.checked;
+            state.fencePitch = parseFloat(document.getElementById('num-pitch').value) / 1000;
+            state.fencePipeDiameter = parseFloat(document.getElementById('num-pipe').value) / 1000;
+            
+            state.showCoG = dom.cogCheck.checked;
+            state.coilFriction = parseFloat(document.getElementById('num-friction').value);
+            state.ambientIntensity = parseFloat(document.getElementById('num-ambient').value);
+            state.mainLightIntensity = parseFloat(document.getElementById('num-main-light').value);
+            state.fillLightIntensity = parseFloat(document.getElementById('num-fill-light').value);
+            state.lightPosX = parseFloat(document.getElementById('num-light-x').value);
+            state.lightPosY = parseFloat(document.getElementById('num-light-y').value);
+            state.lightPosZ = parseFloat(document.getElementById('num-light-z').value);
+            
+            state.linearDamping = parseFloat(document.getElementById('num-linear-damp').value);
+            state.angularDamping = parseFloat(document.getElementById('num-angular-damp').value);
+            state.limitEnabled = dom.limitCheck.checked;
+
+            // Limit Calculation
+            const totalSetWidth = state.numStrips * state.width + (state.numStrips - 1) * state.gap;
+            const radius = state.fencePipeDiameter / 2;
+            const angleRad = THREE.MathUtils.degToRad(state.angle);
+            const tiltExpansion = (state.od * Math.sin(angleRad)) + (state.width * Math.sin(angleRad));
+            const safeFenceMargin = state.hasFence ? (state.fencePipeDiameter * 5) : 0; 
+            const requiredMinLen = totalSetWidth + tiltExpansion + safeFenceMargin + Math.abs(state.posShift * 2); 
+            const minLenMM = Math.ceil(requiredMinLen * 1000);
+
+            const rangeLimit = document.getElementById('range-limit');
+            const numLimit = document.getElementById('num-limit');
+            
+            rangeLimit.min = minLenMM;
+
+            let currentLimitMM = parseFloat(numLimit.value);
+            if (currentLimitMM < minLenMM) {
+                currentLimitMM = minLenMM;
+                updateControlDisplay('limit', currentLimitMM, 1000);
+                dom.toast.innerHTML = `<i class="fa-solid fa-expand"></i> 干渉回避: フレーム長を拡張`;
+                dom.toast.style.opacity = 1;
+                setTimeout(() => dom.toast.style.opacity = 0, 4000);
+            }
+
+            state.limitValue = currentLimitMM / 1000;
+            dom.limitControls.style.opacity = state.limitEnabled ? 1 : 0.8;
+            dom.dispTotalWidth.innerText = (totalSetWidth * 1000).toFixed(1);
+        }
+
+        function initPhysics() {
+            world = new CANNON.World();
+            world.gravity.set(0, -9.82, 0);
+            world.broadphase = new CANNON.NaiveBroadphase();
+            world.solver.iterations = 250;
+            world.solver.tolerance = 0.00005;
+
+            matGround = new CANNON.Material();
+            matAluminum = new CANNON.Material();
+            matSteel = new CANNON.Material();
+            matSheet = new CANNON.Material();
+            matFrame = new CANNON.Material();
+
+            contactMatCoilGround = new CANNON.ContactMaterial(matGround, matAluminum, { 
+                friction: state.coilFriction * 0.5, restitution: 0.0,
+                contactEquationStiffness: 3e5, contactEquationRelaxation: 10
+            });
+            world.addContactMaterial(contactMatCoilGround);
+
+            contactMatCoilFence = new CANNON.ContactMaterial(matAluminum, matSteel, { 
+                friction: state.coilFriction * 2, restitution: 0.0,
+                contactEquationStiffness: 3e5, contactEquationRelaxation: 12
+            });
+            world.addContactMaterial(contactMatCoilFence);
+            
+            contactMatCoilCoil = new CANNON.ContactMaterial(matAluminum, matAluminum, { 
+                friction: state.coilFriction, restitution: 0.0,
+                contactEquationStiffness: 1e5, contactEquationRelaxation: 15 
+            });
+            world.addContactMaterial(contactMatCoilCoil);
+
+            world.addContactMaterial(new CANNON.ContactMaterial(matGround, matSteel, { friction: 0.8, restitution: 0.0 }));
+            world.addContactMaterial(new CANNON.ContactMaterial(matAluminum, matSheet, { friction: 0.9, restitution: 0.0 }));
+            world.addContactMaterial(new CANNON.ContactMaterial(matAluminum, matFrame, { friction: 0.6, restitution: 0.0 }));
+
+            groundBody = new CANNON.Body({ mass: 0, material: matGround });
+            groundBody.addShape(new CANNON.Plane());
+            groundBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
+            world.addBody(groundBody);
+        }
+
+        function recreateObjects() {
+            // Cleanup
+            coilMeshes.forEach(m => scene.remove(m));
+            coilBodies.forEach(b => world.removeBody(b));
+            cogVisuals.forEach(v => cogGroup.remove(v));
+            if (fenceGroup) scene.remove(fenceGroup);
+            if (frameGroup) scene.remove(frameGroup);
+            if (sheetGroup) scene.remove(sheetGroup);
+            fencePosts.forEach(p => { world.removeBody(p.body); world.removeBody(p.bodyUpper); });
+            frameBodies.forEach(b => world.removeBody(b));
+            connectingBars.forEach(bar => { 
+                world.removeBody(bar.body); 
+                bar.constraints.forEach(c => world.removeConstraint(c));
+            });
+            if (sheetBody) world.removeBody(sheetBody);
+
+            coilMeshes = []; coilBodies = []; fencePosts = []; cogVisuals = []; frameBodies = [];
+            connectingBars = []; sheetBody = null;
+
+            createCoils();
+            createFenceAndSheet();
+            resetCoilPosition();
+            updateKPI();
+            
+            state.isSimulating = false;
+            updateStatus('safe', 'READY', '初期状態に配置されました');
+            dom.fenceFrontCount.innerText = "0"; dom.fenceBackCount.innerText = "0";
+        }
+
+        function updateKPI() {
+            // Mass calculation with variable Inner Diameter
+            const V = Math.PI * (Math.pow(state.od / 2, 2) - Math.pow(state.innerDiameter / 2, 2)) * state.width;
+            state.singleCoilMass = config.aluminumDensity * V;
+            state.totalMass = state.singleCoilMass * state.numStrips;
+            dom.kpiMass.innerText = state.totalMass.toFixed(0);
+        }
+
+        function updateStatus(type, main, detail) {
+            dom.statusMain.innerHTML = type === 'simulating' ? '<i class="fa-solid fa-spinner fa-spin status-icon"></i>' + main : 
+                                       type === 'safe' ? '<i class="fa-solid fa-circle-check status-icon"></i>' + main : 
+                                       type === 'danger' ? '<i class="fa-solid fa-triangle-exclamation status-icon"></i>' + main :
+                                       type === 'stable' ? '<i class="fa-solid fa-circle-check status-icon"></i>' + main :
+                                       type === 'warning' ? '<i class="fa-solid fa-shield-halved status-icon"></i>' + main :
+                                       '<i class="fa-solid fa-circle-info status-icon"></i>' + main;
+            dom.statusDetail.innerHTML = detail;
+            dom.kpiStatus.className = `kpi-status status-${type}`;
+            if(type === 'safe' || type === 'simulating') {
+                dom.kpiForce.innerText = "0.0";
+            }
+        }
+
+        function updateSimulationStatus() {
+            if (!state.isSimulating) {
+                return;
+            }
+
+            const fenceBroken = fencePosts.some(p => p.broken);
+            
+            let maxTiltAngle = 0;
+            coilBodies.forEach(body => {
+                const quat = body.quaternion;
+                const euler = new THREE.Euler().setFromQuaternion(new THREE.Quaternion(quat.x, quat.y, quat.z, quat.w));
+                const tiltAngle = Math.abs(THREE.MathUtils.radToDeg(euler.x));
+                if (tiltAngle > maxTiltAngle) maxTiltAngle = tiltAngle;
+            });
+
+            let fenceContact = false;
+            let maxMoment = 0;
+            if (state.hasFence && world.contacts.length > 0) {
+                world.contacts.forEach(c => {
+                    fencePosts.forEach(p => {
+                        if (!p.broken && (c.bi === p.bodyUpper || c.bj === p.bodyUpper)) {
+                            fenceContact = true;
+                        }
+                    });
+                });
+                maxMoment = parseFloat(dom.kpiForce.innerText);
+            }
+
+            let totalSpeed = 0;
+            coilBodies.forEach(body => {
+                totalSpeed += body.velocity.length() + body.angularVelocity.length();
+            });
+            const isStable = totalSpeed < 0.1;
+
+            if (fenceBroken) {
+                updateStatus('danger', '柵損壊', '荷重オーバーにより柵が破損しました');
+            } else if (fenceContact && isStable) {
+                const safetyRatio = state.hasFence ? ((maxMoment / ((state.yieldMoment * 2) / 1000)) * 100).toFixed(0) : 0;
+                updateStatus('warning', '柵で保持', `柵の強度内で安定 (負荷率: ${safetyRatio}%)`);
+            } else if (maxTiltAngle > 60 && isStable) {
+                updateStatus('danger', '転倒', `最大傾斜角: ${maxTiltAngle.toFixed(1)}°`);
+            } else if (isStable && maxTiltAngle < 20) {
+                updateStatus('stable', '安定', `傾斜角: ${maxTiltAngle.toFixed(1)}° - 転倒していません`);
+            } else {
+                updateStatus('simulating', 'シミュレーション中', `現在の最大傾斜: ${maxTiltAngle.toFixed(1)}°`);
+            }
+        }
+
+        function createCoils() {
+            const shape = new THREE.Shape();
+            const outerR = state.od / 2, innerR = state.innerDiameter / 2;
+            shape.absarc(0, 0, outerR, 0, Math.PI * 2, false);
+            const holePath = new THREE.Path();
+            holePath.absarc(0, 0, innerR, 0, Math.PI * 2, true);
+            shape.holes.push(holePath);
+
+            const geo = new THREE.ExtrudeGeometry(shape, { depth: state.width, bevelEnabled: false, curveSegments: 48 }); 
+            geo.center();
+
+            const matFace = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, metalness: 0.0 });
+            const matSide = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4, metalness: 0.6 });
+
+            const q = new CANNON.Quaternion();
+            q.setFromAxisAngle(new CANNON.Vec3(1,0,0), Math.PI/2);
+            
+            const cylinderShape = new CANNON.Cylinder(state.od/2, state.od/2, state.width, 32);
+
+            for (let i = 0; i < state.numStrips; i++) {
+                const mesh = new THREE.Mesh(geo, [matFace, matSide]); 
+                mesh.castShadow = true;
+                scene.add(mesh);
+                coilMeshes.push(mesh);
+
+                const body = new CANNON.Body({ 
+                    mass: state.singleCoilMass, material: matAluminum, 
+                    linearDamping: state.linearDamping,
+                    angularDamping: state.angularDamping,
+                    collisionFilterGroup: config.collisionGroups.COIL,
+                    collisionFilterMask: config.collisionGroups.GROUND | config.collisionGroups.FENCE | config.collisionGroups.COIL | config.collisionGroups.SHEET | config.collisionGroups.FRAME
+                });
+                body.addShape(cylinderShape, new CANNON.Vec3(0,0,0), q);
+                
+                body.sleepSpeedLimit = 0.01; body.sleepTimeLimit = 1.0; body.allowSleep = true;
+                
+                world.addBody(body);
+                coilBodies.push(body);
+                
+                const cg = new THREE.Group();
+                cg.add(new THREE.Mesh(new THREE.SphereGeometry(0.04), new THREE.MeshBasicMaterial({ color: 0xff0000, depthTest: false })));
+                const lineObj = new THREE.Line(
+                    new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,-1,0)]),
+                    new THREE.LineDashedMaterial({ color: 0xff0000, dashSize: 0.1, gapSize: 0.05 })
+                );
+                lineObj.computeLineDistances();
+                cg.add(lineObj);
+                cogGroup.add(cg);
+                cogVisuals.push(cg);
+            }
+        }
+
+        function createFenceAndSheet() {
+            const D = state.fencePipeDiameter;
+            const t = D * 0.1; const d = D - 2 * t;
+            
+            const Z_mod = (Math.PI * (Math.pow(D, 4) - Math.pow(d, 4))) / (32 * D);
+            state.yieldMoment = config.steelYieldStrength * Z_mod;
+            dom.kpiLimit.innerText = ((state.yieldMoment * 2)/1000).toFixed(1);
+
+            const limitZ = state.limitValue; 
+            const pitchX = state.fencePitch;
+
+            fenceGroup = new THREE.Group(); frameGroup = new THREE.Group(); sheetGroup = new THREE.Group();
+            
+            const frameH = state.frameHeight; 
+            const frameThick = state.fencePipeDiameter * 2; 
+            const holeMargin = state.fencePipeDiameter * 2; 
+            const zPostPos = (limitZ / 2) - holeMargin;
+            const zPostNeg = -(limitZ / 2) + holeMargin;
+            const matFrameVis = new THREE.MeshStandardMaterial({ color: config.fenceColor, roughness: 0.6 });
+
+            if (state.hasFence) {
+                const h = config.fenceHeight, hLower = h * 0.15, hUpper = h * 0.85;
+                const matFence = new THREE.MeshStandardMaterial({ color: config.fenceColor, metalness: 0.3, roughness: 0.2, emissive: 0x333300, emissiveIntensity: 0.2 });
+                
+                const postPositions = [
+                    { x: pitchX/2, z: zPostPos }, { x: -pitchX/2, z: zPostPos },
+                    { x: pitchX/2, z: zPostNeg }, { x: -pitchX/2, z: zPostNeg }
+                ];
+
+                postPositions.forEach((pos, idx) => {
+                    const outerRadius = D / 2, innerRadius = d / 2;
+                    const outerCylinder = new THREE.Mesh(new THREE.CylinderGeometry(outerRadius, outerRadius, h, 16, 1, true), matFence);
+                    const innerCylinder = new THREE.Mesh(new THREE.CylinderGeometry(innerRadius, innerRadius, h, 16, 1, true), matFence);
+                    innerCylinder.material = matFence.clone(); innerCylinder.material.side = THREE.BackSide;
+                    const topRing = new THREE.Mesh(new THREE.RingGeometry(innerRadius, outerRadius, 16), matFence);
+                    topRing.rotation.x = Math.PI / 2; topRing.position.y = h / 2;
+                    const bottomRing = new THREE.Mesh(new THREE.RingGeometry(innerRadius, outerRadius, 16), matFence);
+                    bottomRing.rotation.x = -Math.PI / 2; bottomRing.position.y = -h / 2;
+                    
+                    const postMesh = new THREE.Group();
+                    postMesh.add(outerCylinder); postMesh.add(innerCylinder); postMesh.add(topRing); postMesh.add(bottomRing);
+
+                    const handleAttachY = h/2 - 0.05;
+                    const handleDirection = pos.z < 0 ? -1 : 1; 
+                    const handleWidth = 0.06; const handleDepth = 0.10; const handleRadius = state.fencePipeDiameter / 4;
+                    
+                    const path = new THREE.CurvePath();
+                    const R = handleRadius * 1.5;
+                    path.add(new THREE.LineCurve3(new THREE.Vector3(0, handleAttachY, 0), new THREE.Vector3(0, handleAttachY, handleDirection * (handleWidth - R))));
+                    path.add(new THREE.QuadraticBezierCurve3(new THREE.Vector3(0, handleAttachY, handleDirection * (handleWidth - R)), new THREE.Vector3(0, handleAttachY, handleDirection * handleWidth), new THREE.Vector3(0, handleAttachY - R, handleDirection * handleWidth)));
+                    path.add(new THREE.LineCurve3(new THREE.Vector3(0, handleAttachY - R, handleDirection * handleWidth), new THREE.Vector3(0, handleAttachY - handleDepth + R, handleDirection * handleWidth)));
+                    path.add(new THREE.QuadraticBezierCurve3(new THREE.Vector3(0, handleAttachY - handleDepth + R, handleDirection * handleWidth), new THREE.Vector3(0, handleAttachY - handleDepth, handleDirection * handleWidth), new THREE.Vector3(0, handleAttachY - handleDepth, handleDirection * (handleWidth - R))));
+                    path.add(new THREE.LineCurve3(new THREE.Vector3(0, handleAttachY - handleDepth, handleDirection * (handleWidth - R)), new THREE.Vector3(0, handleAttachY - handleDepth, handleDirection * 0.02))); 
+
+                    const handleMesh = new THREE.Mesh(new THREE.TubeGeometry(path, 64, handleRadius, 8, false), matFence);
+                    postMesh.add(handleMesh);
+
+                    postMesh.position.set(pos.x, h/2 - 0.02, pos.z);
+                    fenceGroup.add(postMesh);
+
+                    const bodyLower = new CANNON.Body({ mass: 0, material: matSteel, collisionFilterGroup: config.collisionGroups.FENCE, collisionFilterMask: config.collisionGroups.COIL | config.collisionGroups.GROUND });
+                    bodyLower.addShape(new CANNON.Cylinder(D/2, D/2, hLower, 12));
+                    bodyLower.position.set(pos.x, hLower/2, pos.z); world.addBody(bodyLower);
+
+                    const bodyUpper = new CANNON.Body({ mass: 0, material: matSteel, collisionFilterGroup: config.collisionGroups.FENCE, collisionFilterMask: config.collisionGroups.COIL | config.collisionGroups.GROUND });
+                    bodyUpper.addShape(new CANNON.Cylinder(D/2, D/2, hUpper, 12));
+                    bodyUpper.position.set(pos.x, hLower + hUpper/2, pos.z); world.addBody(bodyUpper);
+                    
+                    fencePosts.push({ mesh: postMesh, body: bodyLower, bodyUpper, broken: false, hLower, hUpper, id: idx });
+                });
+                scene.add(fenceGroup);
+
+                const barH = 0.04; const barD = 0.01; const barW = pitchX;
+                const barY = frameH + 0.1 + (barH / 2);
+                const pairs = [[0, 1], [2, 3]];
+
+                pairs.forEach(pair => {
+                    const p1 = fencePosts[pair[0]]; const p2 = fencePosts[pair[1]];
+                    const zPos = p1.bodyUpper.position.z;
+                    const barMesh = new THREE.Mesh(new THREE.BoxGeometry(barW, barH, barD), matFrameVis);
+                    barMesh.castShadow = true; frameGroup.add(barMesh);
+
+                    const barBody = new CANNON.Body({ mass: 50, material: matSteel, collisionFilterGroup: config.collisionGroups.FENCE, collisionFilterMask: config.collisionGroups.COIL });
+                    barBody.addShape(new CANNON.Box(new CANNON.Vec3(barW/2, barH/2, barD/2)));
+                    barBody.position.set(0, barY, zPos);
+                    barBody.linearDamping = 0.3; barBody.angularDamping = 0.3;
+                    world.addBody(barBody);
+
+                    const c1 = new CANNON.LockConstraint(p1.bodyUpper, barBody, { collideConnected: false, maxForce: 1e10 });
+                    const c2 = new CANNON.LockConstraint(p2.bodyUpper, barBody, { collideConnected: false, maxForce: 1e10 });
+                    world.addConstraint(c1); world.addConstraint(c2);
+                    connectingBars.push({ mesh: barMesh, body: barBody, constraints: [c1, c2], pairIndices: pair });
+                });
+            }
+
+            createSideFrameWithHoles(pitchX/2, frameH/2, 0, frameThick, frameH, limitZ, zPostNeg, zPostPos, matFrameVis);
+            createSideFrameWithHoles(-pitchX/2, frameH/2, 0, frameThick, frameH, limitZ, zPostNeg, zPostPos, matFrameVis);
+            
+            const endBarWidth = pitchX + frameThick; 
+            createFrameBar(0, frameH/2, limitZ/2, endBarWidth, frameH, 0.005, matFrameVis);
+            createFrameBar(0, frameH/2, -limitZ/2, endBarWidth, frameH, 0.005, matFrameVis);
+            scene.add(frameGroup);
+
+            // M-SHAPE SHEET
+            const humpHeight = 0.01; const sW = pitchX - frameThick; const sD = limitZ - 0.005; const sH = frameH; 
+            const rubberShape = new THREE.Shape();
+            rubberShape.moveTo(-sW/2, 0); rubberShape.lineTo(sW/2, 0); rubberShape.lineTo(sW/2, sH + humpHeight);
+            rubberShape.lineTo(0, sH); rubberShape.lineTo(-sW/2, sH + humpHeight); rubberShape.closePath();
+            const rubberGeo = new THREE.ExtrudeGeometry(rubberShape, { depth: sD, bevelEnabled: false });
+            rubberGeo.translate(0, 0, -sD/2);
+            const matRubber = new THREE.MeshStandardMaterial({ color: config.sheetColor, roughness: 0.9 });
+            const rubberMesh = new THREE.Mesh(rubberGeo, matRubber);
+            rubberMesh.receiveShadow = true; sheetGroup.add(rubberMesh);
+
+            const blueShape = new THREE.Shape(); const blueThick = 0.001;
+            blueShape.moveTo(-sW/2, sH + humpHeight); blueShape.lineTo(0, sH); blueShape.lineTo(sW/2, sH + humpHeight);
+            blueShape.lineTo(sW/2, sH + humpHeight + blueThick); blueShape.lineTo(0, sH + blueThick); blueShape.lineTo(-sW/2, sH + humpHeight + blueThick); blueShape.closePath();
+            const blueGeo = new THREE.ExtrudeGeometry(blueShape, { depth: sD, bevelEnabled: false });
+            blueGeo.translate(0, 0, -sD/2);
+            const matBlue = new THREE.MeshStandardMaterial({ color: 0x007AFF, roughness: 0.6, emissive: 0x001133, emissiveIntensity: 0.2 });
+            const blueMesh = new THREE.Mesh(blueGeo, matBlue);
+            blueMesh.receiveShadow = true; sheetGroup.add(blueMesh);
+
+            sheetBody = new CANNON.Body({ mass: 0, material: matSheet, collisionFilterGroup: config.collisionGroups.SHEET, collisionFilterMask: config.collisionGroups.COIL });
+            const slopeAngle = Math.atan2(humpHeight, sW / 2);
+            const boxHalfWidth = (sW / 4) / Math.cos(slopeAngle); const boxHalfHeight = sH / 2; const boxHalfDepth = sD / 2;
+            const segmentShape = new CANNON.Box(new CANNON.Vec3(boxHalfWidth, boxHalfHeight, boxHalfDepth));
+            const yOffset = sH / 2 + (humpHeight / 2);
+            
+            const qLeft = new CANNON.Quaternion(); qLeft.setFromAxisAngle(new CANNON.Vec3(0, 0, 1), -slopeAngle);
+            sheetBody.addShape(segmentShape, new CANNON.Vec3(-sW/4, yOffset, 0), qLeft);
+            
+            const qRight = new CANNON.Quaternion(); qRight.setFromAxisAngle(new CANNON.Vec3(0, 0, 1), slopeAngle);
+            sheetBody.addShape(segmentShape, new CANNON.Vec3(sW/4, yOffset, 0), qRight);
+            
+            world.addBody(sheetBody);
+            scene.add(sheetGroup);
+        }
+
+        function createSideFrameWithHoles(x, y, z, w, h, l, zStart, zEnd, mat) {
+            const shape = new THREE.Shape();
+            const hw = w/2, hl = l/2;
+            shape.moveTo(-hw, -hl); shape.lineTo(hw, -hl); shape.lineTo(hw, hl); shape.lineTo(-hw, hl); shape.lineTo(-hw, -hl);
+            const numHoles = 11; const holeRadius = state.fencePipeDiameter * 0.55; 
+            const span = zEnd - zStart; const step = span / (numHoles - 1);
+            for(let i=0; i<numHoles; i++) {
+                const hz = zStart + (i * step); 
+                const holePath = new THREE.Path(); holePath.absarc(0, hz, holeRadius, 0, Math.PI*2, true);
+                shape.holes.push(holePath);
+            }
+            const geo = new THREE.ExtrudeGeometry(shape, { depth: h, bevelEnabled: false, curveSegments: 12 });
+            geo.rotateX(-Math.PI/2); 
+            const mesh = new THREE.Mesh(geo, mat); mesh.position.set(x, y - h/2, z); mesh.castShadow = true; mesh.receiveShadow = true; frameGroup.add(mesh);
+            const body = new CANNON.Body({ mass: 0, material: matFrame, collisionFilterGroup: config.collisionGroups.FRAME, collisionFilterMask: config.collisionGroups.COIL });
+            body.addShape(new CANNON.Box(new CANNON.Vec3(w/2, h/2, l/2))); body.position.set(x, y, z);
+            world.addBody(body); frameBodies.push(body);
+        }
+
+        function createFrameBar(x, y, z, w, h, d, mat) {
+            const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+            mesh.position.set(x, y, z); mesh.castShadow = true; mesh.receiveShadow = true; frameGroup.add(mesh);
+            const body = new CANNON.Body({ mass: 0, material: matFrame, collisionFilterGroup: config.collisionGroups.FRAME, collisionFilterMask: config.collisionGroups.COIL });
+            body.addShape(new CANNON.Box(new CANNON.Vec3(w/2, h/2, d/2))); body.position.set(x, y, z);
+            world.addBody(body); frameBodies.push(body);
+        }
+
+        function resetCoilPosition() {
+            if(coilBodies.length === 0) return;
+            const rad = THREE.MathUtils.degToRad(state.angle);
+            const totalSetWidth = state.numStrips * state.width + (state.numStrips - 1) * state.gap;
+            
+            // Adjust startZ with Position Shift
+            const startZ = (-totalSetWidth / 2 + state.width / 2) + state.posShift;
+            
+            const y = (state.od/2) * Math.cos(rad) + (state.width/2) * Math.sin(rad);
+            const initialClearance = 0.001; 
+
+            for(let i=0; i<state.numStrips; i++) {
+                const b = coilBodies[i];
+                b.velocity.set(0, 0, 0); b.angularVelocity.set(0, 0, 0); b.force.set(0, 0, 0); b.torque.set(0, 0, 0);
+                b.quaternion.setFromAxisAngle(new CANNON.Vec3(1,0,0), rad);
+                b.position.set(0, y + state.frameHeight + initialClearance, startZ + i * (state.width + state.gap));
+                b.wakeUp();
+            }
+            syncVisuals();
+        }
+
+        function calculateOffsetFromAngle() { state.offset = state.od * Math.sin(THREE.MathUtils.degToRad(state.angle)); }
+        function calculateAngleFromOffset() { state.angle = THREE.MathUtils.radToDeg(Math.asin(Math.min(state.offset, state.od) / state.od)); }
+
+        function checkFenceStress() {
+            if (!state.hasFence || !world.contacts.length) return;
+
+            const adjacency = new Map();
+            world.contacts.forEach(c => {
+                const bi = c.bi; const bj = c.bj;
+                const validGroup = config.collisionGroups.COIL | config.collisionGroups.FENCE;
+                if ((bi.collisionFilterGroup & validGroup) !== 0 && (bj.collisionFilterGroup & validGroup) !== 0) {
+                    if(!adjacency.has(bi.id)) adjacency.set(bi.id, []);
+                    if(!adjacency.has(bj.id)) adjacency.set(bj.id, []);
+                    adjacency.get(bi.id).push(bj); adjacency.get(bj.id).push(bi);
+                }
+            });
+
+            let maxTotalMoment = 0;
+            const rad = THREE.MathUtils.degToRad(state.angle);
+            const gravityForce = 9.8 * Math.sin(rad); 
+
+            connectingBars.forEach((barObj) => {
+                const pair = barObj.pairIndices;
+                const p1 = fencePosts[pair[0]]; const p2 = fencePosts[pair[1]];
+                if (p1.broken || p2.broken) return;
+
+                const isFront = p1.bodyUpper.position.z > 0;
+                const domCount = isFront ? dom.fenceFrontCount : dom.fenceBackCount;
+                const domMoment = isFront ? dom.fenceFrontMoment : dom.fenceBackMoment;
+
+                const rootBodies = [p1.bodyUpper, p2.bodyUpper];
+                const connectedIndices = getConnectedCoils(rootBodies, adjacency);
+                const count = connectedIndices.size;
+
+                const effectiveHeight = Math.max(0.1, (config.fenceHeight * 0.6)); 
+                let totalMoment = 0;
+                if (count > 0) {
+                    totalMoment = count * state.singleCoilMass * gravityForce * effectiveHeight;
+                }
+                if (totalMoment > maxTotalMoment) maxTotalMoment = totalMoment;
+
+                if (totalMoment > (state.yieldMoment * 2)) {
+                    breakFramePair(p1, p2);
+                }
+                domCount.innerText = count;
+                domMoment.innerText = (totalMoment / 1000).toFixed(1);
+            });
+            if (maxTotalMoment > 0) dom.kpiForce.innerText = (maxTotalMoment/1000).toFixed(1);
+        }
+
+        function getConnectedCoils(rootBodies, adjacencyMap) {
+            const visited = new Set();
+            const queue = [...rootBodies];
+            const foundCoilIndices = new Set();
+            while(queue.length > 0) {
+                const currentBody = queue.shift();
+                if(visited.has(currentBody.id)) continue;
+                visited.add(currentBody.id);
+                const neighbors = adjacencyMap.get(currentBody.id) || [];
+                neighbors.forEach(neighborBody => {
+                    const coilIdx = coilBodies.indexOf(neighborBody);
+                    if(coilIdx !== -1) {
+                        if(!foundCoilIndices.has(coilIdx)) {
+                            foundCoilIndices.add(coilIdx);
+                            queue.push(neighborBody);
+                        }
+                    }
+                });
+            }
+            return foundCoilIndices;
+        }
+
+        function breakFramePair(p1, p2) {
+            [p1, p2].forEach(post => {
+                post.broken = true;
+                const D = state.fencePipeDiameter; const t = D * 0.1; 
+                const hollowMass = Math.PI * (Math.pow(D/2,2) - Math.pow((D-2*t)/2,2)) * post.hUpper * 7850;
+                post.bodyUpper.type = CANNON.Body.DYNAMIC; 
+                post.bodyUpper.mass = hollowMass; 
+                post.bodyUpper.updateMassProperties();
+                post.bodyUpper.angularDamping = 0.98; post.bodyUpper.linearDamping = 0.98;
+                const constraint = new CANNON.HingeConstraint(post.body, post.bodyUpper, {
+                    pivotA: new CANNON.Vec3(0, post.hLower/2, 0), axisA: new CANNON.Vec3(1, 0, 0),
+                    pivotB: new CANNON.Vec3(0, -post.hUpper/2, 0), axisB: new CANNON.Vec3(1, 0, 0), collideConnected: false
+                });
+                constraint.enableMotor(); constraint.setMotorSpeed(0); constraint.setMotorMaxForce(30); 
+                world.addConstraint(constraint); post.constraint = constraint; post.bodyUpper.wakeUp();
+            });
+            updateStatus('danger', '柵損壊', '過負荷によりフレームが破損しました');
+        }
+
+        function handleParamChange() {
+            if (state.isSimulating) {
+                state.isSimulating = false;
+                updateStatus('safe', 'リセット', '設定変更により再配置しました');
+            }
+            recreateObjects();
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function syncVisuals() {
+            for(let i=0; i<state.numStrips; i++) {
+                if(coilMeshes[i] && coilBodies[i]) {
+                    coilMeshes[i].position.copy(coilBodies[i].position); coilMeshes[i].quaternion.copy(coilBodies[i].quaternion);
+                    if (state.showCoG && cogVisuals[i]) {
+                        cogVisuals[i].position.copy(coilBodies[i].position);
+                        cogVisuals[i].children[1].scale.set(1, coilBodies[i].position.y, 1);
+                    }
+                }
+            }
+            cogGroup.visible = state.showCoG;
+            fencePosts.forEach(p => {
+                p.mesh.position.copy(p.bodyUpper.position); p.mesh.quaternion.copy(p.bodyUpper.quaternion);
+                if (p.broken) {
+                    const localOffset = new THREE.Vector3(0, (config.fenceHeight/2 - 0.02) - (p.hLower + p.hUpper/2), 0).applyQuaternion(p.mesh.quaternion);
+                    p.mesh.position.add(localOffset);
+                } else {
+                    p.mesh.position.y += (config.fenceHeight/2 - 0.02) - (p.hLower + p.hUpper/2);
+                }
+            });
+            connectingBars.forEach(b => {
+                b.mesh.position.copy(b.body.position); b.mesh.quaternion.copy(b.body.quaternion);
+            });
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            dirLight.position.set(state.lightPosX, state.lightPosY, state.lightPosZ);
+            fillLight.position.set(-state.lightPosX * 0.6, state.lightPosY * 0.4, state.lightPosZ * 0.8);
+            
+            if (state.isSimulating) {
+                const time = performance.now() / 1000;
+                if (!lastCallTime) world.step(timeStep); else world.step(timeStep, time - lastCallTime, 10);
+                
+                coilBodies.forEach(body => {
+                    body.linearDamping = state.linearDamping; body.angularDamping = state.angularDamping;
+                    const speed = body.velocity.length();
+                    if (speed < 0.5 && speed > 0.01) body.velocity.scale(0.95, body.velocity);
+                    if (body.angularVelocity.length() > 5) body.angularVelocity.scale(0.9, body.angularVelocity);
+                });
+                
+                checkFenceStress();
+                updateSimulationStatus(); // Restored logic call
+                lastCallTime = time; 
+                syncVisuals();
+            } else { lastCallTime = performance.now() / 1000; }
+            controls.update(); renderer.render(scene, camera);
+        }
+
+        init();
+    </script>
+</body>
+</html>

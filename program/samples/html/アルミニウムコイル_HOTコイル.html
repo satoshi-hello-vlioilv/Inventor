@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>アルミニウムコイル 3Dモデル</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#f3f4f6;font-family:"Segoe UI","Yu Gothic UI","Meiryo",sans-serif;color:#222}
+  #view{position:fixed;inset:0}
+  #panel{position:fixed;top:12px;left:12px;width:270px;max-height:calc(100vh - 24px);overflow-y:auto;
+    background:rgba(255,255,255,.94);border:1px solid #d6d9de;border-radius:8px;padding:12px 14px;box-sizing:border-box;
+    box-shadow:0 2px 10px rgba(0,0,0,.08);font-size:13px}
+  h1{font-size:14px;margin:0 0 8px}
+  h2{font-size:12px;margin:12px 0 6px;color:#555;border-bottom:1px solid #e3e5e8;padding-bottom:3px}
+  .row{display:grid;grid-template-columns:78px 1fr 58px;align-items:center;gap:6px;margin:5px 0}
+  .row input[type=range]{width:100%}
+  .val{text-align:right;font-variant-numeric:tabular-nums}
+  .chk{display:flex;align-items:center;gap:6px;margin:5px 0}
+  button{width:100%;padding:6px;margin-top:6px;border:1px solid #c4c8ce;background:#fff;border-radius:5px;cursor:pointer;font-size:13px}
+  button:hover{background:#eef1f5}
+  table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+  td{padding:2px 0}td:last-child{text-align:right}
+  #hint{position:fixed;right:12px;bottom:10px;font-size:12px;color:#666}
+</style>
+<script type="importmap">
+{"imports":{
+  "three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+}}
+</script>
+</head>
+<body>
+<div id="view"></div>
+<div id="panel">
+  <h1>アルミニウムコイル</h1>
+  <h2>寸法</h2>
+  <div class="row"><span>内径 ID</span><input id="id" type="range" min="300" max="800" step="1"><span class="val" id="id_v"></span></div>
+  <div class="row"><span>外径 OD</span><input id="od" type="range" min="700" max="2200" step="1"><span class="val" id="od_v"></span></div>
+  <div class="row"><span>板幅</span><input id="w" type="range" min="200" max="2200" step="1"><span class="val" id="w_v"></span></div>
+  <div class="row"><span>板厚</span><input id="t" type="range" min="0.2" max="10" step="0.1"><span class="val" id="t_v"></span></div>
+  <h2>巻終わり（テール）</h2>
+  <div class="row"><span>浮き量</span><input id="lift" type="range" min="0" max="400" step="1"><span class="val" id="lift_v"></span></div>
+  <div class="row"><span>浮き範囲</span><input id="liftDeg" type="range" min="10" max="180" step="1"><span class="val" id="liftDeg_v"></span></div>
+  <div class="row"><span>テール位置</span><input id="tailDeg" type="range" min="-180" max="180" step="1"><span class="val" id="tailDeg_v"></span></div>
+  <div class="row"><span>角部R</span><input id="cornerR" type="range" min="0" max="150" step="1"><span class="val" id="cornerR_v"></span></div>
+  <div class="row"><span>端面丸み</span><input id="edgeRound" type="range" min="0" max="100" step="5"><span class="val" id="edgeRound_v"></span></div>
+  <h2>表示</h2>
+  <label class="chk"><input id="shadow" type="checkbox" checked>床の影</label>
+  <button id="resetView">視点リセット</button>
+  <button id="resetParam">寸法を初期値に戻す</button>
+  <h2>計算値（Al 密度 2.70 g/cm³）</h2>
+  <table>
+    <tr><td>巻数</td><td id="o_turns"></td></tr>
+    <tr><td>板長さ</td><td id="o_len"></td></tr>
+    <tr><td>概算質量</td><td id="o_mass"></td></tr>
+  </table>
+</div>
+<div id="hint">左ドラッグ：回転　右ドラッグ：移動　ホイール：拡大縮小</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+const MM = 0.001, TAU = Math.PI * 2, DEG = Math.PI / 180;
+const DEF = { id: 508, od: 1250, w: 1100, t: 8.0, lift: 159, liftDeg: 90, tailDeg: -93, cornerR: 150, edgeRound: 100 };
+const P = { ...DEF };
+const UNIT = { id: 'mm', od: 'mm', w: 'mm', t: 'mm', lift: 'mm', liftDeg: '°', tailDeg: '°', cornerR: 'mm', edgeRound: '%' };
+
+/* ---------- renderer / scene ---------- */
+const host = document.getElementById('view');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+renderer.setSize(innerWidth, innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+host.appendChild(renderer.domElement);
+const MAXANI = renderer.capabilities.getMaxAnisotropy();
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xf3f4f6);
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(renderer), 0.04).texture;
+
+const camera = new THREE.PerspectiveCamera(35, innerWidth / innerHeight, 0.01, 100);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.autoRotate = false;
+
+const sun = new THREE.DirectionalLight(0xffffff, 1.3);
+sun.position.set(2.5, 6, 3.5);
+sun.castShadow = true;
+sun.shadow.mapSize.set(1024, 1024);
+Object.assign(sun.shadow.camera, { left: -3, right: 3, top: 3, bottom: -3, near: 0.5, far: 20 });
+sun.shadow.bias = -0.0004;
+sun.shadow.radius = 6;
+scene.add(sun);
+scene.add(new THREE.HemisphereLight(0xffffff, 0xd8dade, 0.35));
+
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(30, 30), new THREE.ShadowMaterial({ opacity: 0.16 }));
+floor.rotation.x = -Math.PI / 2;
+floor.receiveShadow = true;
+scene.add(floor);
+
+const coil = new THREE.Group();
+scene.add(coil);
+
+/* ---------- noise helpers ---------- */
+const fract = x => x - Math.floor(x);
+const hash = k => fract(Math.sin(k * 127.1 + 311.7) * 43758.5453);
+const vnoise = x => { const i = Math.floor(x), f = x - i, s = f * f * (3 - 2 * f); return hash(i) * (1 - s) + hash(i + 1) * s; };
+
+/* ---------- outer surface texture (brushed along rolling direction) ---------- */
+function makeBrushTextures() {
+  // Subtle, nearly mirror-finished aluminium surface. End-face textures are unchanged.
+  const W = 1024, H = 256;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  g.fillStyle = 'rgb(224,227,230)'; g.fillRect(0, 0, W, H);
+  for (let x = 0; x < W; x++) {
+    const v = (vnoise(x / 150) - 0.5) * 4;
+    g.fillStyle = v > 0 ? `rgba(255,255,255,${v / 255})` : `rgba(0,0,0,${-v / 255})`;
+    g.fillRect(x, 0, 1, H);
+  }
+  for (let i = 0; i < 180; i++) {
+    const y = Math.random() * H, x = Math.random() * W, len = 100 + Math.random() * 700;
+    g.strokeStyle = `rgba(255,255,255,${0.008 + Math.random() * 0.018})`;
+    g.lineWidth = 0.35 + Math.random() * 0.35;
+    g.beginPath(); g.moveTo(x, y); g.lineTo(x + len, y); g.stroke();
+  }
+  const color = new THREE.CanvasTexture(c);
+  color.colorSpace = THREE.SRGBColorSpace;
+
+  const r = document.createElement('canvas'); r.width = W; r.height = H;
+  const q = r.getContext('2d');
+  q.fillStyle = 'rgb(0,42,0)'; q.fillRect(0, 0, W, H);
+  for (let x = 0; x < W; x++) {
+    const v = Math.round((vnoise(x / 180 + 9) - 0.5) * 8);
+    q.fillStyle = `rgb(0,${Math.max(34, Math.min(50, 42 + v))},0)`;
+    q.fillRect(x, 0, 1, H);
+  }
+  const rough = new THREE.CanvasTexture(r);
+  for (const tex of [color, rough]) {
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.anisotropy = MAXANI;
+  }
+  return { color, rough };
+}
+/* ---------- end face texture (spiral laps) + anisotropy map (circumferential) ---------- */
+const END_S = 768;
+function makeEndTextures(ri, t, th0, Rm) {
+  const S = END_S;
+  const c1 = document.createElement('canvas'); c1.width = c1.height = S;
+  const c2 = document.createElement('canvas'); c2.width = c2.height = S;
+  const g1 = c1.getContext('2d'), g2 = c2.getContext('2d');
+  const im1 = g1.createImageData(S, S), im2 = g2.createImageData(S, S);
+  const d1 = im1.data, d2 = im2.data;
+  for (let py = 0; py < S; py++) {
+    const v = 1 - (py + 0.5) / S, z = (v - 0.5) * 2 * Rm;
+    for (let px = 0; px < S; px++) {
+      const u = (px + 0.5) / S, y = (u - 0.5) * 2 * Rm;
+      const r = Math.hypot(y, z), al = Math.atan2(z, y);
+      let th = (th0 - al) % TAU; if (th < 0) th += TAU;
+      const s = (r - ri) / t - th / TAU;              // spiral lap coordinate (only for the lap-gap position)
+      const f = s - Math.floor(s);
+      const rho = (r - ri) / t;                       // radial coordinate: continuous at every angle
+      let b = 0.70
+        + 0.12 * (vnoise(rho / 31 + 3.1) - 0.5)
+        + 0.10 * (vnoise(rho / 7) - 0.5)
+        + 0.07 * (vnoise(rho * 0.9 + 5.3) - 0.5)
+        + 0.025 * Math.sin(al * 2 + vnoise(rho / 40) * 6);
+      const dd = Math.min(f, 1 - f);
+      b -= Math.exp(-((dd / 0.18) ** 2)) * (0.08 + 0.16 * vnoise(rho * 0.8 + 13.7));
+      b = Math.max(0, Math.min(1, b));
+      const o = (py * S + px) * 4;
+      d1[o] = b * 247; d1[o + 1] = b * 250; d1[o + 2] = b * 255; d1[o + 3] = 255;
+      let tx = -(v - 0.5), ty = (u - 0.5); const L = Math.hypot(tx, ty) || 1; tx /= L; ty /= L;
+      d2[o] = (tx * 0.5 + 0.5) * 255; d2[o + 1] = (ty * 0.5 + 0.5) * 255; d2[o + 2] = 210; d2[o + 3] = 255;
+    }
+  }
+  g1.putImageData(im1, 0, 0); g2.putImageData(im2, 0, 0);
+  const color = new THREE.CanvasTexture(c1); color.colorSpace = THREE.SRGBColorSpace;
+  const aniso = new THREE.CanvasTexture(c2);
+  color.anisotropy = aniso.anisotropy = MAXANI;
+  return { color, aniso };
+}
+
+/* ---------- materials ---------- */
+const brush = makeBrushTextures();
+const outerMat = new THREE.MeshPhysicalMaterial({
+  color: 0xf3f5f6, metalness: 1.0, roughness: 0.16, map: brush.color, roughnessMap: brush.rough,
+  anisotropy: 0.18, clearcoat: 0.25, clearcoatRoughness: 0.08, side: THREE.DoubleSide
+});
+const edgeMat = new THREE.MeshPhysicalMaterial({ color: 0xb9bdc2, metalness: 0.9, roughness: 0.5, side: THREE.DoubleSide });
+const endMat = new THREE.MeshPhysicalMaterial({
+  color: 0xffffff, metalness: 0.85, roughness: 0.42, anisotropy: 0.6, side: THREE.DoubleSide
+});
+
+/* ---------- geometry helpers ---------- */
+function grid(nu, nv, fn) {
+  const pos = [], uv = [], idx = [];
+  for (let i = 0; i <= nu; i++) for (let j = 0; j <= nv; j++) {
+    const o = fn(i / nu, j / nv); pos.push(o.p[0], o.p[1], o.p[2]); uv.push(o.uv[0], o.uv[1]);
+  }
+  for (let i = 0; i < nu; i++) for (let j = 0; j < nv; j++) {
+    const a = i * (nv + 1) + j, b = (i + 1) * (nv + 1) + j, c = b + 1, d = a + 1;
+    idx.push(a, b, d, b, c, d);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx); g.computeVertexNormals();
+  return g;
+}
+function addMesh(geo, mat) {
+  const m = new THREE.Mesh(geo, mat); m.castShadow = true; m.receiveShadow = true; coil.add(m);
+}
+function clearCoil() {
+  for (const m of [...coil.children]) { m.geometry.dispose(); coil.remove(m); }
+}
+
+/* ---------- build ---------- */
+let endTexKey = '', endTex = null, texTimer = null, state = {};
+function build() {
+  clearCoil();
+  const ri = P.id / 2 * MM, t = P.t * MM, W = P.w * MM;
+  const odR = Math.max(P.od / 2 * MM, ri + 4 * t);
+  const n = Math.max(1, Math.round((odR - 2 * t - ri) / t));
+  const Rc = ri + n * t;                 // outer radius of the lap beneath the last lap at theta=0
+  const Ro = Rc + 2 * t;                 // actual outer radius
+  const th0 = P.tailDeg * DEG;
+  const phi = Math.min(P.liftDeg * DEG, TAU * 0.9), L = P.lift * MM;
+  const Rm = Ro + L + 0.05;              // planar UV extent for end faces
+  state = { ri, t, W, Ro, n, Rm, th0 };
+
+  const alpha = th => th0 - th;          // lap angle -> world angle (from +Y toward +Z)
+  const P3 = (r, th, x) => { const a = alpha(th); return [x, r * Math.cos(a), r * Math.sin(a)]; };
+  const pUV = p => [p[1] / (2 * Rm) + 0.5, p[2] / (2 * Rm) + 0.5];
+  const rb = th => Rc + t * th / TAU;                                     // surface under the last lap
+  const lift = th => th > TAU - phi ? L * ((th - (TAU - phi)) / phi) ** 2 : 0;
+  const ain = th => rb(th) + lift(th), aout = th => rb(th) + t + lift(th);
+  const NT = 480, NX = 64;
+  const tailArc = 14 * DEG;
+  // convex (tongue) tail: centre of width reaches TAU, both edges end tailArc earlier
+  const Rref = Ro + L;
+  const rc = Math.min(P.cornerR * MM, W / 2);
+  const XV = v => 0.5 - 0.5 * Math.cos(Math.PI * v);     // denser sampling toward both strip edges
+  const tailTheta = v => {
+    const q = XV(v), d = Math.min(q, 1 - q) * W;          // distance from nearest strip edge
+    let th = TAU - tailArc * (2 * q - 1) ** 2;
+    if (rc > 0 && d < rc) th -= (rc - Math.sqrt(Math.max(0, rc * rc - (rc - d) ** 2))) / Rref;  // corner fillet
+    return th;
+  };
+  const XW = v => (XV(v) - 0.5) * W;
+  const thEdge = tailTheta(0);
+
+  // last (outermost) lap: outer surface
+  addMesh(grid(NT, NX, (u, v) => { const th = u * tailTheta(v); return { p: P3(aout(th), th, XW(v)), uv: [u, XV(v)] }; }), outerMat);
+
+  // lifted zone: underside of last lap and exposed surface of the lap below
+  if (L > 0) {
+    const t1 = TAU - phi, NL = Math.max(24, Math.round(NT * phi / TAU));
+    addMesh(grid(NL, NX, (u, v) => { const th = t1 + u * Math.max(0, tailTheta(v) - t1); return { p: P3(ain(th), th, XW(v)), uv: [th / TAU, XV(v)] }; }), outerMat);
+    addMesh(grid(NL, NX, (u, v) => { const th = t1 + u * phi; return { p: P3(rb(th), th, (v - 0.5) * W), uv: [th / TAU, v] }; }), outerMat);
+  }
+
+  // tail end (sheared edge of the strip)
+  // rounded across the thickness; bulge fades to zero where the fillet meets the strip side
+  const NB = 12, eR = t / 2 * P.edgeRound / 100, h = 1e-3;
+  addMesh(grid(NB, NX, (u, v) => {
+    const th = tailTheta(v), a = u * Math.PI, rmid = ain(th) + t / 2;
+    const v1 = Math.max(0, v - h), v2 = Math.min(1, v + h);
+    const ds = (tailTheta(v2) - tailTheta(v1)) * Rref, dx = XW(v2) - XW(v1);
+    const ns = Math.abs(dx) / (Math.hypot(ds, dx) || 1);   // theta-component of the plan normal
+    const r = rmid - (t / 2) * Math.cos(a), dth = eR * Math.sin(a) * ns / rmid;
+    return { p: P3(r, th + dth, XW(v)), uv: [u, v] };
+  }), edgeMat);
+
+  // bore (inner diameter)
+  addMesh(grid(NT, NX, (u, v) => ({ p: P3(ri, u * TAU, (v - 0.5) * W), uv: [u, v] })), outerMat);
+
+  // end faces (both sides): body annulus + last lap strip
+  for (const x of [W / 2, -W / 2]) {
+    addMesh(grid(NT, 1, (u, v) => { const th = u * TAU, r = ri + v * (rb(th) - ri), p = P3(r, th, x); return { p, uv: pUV(p) }; }), endMat);
+    addMesh(grid(NT, 1, (u, v) => { const th = u * thEdge, r = ain(th) + v * t, p = P3(r, th, x); return { p, uv: pUV(p) }; }), endMat);
+  }
+
+  coil.position.y = Ro;                  // rest on the floor
+
+  // derived values
+  const area = Math.PI * (Ro * Ro - ri * ri);
+  document.getElementById('o_turns').textContent = (n + 1).toLocaleString() + ' 巻';
+  document.getElementById('o_len').textContent = (area / t).toLocaleString(undefined, { maximumFractionDigits: 0 }) + ' m';
+  document.getElementById('o_mass').textContent = (area * W * 2700).toLocaleString(undefined, { maximumFractionDigits: 0 }) + ' kg';
+
+  // end face texture (regenerate only when needed, debounced)
+  const key = [ri, t, th0, Rm].map(v => v.toFixed(6)).join('|');
+  if (key !== endTexKey) {
+    clearTimeout(texTimer);
+    texTimer = setTimeout(() => {
+      const nt = makeEndTextures(ri, t, th0, Rm);
+      if (endTex) { endTex.color.dispose(); endTex.aniso.dispose(); }
+      endTex = nt; endTexKey = key;
+      endMat.map = nt.color; endMat.anisotropyMap = nt.aniso; endMat.needsUpdate = true;
+    }, endTex ? 180 : 0);
+  }
+}
+
+/* ---------- view ---------- */
+function resetView() {
+  const { Ro, W } = state;
+  const c = new THREE.Vector3(0, Ro, 0);
+  const dist = Math.max(2 * Ro, W) * 2.3;
+  const dir = new THREE.Vector3(0.62, 0.24, 0.8).normalize();
+  camera.position.copy(c).addScaledVector(dir, dist);
+  controls.target.copy(c);
+  controls.update();
+}
+
+/* ---------- UI ---------- */
+const keys = Object.keys(DEF);
+let buildFrame = 0;
+function scheduleBuild() {
+  if (buildFrame) cancelAnimationFrame(buildFrame);
+  buildFrame = requestAnimationFrame(() => { buildFrame = 0; build(); });
+}
+function syncUI() {
+  for (const k of keys) {
+    document.getElementById(k).value = P[k];
+    document.getElementById(k + '_v').textContent = (k === 't' ? P[k].toFixed(1) : P[k]) + ' ' + UNIT[k];
+  }
+}
+for (const k of keys) {
+  document.getElementById(k).addEventListener('input', e => {
+    P[k] = parseFloat(e.target.value);
+    if (k === 'id' && P.od < P.id + 100) P.od = P.id + 100;
+    if (k === 'od' && P.od < P.id + 100) P.id = Math.max(300, P.od - 100);
+    syncUI(); scheduleBuild();
+  });
+}
+document.getElementById('shadow').addEventListener('change', e => { floor.visible = e.target.checked; });
+document.getElementById('resetView').addEventListener('click', resetView);
+document.getElementById('resetParam').addEventListener('click', () => { Object.assign(P, DEF); syncUI(); build(); resetView(); });
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+syncUI(); build(); resetView();
+renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
+</script>
+</body>
+</html>
