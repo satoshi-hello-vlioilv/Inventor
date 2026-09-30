@@ -2,7 +2,7 @@
   "name": "inventor-3d-tool",
   "private": true,
   "type": "module",
-  "description": "開発用（JavaScript の評価と調べる道具）。アプリの実行には使わない。依存は無い（three・fzstd は program/app/static/vendor の同梱を importmap で読む）",
+  "description": "開発用（JavaScript の評価と調べる道具）。アプリの実行には使わない。依存は無い（three・fzstd・delaunator・constrainautor は program/app/static/vendor の同梱を importmap で読む）",
   "scripts": {
     "test": "node --import ./program/tests/js/importmap.mjs --test \"program/tests/js/*.test.mjs\"",
     "inspect": "node --import ./program/tests/js/importmap.mjs program/tools/inspect.mjs",

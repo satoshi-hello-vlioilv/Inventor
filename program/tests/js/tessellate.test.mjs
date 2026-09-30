@@ -63,7 +63,8 @@ test("全表面積", () => {
 
 // ---- 形式によらない分割の性質（合成した面で確かめる）------------------------------------------
 // 境界の点が抜けると隣の面との間に隙間ができ、面積 0 の三角形は細分が終わらなくなる。どちらも実際の STEP（ボルトの六角穴）で起きた。
-// earcut が一直線に並ぶ点を省くのは内部の点（円錐の先端）を加えたときで、六角穴の底の試験がそれを確かめる
+// 以前の分割（earcut）は、一直線に並ぶ点を省いたり、数千点の細長い面を面全体にまたがる扇形に分けたりした（探索Part1 のローレット面）。
+// 今の分割（制約付き Delaunay）でそれが起きないことを、六角穴の底と細長い帯で確かめる
 const TAU = 2 * Math.PI;
 const circle = (n, at) => Array.from({ length: n }, (_, i) => at((TAU * i) / n));
 /** 1 つの面の分割の境界: 開いた辺（= 境界の区間）と、重なった辺の数 */
@@ -114,4 +115,71 @@ test("六角穴の底（円錐と、軸に平行な 6 平面の交線が境界�
   assert.equal(measure(g).misoriented, 0);
   assert.ok(g.index.count / 3 < 2000, `${g.index.count / 3} triangles`);
   assert.deepEqual(boundaryOf(face), { open: loop.length, duplicated: 0 });
+});
+
+test("数千点が一直線に並ぶ細長い帯（ローレット面の展開図の形）: 境界の点を全て使い、帯の端から端へまたがる三角形を作らない", () => {
+  const n = 4000;
+  const bottom = Array.from({ length: n + 1 }, (_, i) => [(40 * i) / n, 0, 0]);
+  const top = bottom.map(([x]) => [x, 0.05, 0]).reverse();
+  const loop = [...bottom, ...top];
+  const face = { id: 4, type: "plane", normal: [0, 0, 1], loops: [loop] };
+  const g = faceGeometry(face);
+  assert.equal(new Set(g.index.array).size, loop.length);
+  near(measure(g).area, 40 * 0.05, "area");
+  assert.deepEqual(boundaryOf(face), { open: loop.length, duplicated: 0 });
+  const pos = g.getAttribute("position"), idx = g.index.array;
+  let widest = 0;
+  for (let k = 0; k < idx.length; k += 3) {
+    const xs = [0, 1, 2].map((e) => pos.getX(idx[k + e]));
+    widest = Math.max(widest, Math.max(...xs) - Math.min(...xs));
+  }
+  assert.ok(widest <= 2 * (40 / n) + 1e-9, `三角形の幅 ${widest}（点の間隔 ${40 / n}）`);
+});
+
+// ---- 自由曲面（B スプライン）-----------------------------------------------------------------------
+// 円筒を有理 2 次の B スプライン（1 周 9 個の制御点）で表すと、形が厳密に分かる。
+// 境界は STEP と同じく「下の円 → 継ぎ目 → 上の円（逆向き）→ 継ぎ目」の 1 本のループ（継ぎ目の上の点は u = 0 と 1 の両方に当たる）
+const RING = [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1], [1, 0]];
+const HALF = Math.SQRT1_2;
+function nurbsCylinder(radius, height, flip) {
+  const points = RING.map(([x, y]) => [[radius * x, radius * y, 0], [radius * x, radius * y, height]]);
+  const weights = RING.map((_, i) => (i % 2 ? [HALF, HALF] : [1, 1]));
+  const bottom = circle(64, (t) => [radius * Math.cos(t), radius * Math.sin(t), 0]);
+  const top = bottom.map(([x, y]) => [x, y, height]);
+  const loop = [...bottom, bottom[0], top[0], ...top.slice(1).reverse(), top[0], bottom[0]];
+  return {
+    id: 5, type: "bspline", degree: [2, 1], flip, points, weights,
+    knots: [[0, 0, 0, 0.25, 0.25, 0.5, 0.5, 0.75, 0.75, 1, 1, 1], [0, 0, 1, 1]],
+    loops: [loop],
+  };
+}
+
+test("自由曲面: 有理 B スプラインの円筒を、円筒と同じ細かさで分割する（継ぎ目・重み・向き）", () => {
+  const [radius, height] = [5, 8];
+  for (const flip of [false, true]) {
+    const face = nurbsCylinder(radius, height, flip);
+    const g = faceGeometry(face);
+    assert.ok(g, "分割できる");
+    const m = measure(g);
+    assert.equal(m.misoriented, 0);
+    // 側面積 2πrh から、1 周 64 分割の折れ線で近似した分（(2π/64)² / 6 ≈ 0.16%）以内
+    near(m.area, TAU * radius * height, "側面積");
+    // 全ての点が曲面の上（半径 radius・高さ 0〜height）。三角形の中心の離れは、円弧の刻みの弦の垂れの 2.5 倍以内
+    const pos = g.getAttribute("position"), nor = g.getAttribute("normal"), idx = g.index.array;
+    const v = new THREE.Vector3(), n = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i);
+      assert.ok(Math.abs(Math.hypot(v.x, v.y) - radius) < 1e-6 && v.z > -1e-9 && v.z < height + 1e-9, `点 ${v.toArray()}`);
+      // 法線は flip しなければ外向き（∂S/∂u × ∂S/∂v）、flip なら内向き
+      n.fromBufferAttribute(nor, i);
+      assert.ok((n.x * v.x + n.y * v.y) * (flip ? -1 : 1) > 0, "法線の向き");
+    }
+    const sag = radius * (1 - Math.cos(Math.PI / 64));
+    for (let k = 0; k < idx.length; k += 3) {
+      const c = [0, 1, 2].reduce((s, e) => s.add(v.fromBufferAttribute(pos, idx[k + e]).clone()), new THREE.Vector3()).divideScalar(3);
+      assert.ok(radius - Math.hypot(c.x, c.y) <= 2.5 * sag, `三角形の中心が曲面から ${radius - Math.hypot(c.x, c.y)} 離れている`);
+    }
+    // 境界は下と上の円（継ぎ目は同じ位置の点どうしなので、溶接すると閉じる）
+    assert.deepEqual(boundaryOf(face), { open: 128, duplicated: 0 });
+  }
 });

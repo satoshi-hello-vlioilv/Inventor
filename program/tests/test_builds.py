@@ -106,7 +106,8 @@ class Jobs(unittest.TestCase):
         self.assertEqual(self.builds.status()["state"], "idle")
 
     def test_one_build_at_a_time_and_it_can_be_cancelled(self):
-        builds = Builds(self.root, command=python("import time; time.sleep(30)"), opener=self.opened.append)
+        # 中止を頼んでも止まらない作る係（標準入力を読まない）は、待つ時間を過ぎたら強制的に止める
+        builds = Builds(self.root, command=python("import time; time.sleep(30)"), opener=self.opened.append, cancel_grace=0.2)
         builds.start(fixture("finger"))
         with self.assertRaises(BuildBusy):
             builds.start(fixture("blade"))
@@ -116,6 +117,39 @@ class Jobs(unittest.TestCase):
         self.assertEqual(cancelled["state"], "cancelled")
         self.assertIn("保存せずに閉じて", cancelled["message"])
         self.assertEqual(list(self.root.iterdir()), [], "中止して何も作らなかったら、保存先を残さない")
+
+    def test_cancel_asks_the_builder_to_stop_before_forcing_it(self):
+        # 作る係は標準入力の「cancel」で自分から止まる（作りかけの部品を終え、Inventor をふだんの状態に戻してから）
+        polite = python("import sys\nfor line in sys.stdin:\n    if line.strip() == 'cancel':\n        print('stopped by request', file=sys.stderr); sys.exit(0)")
+        builds = Builds(self.root, command=polite, opener=self.opened.append, cancel_grace=30)
+        builds.start(fixture("finger"))
+        time.sleep(0.3)
+        started = time.monotonic()
+        builds.cancel()
+        self.assertEqual(wait(builds, 10)["state"], "cancelled")
+        self.assertLess(time.monotonic() - started, 5, "待つ時間（30 秒）を待たずに止まる")
+        self.assertIn("stopped by request", builds.console.read_text(encoding="utf-8"))
+
+    def test_forcing_the_builder_to_stop_while_it_uses_inventor_restores_inventor(self):
+        # 強制的に止めると作る係は Inventor を戻せないので、別のプロセス（--restore-inventor）で戻す
+        marker = self.root.parent / f"{self.root.name}-restored"
+        stuck = ("import json, time\nprint(json.dumps({'event': 'connecting'}), flush=True)\ntime.sleep(30)")
+        restore = f"open({str(marker)!r}, 'w').write('ok')"
+        command = lambda args: python(restore)() if "--restore-inventor" in args else python(stuck)()  # noqa: E731
+        builds = Builds(self.root, command=command, opener=self.opened.append, cancel_grace=0.2)
+        try:
+            builds.start(fixture("finger"))
+            end = time.monotonic() + 10
+            while builds.status()["state"] != "connecting" and time.monotonic() < end:
+                time.sleep(0.05)
+            builds.cancel()
+            self.assertEqual(wait(builds, 10)["state"], "cancelled")
+            end = time.monotonic() + 10
+            while not marker.exists() and time.monotonic() < end:
+                time.sleep(0.05)
+            self.assertTrue(marker.exists(), "Inventor をふだんの状態に戻す係を動かした")
+        finally:
+            marker.unlink(missing_ok=True)
 
     def test_installs_the_library_first_then_builds_in_a_new_process(self):
         builds = Builds(self.root, command=fake_command, install=python("print('Successfully installed pywin32')"))

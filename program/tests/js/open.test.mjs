@@ -29,7 +29,8 @@ test(".ipt は部品のモデル（形状・ファイル構造・材質・サム
 });
 
 test("STEP の組立は組立のモデル。組立の部品は部品のモデルとして開ける", async () => {
-  const [name] = sampleSteps();
+  const name = "Assembly_全体_Φ54.5.stp";
+  assert.ok(sampleSteps().includes(name));
   const model = await readModel(readSampleFile("stp", name), name);
   assert.equal(model.kind, "assembly");
   assert.deepEqual([model.scene.parts.length, model.scene.instances.length, model.missing.length], [10, 39, 0]);

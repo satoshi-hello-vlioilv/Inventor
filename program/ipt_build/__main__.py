@@ -6,6 +6,7 @@
     python -m ipt_build 変換データ.inventor.json              STEP と、Inventor で部品（と組立）を作る（Inventor のある Windows）
     python -m ipt_build 変換データ.inventor.json --step-only  STEP だけ作る（Inventor を使わない。どの OS でも可）
     python -m ipt_build 変換データ.inventor.json --dry-run    何も作らずに作成計画と期待値を確かめる
+    python -m ipt_build --restore-inventor                    起動中の Inventor の画面の更新とダイアログを、ふだんの状態に戻す
 
 オプション:
     --out DIR        保存先（既定: 変換データと同じ場所の「<名前>_cad」フォルダ）
@@ -13,13 +14,15 @@
     --only KEY ...   指定した部品だけ作る（例: --only p01 p03）
     --no-assembly    組立（.iam）を作らない
     --template FILE  部品のテンプレート（.ipt）
-    --events         進み具合を 1 行 1 つの JSON で知らせる（アプリのサーバーが読む。{"event": …, 進み具合}）
+    --events         進み具合を 1 行 1 つの JSON で知らせる（アプリのサーバーが読む。{"event": …, 進み具合}）。
+                     標準入力に「cancel」の行が来たら、作りかけの部品を終えたところで止め、Inventor をふだんの状態に戻して終わる
 """
 from __future__ import annotations
 
 import argparse
 import json
 import sys
+import threading
 from pathlib import Path
 
 from . import runner
@@ -75,9 +78,23 @@ def emit(event: str, **data) -> None:
     print(json.dumps({"event": event, **data}), flush=True)
 
 
+def listen_for_cancel() -> threading.Event:
+    """標準入力の「cancel」の行（アプリのサーバーの中止ボタン）を待ち、来たら合図を立てる"""
+    cancel = threading.Event()
+
+    def listen():
+        for line in sys.stdin:
+            if line.strip() == "cancel":
+                cancel.set()
+                return
+
+    threading.Thread(target=listen, name="cancel-listener", daemon=True).start()
+    return cancel
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="ipt_build", description="変換データ（JSON）から Inventor の部品・組立を作る")
-    parser.add_argument("spec", type=Path, help="アプリで保存した変換データ（.inventor.json）")
+    parser.add_argument("spec", type=Path, nargs="?", help="アプリで保存した変換データ（.inventor.json）")
     parser.add_argument("--out", type=Path, help="保存先フォルダ")
     parser.add_argument("--only", nargs="+", default=[], metavar="KEY", help="作る部品のキー（p01 など）")
     parser.add_argument("--no-assembly", action="store_true", help="組立（.iam）を作らない")
@@ -85,7 +102,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true", help="何も作らずに作成計画と期待値を確かめる")
     parser.add_argument("--step-only", action="store_true", help="STEP だけ作る（Inventor を使わない）")
     parser.add_argument("--events", action="store_true", help="進み具合を 1 行 1 つの JSON で知らせる（アプリが使う）")
+    parser.add_argument("--restore-inventor", action="store_true", help="起動中の Inventor を、画面の更新・ダイアログのふだんの状態に戻す")
     args = parser.parse_args(argv)
+    if args.restore_inventor:
+        from .inventor import restore_running_inventor  # noqa: PLC0415
+
+        return 0 if restore_running_inventor() else 1
+    if args.spec is None:
+        parser.error("変換データ（.inventor.json）を指定してください")
     try:
         spec = load_spec(args.spec)
     except SpecError as error:
@@ -99,7 +123,8 @@ def main(argv: list[str] | None = None) -> int:
     out_dir = args.out or runner.default_out_dir(args.spec)
     progress = (lambda event, run, result=None: emit(event, **run.status())) if args.events else print_progress
     try:
-        run = runner.build(spec, out_dir, set(args.only), not args.no_assembly, args.template, progress, inventor=not args.step_only)
+        cancel = listen_for_cancel() if args.events else None
+        run = runner.build(spec, out_dir, set(args.only), not args.no_assembly, args.template, progress, inventor=not args.step_only, cancel=cancel)
     except Exception as error:  # noqa: BLE001 — 接続できない・保存できないなど。理由を知らせる（Inventor の例外は COM の説明を取り出す）
         from .inventor import com_error_text  # noqa: PLC0415
 

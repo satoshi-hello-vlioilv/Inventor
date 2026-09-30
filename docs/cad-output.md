@@ -67,11 +67,15 @@ STEP だけのときの指示、近似の部品の STEP）は、3 つの確か�
 | 調べたこと | 結果 |
 |---|---|
 | Inventor 2026 は STEP を開けるか（仕様） | 開ける。Inventor 2026 自身が同じ AP214 第 3 版で書き出している（`program/samples/stp`）ので、STEP を開けないのは仕様ではない |
-| アプリの STEP は規格どおりか | 規格どおり。AP214 の EXPRESS スキーマ（STEPcode の AP214E3_2010）から作った検査プログラム（`p21read`、厳しい判定 `-s`）で、部品・組立・三角形の部品（最大 33 万実体）の全てで誤り 0。同じ検査で Inventor 自身の STEP は 39 実体が規格違反（名前を `$` にした配置） |
-| Inventor の書き方との違い | 3 つ（どれも規格上は正しい）: 形状表現のつなぎ方（B-rep の形状表現を直接つないでいた）、全ての部品が 1 つの座標系を共有していた、改行が LF（ただし Windows で書くと CR+LF になる）。Inventor と同じ書き方にそろえた |
+| アプリの STEP は規格どおりか | 規格どおり。AP214 の EXPRESS スキーマ（STEPcode の AP214E3_2010）から作った検査プログラム（`p21read`、厳しい判定 `-s`）で、部品・組立・三角形の部品（最大 33 万実体）の全てで誤り 0。同じ検査で、Inventor が書いた 6 ファイル（2026 が 5・2022 が 1）は全てに違反がある（名前を `$` にした配置の変換・説明を `$` にした形状定義・色の属性の省略）。Inventor の読み取りは、厳密でない STEP も受け付けている |
+| Inventor の書き方との違い（1 回目） | 3 つ（どれも規格上は正しい）: 形状表現のつなぎ方（B-rep の形状表現を直接つないでいた）、全ての部品が 1 つの座標系を共有していた、改行が LF（ただし Windows で書くと CR+LF になる）。Inventor と同じ書き方にそろえた |
+| Inventor の書き方との違い（2 回目。部品だけの `Plate.stp` など 5 ファイルが増えて分かった） | 3 つ: 応用の文脈の文（`Core Data for Automotive Mechanical Design Process`）、応用プロトコルの年（**2009**）、部品の形状表現の関係の名前（`'SRR','None'`）。6 ファイル全てが同じ値だった。1 回目に年を 2010（規格の第 3 版の年）にして「Inventor と合わせた」としたのは誤りだった（Inventor のファイルでなく規格の版から決めていた）。今は `tests/test_step.py` が、samples/stp の Inventor 2026 の全ファイルと値を照合する |
+| 行の長さ | 字句の切れ目（区切りの後・複合実体の構成要素の間）で、1 行 80 文字以内に改行する（Inventor も 75〜98 文字。Inventor は文字列の途中でも改行するが、アプリはしない）。長い日本語の名前の文字列は 1 行に置く |
+| 残した違い | 形の精度（アプリ 0.00001 mm・Inventor 0.01 mm。アプリの形は精度が高いので、そのとおりに書く）。材質・色・作成日（アプリの変換データに無い。開くのに要らない） |
 
 原因がファイルか Inventor 側かは、実物の Inventor で確かめるまで分からない。1 つずつ条件を変えた確認用の STEP を
-[step-check/](step-check/README.md) に置いた（直す前・直した後・別の書き手の書いたもの）。
+[step-check/](step-check/README.md) に置いた（直す前・直した後・別の書き手の書いたもの）。今の書き方のもの（4〜8）と 9 は、
+`python tools/step_check_kit.py`（program フォルダで）で今の書き手から作り直せる。
 
 検査の再現（開発用）: `git clone https://github.com/stepcode/stepcode` → `cmake .. -DSC_BUILD_SCHEMAS=ap214e3` →
 `make p21read_sdai_ap214e3` → `p21read_sdai_ap214e3 -s ファイル.stp`（「SECOND PASS complete: N instances valid」なら規格どおり）。

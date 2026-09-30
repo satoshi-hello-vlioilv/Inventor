@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 import sys
 
+INTEGRATION_EPS = 1e-9  # 体積・表面積の積分の相対誤差の上限
+
 
 def check(path: str) -> dict:
     from OCP.BRepCheck import BRepCheck_Analyzer
@@ -30,8 +32,9 @@ def check(path: str) -> dict:
     while explorer.More():
         solid = explorer.Current()
         volume, area = GProp_GProps(), GProp_GProps()
-        BRepGProp.VolumeProperties_s(solid, volume)
-        BRepGProp.SurfaceProperties_s(solid, area)
+        # 誤差を保証する積分（既定の固定次数の積分は、細かく波打つ B スプライン面（ローレットなど）で面積を 9% 誤った）
+        BRepGProp.VolumeProperties_s(solid, volume, INTEGRATION_EPS)
+        BRepGProp.SurfaceProperties_s(solid, area, INTEGRATION_EPS)
         faces = TopExp_Explorer(solid, TopAbs_FACE)
         count = 0
         while faces.More():

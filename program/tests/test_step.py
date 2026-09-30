@@ -9,16 +9,17 @@
 面の種類ごとの形（円柱・円錐・平面・球・半球・トーラス・扇形・穴・円弧・三角形）を、変換データと同じ JSON から作って確かめる。
 """
 import math
+import re
 import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
 
 import tests  # noqa: F401
-from ipt_build.p21 import real, string
+from ipt_build.p21 import LINE_LIMIT, real, string
 from ipt_build.spec import load_spec, parse_spec, part_properties
 from ipt_build.step import UNCERTAINTY, write_step
-from tests.step_check import Brep
+from tests.step_check import Brep, read
 
 try:
     import OCP  # noqa: F401
@@ -28,6 +29,27 @@ except ImportError:  # 開発用の確かめ。入っていなければ飛ばす
     kernel_check = None
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "builder"
+SAMPLES_STP = Path(__file__).resolve().parents[1] / "samples" / "stp"
+
+
+def context_values(path: Path) -> dict:
+    """Inventor と比べる文脈の値: 応用の文脈・応用プロトコルの定義（年を含む）・製品と製品定義の文脈・部品の形状表現の関係の名前"""
+    e = read(path)
+    pick = lambda name, keep: sorted({tuple(keep(args)) for kind, args in e.values() if kind == name})  # noqa: E731
+    return {
+        "APPLICATION_CONTEXT": pick("APPLICATION_CONTEXT", lambda a: a),
+        "APPLICATION_PROTOCOL_DEFINITION": pick("APPLICATION_PROTOCOL_DEFINITION", lambda a: a[:3]),
+        "PRODUCT_CONTEXT": pick("PRODUCT_CONTEXT", lambda a: (a[0], a[2])),
+        "PRODUCT_DEFINITION_CONTEXT": pick("PRODUCT_DEFINITION_CONTEXT", lambda a: (a[0], a[2])),
+        "SHAPE_REPRESENTATION_RELATIONSHIP": pick("SHAPE_REPRESENTATION_RELATIONSHIP", lambda a: a[:2]),
+    }
+
+
+def inventor_samples(version: str) -> list[Path]:
+    """samples/stp のうち、その版の Inventor が書き出した STEP"""
+    return [p for p in sorted(SAMPLES_STP.glob("*.stp")) if f"'Autodesk Inventor {version}'" in p.read_bytes().decode("ascii", "replace")]
+
+
 I = {"origin": [0, 0, 0], "x": [1, 0, 0], "y": [0, 1, 0], "z": [0, 0, 1]}
 
 
@@ -206,6 +228,19 @@ class AssemblyTest(unittest.TestCase):
         items = [ref(i) for r in used for i in e[r][1][1]]
         self.assertEqual(len(items), len(set(items)), "形状表現の座標系を共有しない")
         self.assertFalse(b"\n" in raw.replace(b"\r\n", b""), "改行は CR+LF だけ")
+        # 文字列（長い日本語の名前）を除けば、どの行も LINE_LIMIT 以内（改行は字句の切れ目だけ）
+        lines = [re.sub(r"'(?:[^']|'')*'", "''", line) for line in raw.decode("ascii").split("\r\n")]
+        self.assertLessEqual(max(map(len, lines)), LINE_LIMIT)
+
+    def test_context_values_are_the_ones_inventor_2026_writes(self):
+        # samples/stp の Inventor 2026 の STEP（部品・組立）の全てと同じ値（年は 2009。規格の第 3 版の年 2010 ではない）
+        samples = inventor_samples("2026")
+        self.assertGreaterEqual(len(samples), 5)
+        with tempfile.TemporaryDirectory() as tmp:
+            ours = context_values(write_step(load_spec(FIXTURES / "wire.inventor.json"), Path(tmp) / "wire.stp").path)
+        for sample in samples:
+            with self.subTest(sample=sample.name):
+                self.assertEqual(ours, context_values(sample))
 
     def test_single_placement_writes_only_the_part(self):
         with tempfile.TemporaryDirectory() as tmp:

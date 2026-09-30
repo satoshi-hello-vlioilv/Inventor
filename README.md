@@ -142,7 +142,7 @@ flowchart LR
 | `server.js` | ローカルサーバーとのやりとり: サンプル・起動ファイルから届いたファイル・「CAD ファイルを作る」・「画面が開いている」の知らせ | ✓ |
 | `main.js` | 入口。ファイルを読み、表示し、3D ⇄ パネルを連動させる | ✓ |
 
-three.js と fzstd（Zstandard の展開）は `static/vendor/` に同梱し、`templates/index.html` の importmap で読む（インターネットは要らない）。
+three.js・fzstd（Zstandard の展開）・Delaunator と Constrainautor（面の表示用の制約付き Delaunay 分割）は `static/vendor/` に同梱し、`templates/index.html` の importmap で読む（インターネットは要らない）。
 
 ## できること
 

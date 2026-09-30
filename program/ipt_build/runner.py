@@ -117,18 +117,20 @@ def pct(value: float | None) -> str:
 
 
 def build(spec, out_dir: Path, only: set[str] = frozenset(), assembly: bool = True, template: str | None = None,
-          progress: Progress = lambda *a, **k: None, connect=None, inventor: bool = True) -> BuildRun:
+          progress: Progress = lambda *a, **k: None, connect=None, inventor: bool = True, cancel=None) -> BuildRun:
     """STEP を書き、inventor なら部品と組立を作り、結果（build-report.json）を保存する。
 
     progress に知らせる出来事: "step"（STEP を書いた）→ "connecting" → "start" → "part"（部品ごと、result=…）
     → "assembly"（組立を作るとき）→ "done"。inventor=False なら "step" → "done"
+    cancel … 中止の合図（threading.Event）。部品と部品の間で確かめ、立っていれば残りを作らずに片付けて終わる
     """
+    from .spec import source_stem  # noqa: PLC0415
     from .step import write_step  # noqa: PLC0415
 
     parts = [p for p in spec.parts if not only or p.key in only]
     run = BuildRun(spec, out_dir, parts, inventor=inventor)
     out_dir.mkdir(parents=True, exist_ok=True)
-    stem = Path(spec.source.get("file", "model")).stem
+    stem = source_stem(spec.source)
     try:
         run.step = write_step(replace(spec, parts=tuple(parts)), out_dir / f"{stem}.stp")
     except Exception as error:  # noqa: BLE001 — STEP を書けなくても、Inventor では作れることがある
@@ -136,7 +138,7 @@ def build(spec, out_dir: Path, only: set[str] = frozenset(), assembly: bool = Tr
     progress("step", run)
     if inventor:
         try:
-            _build_in_inventor(run, spec, stem, assembly, template, progress, connect)
+            _build_in_inventor(run, spec, stem, assembly, template, progress, connect, cancel)
         except Exception as error:  # noqa: BLE001 — 接続できない・保存できないなど。STEP は残す
             from .inventor import com_error_text  # noqa: PLC0415
 
@@ -146,28 +148,27 @@ def build(spec, out_dir: Path, only: set[str] = frozenset(), assembly: bool = Tr
     return run
 
 
-def _build_in_inventor(run: BuildRun, spec, stem: str, assembly: bool, template, progress: Progress, connect) -> None:
-    from .inventor import Builder  # noqa: PLC0415 — Windows でだけ読み込む（Inventor に触れない評価では不要）
+def _build_in_inventor(run: BuildRun, spec, stem: str, assembly: bool, template, progress: Progress, connect, cancel) -> None:
+    from .inventor import Builder, quiet  # noqa: PLC0415 — Windows でだけ読み込む（Inventor に触れない評価では不要）
     from .inventor import connect as connect_inventor  # noqa: PLC0415
 
     out_dir = run.out_dir
+    cancelled = cancel.is_set if cancel is not None else lambda: False
     progress("connecting", run)
     app = (connect or connect_inventor)()
     builder = Builder(app, part_template=template)
-    screen, silent = app.ScreenUpdating, app.SilentOperation
-    app.ScreenUpdating, app.SilentOperation = False, True
-    try:
+    with quiet(app):  # 作る間は画面の更新とダイアログを止める（終われば、中止しても、ふだんの状態に戻す）
         progress("start", run)
         for part in run.parts:
+            if cancelled():
+                return
             result = builder.build_part(part, out_dir)
             run.results.append(result)
             progress("part", run, result=result)
-        if assembly and sum(len(r.part.instances) for r in run.results if r.path) > 1:
+        if assembly and not cancelled() and sum(len(r.part.instances) for r in run.results if r.path) > 1:
             run.assembly_path = out_dir / f"{stem}.iam"
             progress("assembly", run)
             run.placed, run.assembly_error = builder.build_assembly(run.results, run.assembly_path)
-    finally:
-        app.ScreenUpdating, app.SilentOperation = screen, silent
 
 
 def default_out_dir(spec_path: Path) -> Path:
