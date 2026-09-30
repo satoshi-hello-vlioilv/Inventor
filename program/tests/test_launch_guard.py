@@ -1,7 +1,6 @@
 """起動の係（launch_guard.py）の評価。ダイアログ・ブラウザー・プロセスの起動・サーバーへの問い合わせを差し替えて、分岐を確かめる。
 
-    - 変換データ（.json）だけなら部品を作る係だけを起こし、画面は開かない
-    - 開くファイルは、画面を開く「前に」記録する（開いた画面が受け取る）
+    - ドロップされたファイル（変換データ .json も）は、画面を開く「前に」記録する（開いた画面が受け取る）
     - Flask が無ければ入れるかを尋ね、断られたら何も開かない
     - 動いているサーバーが今のファイルと同じなら使い、違えば止めて起動し直す。起動の途中で終われば理由を知らせる
 """
@@ -42,7 +41,6 @@ class Recorder(launch_guard.Env):
             install=lambda: self.calls.append(("install",)) or (install_ok, "ERROR: pip failed"),
             open_page=open_page,
             spawn_server=lambda: self.calls.append(("server",)) or Proc(),
-            spawn_builder=lambda spec: self.calls.append(("builder", spec.name)) or Proc(),
         )
 
     def kinds(self):
@@ -66,17 +64,13 @@ class Main(unittest.TestCase):
         self.assertTrue(env.calls[0][1].endswith(f"loading.html#port={settings.PORT}"))
         self.assertEqual(env.records_when_opened, [], "ファイルが無ければ記録しない")
 
-    def test_conversion_data_only_builds(self):
-        env = Recorder()
-        self.assertEqual(launch_guard.main(["C:/data/reel.inventor.json"], env), 0)
-        self.assertEqual(env.calls, [("builder", "reel.inventor.json")], "画面は開かない")
-
     def test_files_are_recorded_before_the_page_opens(self):
         env = Recorder()
-        self.assertEqual(launch_guard.main(["C:/data/a.iam", "C:/data/spec.JSON", "C:/data/b.stp"], env), 0)
-        self.assertEqual(env.kinds(), ["builder", "open", "ensure"])
+        self.assertEqual(launch_guard.main(["C:/data/a.iam", "C:/data/reel.inventor.json", "C:/data/b.stp"], env), 0)
+        self.assertEqual(env.kinds(), ["open", "ensure"])
         self.assertEqual(len(env.records_when_opened), 1, "開いた時点で、記録は書き終えている")
-        self.assertEqual([p.name for p in handoff.claim()], ["a.iam", "b.stp"], "変換データは画面へ渡さない")
+        self.assertEqual([p.name for p in handoff.claim()], ["a.iam", "reel.inventor.json", "b.stp"],
+                         "変換データも画面で開く（画面の「Inventor で作る」で作る）")
 
     def test_missing_flask_declined_opens_nothing(self):
         env = Recorder(missing=["flask"], answer=False)
@@ -143,7 +137,7 @@ class Pages(unittest.TestCase):
         self.assertTrue(url.endswith(f"/loading.html#port={settings.PORT}"))
 
     def test_child_processes_find_the_program_and_keep_it_clean(self):
-        env = launch_guard.child_env()
+        env = settings.child_env()
         self.assertEqual(env["PYTHONPATH"].split(launch_guard.os.pathsep)[0], str(settings.BASE))
         self.assertEqual(env["PYTHONPYCACHEPREFIX"], str(settings.PYCACHE), ".pyc を program フォルダに作らない")
         self.assertEqual(env["INVENTOR_TOOL_LOCAL_ROOT"], str(settings.LOCAL_ROOT))

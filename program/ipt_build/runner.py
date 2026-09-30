@@ -1,8 +1,8 @@
 """部品と組立を作る一連の処理（Inventor への接続 → 部品ごとの作成と照合 → 組立 → 結果の保存）。
 
 表示の仕方とは切り離し、進み具合は progress（呼び出し側の関数）に知らせる。
-    コマンド（__main__）… 黒い画面に 1 行ずつ表示する
-    画面つき（gui）    … HTML のページに表示する（起動ファイルから使う）
+    コマンド（__main__）          … 黒い画面に 1 行ずつ表示する
+    コマンド（__main__ --events）  … 1 行 1 つの JSON（BuildRun.status()）で知らせる。アプリの「Inventor で作る」が読む
 """
 from __future__ import annotations
 
@@ -49,6 +49,37 @@ class BuildRun:
             "assembly": {"file": self.assembly_path.name if self.assembly_path else None, "placed": self.placed, "error": self.assembly_error},
             "skipped": list(self.spec.skipped),
         }
+
+    def status(self) -> dict:
+        """いまの進み具合（アプリの画面が表示する形。まだ作っていない部品も含める）。"""
+        done = {r.part.key: r for r in self.results}
+        return {
+            "out_dir": str(self.out_dir),
+            "parts": [{"key": p.key, "name": p.name, "instances": len(p.instances), **_result_status(done.get(p.key))} for p in self.parts],
+            "assembly": {"file": self.assembly_path.name, "placed": self.placed, "error": self.assembly_error} if self.assembly_path else None,
+            "good": self.good,
+            "total": len(self.parts),
+        }
+
+
+def verdict(result) -> str | None:
+    """部品の結果の分類: ok（期待値と一致）・mismatch（不一致）・failed（作れなかった）。まだ作っていなければ None。"""
+    if result is None:
+        return None
+    if result.error:
+        return "failed"
+    return "ok" if result.ok else "mismatch"
+
+
+def _result_status(result) -> dict:
+    return {
+        "verdict": verdict(result),
+        "file": result.path.name if result and result.path else None,
+        "volume_diff": result.volume_diff if result else None,
+        "area_diff": result.area_diff if result else None,
+        "extent": result.extent_detail if result else "",
+        "error": result.error if result else None,
+    }
 
 
 Progress = Callable[..., None]  # progress(event, run, **詳細)

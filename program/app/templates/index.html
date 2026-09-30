@@ -69,9 +69,9 @@
       </div>
       <button type="button" class="link back" id="back-to-assembly" hidden>← 組立に戻る</button>
       <button type="button" class="primary" id="open">ファイルを開く</button>
-      <p class="drop-hint">Inventor の部品（.ipt）・組立（.iam。部品の .ipt も一緒に）、STEP（.stp）、three.js を使った HTML（.html）。画面へのドラッグ＆ドロップ、<kbd>Ctrl</kbd>+<kbd>O</kbd> でも開けます</p>
+      <p class="drop-hint">Inventor の部品（.ipt）・組立（.iam。部品の .ipt も一緒に）、STEP（.stp）、three.js を使った HTML（.html）、変換データ（.inventor.json）。画面へのドラッグ＆ドロップ、<kbd>Ctrl</kbd>+<kbd>O</kbd> でも開けます</p>
       <p class="samples"><button type="button" class="link" id="show-start">サンプル・使い方</button></p>
-      <input type="file" id="file-input" accept=".ipt,.iam,.stp,.step,.html,.htm" multiple hidden>
+      <input type="file" id="file-input" accept=".ipt,.iam,.stp,.step,.html,.htm,.json" multiple hidden>
       <p class="alert" id="alert" role="alert" hidden></p>
       <p class="notice" id="notice" role="status" hidden></p>
     </header>
@@ -79,16 +79,43 @@
       <h2>取り込み結果</h2>
       <div class="tally" id="tally"></div>
     </section>
-    <section data-mode="html" hidden>
-      <h2>Inventor へ変換</h2>
-      <p class="convert-summary" id="convert-summary">取り込むと、変換できる部品の数を表示します</p>
-      <div class="convert-actions">
-        <button type="button" class="secondary" id="save-spec" disabled>変換データを保存</button>
-        <button type="button" class="secondary" id="copy-spec" disabled>コピー</button>
-      </div>
-      <p class="convert-hint">保存した JSON を、Inventor のある PC で起動ファイル（Start.vbs）にドラッグ＆ドロップすると、部品（.ipt）と組立（.iam）を作り、体積・表面積を照合します。コマンドで実行する場合（program フォルダで）:<code id="build-command">python -m ipt_build 変換データ.json</code></p>
+    <section data-mode="spec" hidden>
+      <h2>変換データの中身</h2>
+      <div class="tally" id="spec-tally"></div>
     </section>
-    <section data-mode="html" hidden>
+    <section data-mode="html spec" hidden>
+      <h2>Inventor へ変換</h2>
+      <p class="convert-summary" id="convert-summary">取り込むと、作れる部品の数を表示します</p>
+      <button type="button" class="primary" id="build" disabled>Inventor で作る</button>
+      <p class="build-dest" id="build-dest"></p>
+      <div class="build-ask" id="build-ask" role="alert" hidden>
+        <p>Inventor の操作に使う Python のライブラリ（pywin32）が、この PC に入っていません。インターネットから入れてから作ります（1 分ほど）。</p>
+        <div class="convert-actions">
+          <button type="button" class="primary" id="build-install">入れて作る</button>
+          <button type="button" class="secondary" id="build-ask-no">やめる</button>
+        </div>
+      </div>
+      <div class="build-status" id="build-status" hidden>
+        <p class="build-state" id="build-state" role="status"></p>
+        <div class="build-bar" id="build-bar" hidden><span></span></div>
+        <pre class="build-detail" id="build-detail" hidden></pre>
+        <ul class="build-results" id="build-results"></ul>
+        <div class="convert-actions">
+          <button type="button" class="secondary" id="build-cancel" hidden>中止</button>
+          <button type="button" class="secondary" id="build-open" hidden>保存先を開く</button>
+        </div>
+      </div>
+      <details class="convert-more" data-mode="html" hidden>
+        <summary>Inventor の無い PC では（変換データを保存）</summary>
+        <p class="convert-hint">変換データ（.inventor.json）は、取り込んだ形を Inventor で作るための設計図です（部品ごとの断面・回転／押し出し・配置と、照合に使う体積・表面積）。保存して Inventor のある PC に持っていき、このアプリで開く（画面か Start.vbs にドロップ）と、そこで「Inventor で作る」を押せます。</p>
+        <div class="convert-actions">
+          <button type="button" class="secondary" id="save-spec" disabled>変換データを保存</button>
+          <button type="button" class="secondary" id="copy-spec" disabled>コピー</button>
+        </div>
+        <p class="convert-hint" id="save-note" role="status" hidden></p>
+      </details>
+    </section>
+    <section data-mode="html spec" hidden>
       <h2>部品<span class="unit">mm</span></h2>
       <ul class="features" id="parts"></ul>
     </section>
@@ -135,7 +162,7 @@
     <p class="hint">ドラッグで回転、右ドラッグで移動、ホイールで拡大縮小。一覧の行にカーソルを合わせると、該当する面・部品が強調されます。ファイルはブラウザ内だけで解析し、外部には送信しません（HTML が読み込む three.js などは、そのページの指定どおり取得します）。</p>
   </aside>
 </div>
-<div class="drop-overlay" id="drop-overlay" hidden><p>ドロップして開く（.ipt / .iam / .stp / .html）</p></div>
+<div class="drop-overlay" id="drop-overlay" hidden><p>ドロップして開く（.ipt / .iam / .stp / .html / .inventor.json）</p></div>
 
 <dialog class="start" id="start" aria-labelledby="start-title">
   <div class="start-body">
@@ -151,7 +178,7 @@
       <div class="dropzone" id="dropzone">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v11m-5-5 5 5 5-5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
         <p class="dropzone-title">ここにファイルをドラッグ＆ドロップ</p>
-        <p class="dropzone-sub">.ipt（部品）・.iam（組立。部品の .ipt も一緒に）・.stp（STEP）・.html（three.js を使ったページ）</p>
+        <p class="dropzone-sub">.ipt（部品）・.iam（組立。部品の .ipt も一緒に）・.stp（STEP）・.html（three.js を使ったページ）・.inventor.json（変換データ）</p>
         <p class="dropzone-actions"><button type="button" class="primary" id="start-open" autofocus>ファイルを選ぶ</button><span><kbd>Ctrl</kbd>+<kbd>O</kbd></span></p>
       </div>
     </section>
@@ -169,10 +196,11 @@
       <h2>Inventor の部品にするまでの流れ</h2>
       <ol class="flow">
         <li><b>開く</b><span>.html（three.js）をドロップ</span></li>
-        <li><b>確かめる</b><span>形状・寸法と、変換できる部品の数</span></li>
-        <li><b>保存する</b><span>変換データ（.inventor.json）を保存</span></li>
-        <li><b>Inventor で作る</b><span>保存したファイルを起動ファイルにドロップ</span></li>
+        <li><b>確かめる</b><span>形状・寸法と、作れる部品の数</span></li>
+        <li><b>Inventor で作る</b><span>パネルのボタンを押す（Inventor のある PC で）</span></li>
+        <li><b>照合する</b><span>部品ごとに、体積・表面積が一致したかを表示</span></li>
       </ol>
+      <p class="flow-note">Inventor の無い PC で取り込んだときは、変換データ（.inventor.json）を保存し、Inventor のある PC でこのアプリに開いて作ります。</p>
     </section>
   </div>
 </dialog>

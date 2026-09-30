@@ -161,7 +161,12 @@ def load_spec(path: str | Path) -> Spec:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise SpecError(f"変換データを読めません: {error}") from error
-    if data.get("format") != FORMAT:
+    return parse_spec(data)
+
+
+def parse_spec(data) -> Spec:
+    """変換データ（JSON を読んだもの）を確かめて読む。作れない内容なら、理由を添えて SpecError。"""
+    if not isinstance(data, dict) or data.get("format") != FORMAT:
         raise SpecError("変換データ（format: inventor-builder）ではありません")
     if data.get("version") not in VERSIONS:
         raise SpecError(f"対応していない版です（version {data.get('version')}、このビルダーは {' / '.join(map(str, VERSIONS))}）")

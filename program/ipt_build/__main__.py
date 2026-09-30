@@ -1,7 +1,7 @@
 """使い方（Windows、Inventor をインストールした PC）:
 
-    起動ファイル（Start.vbs）に変換データをドラッグ＆ドロップする（起動の係 launch_guard.py が --gui で実行する）か、
-    program フォルダで:
+    ふだんはアプリの「Inventor で作る」から使う（アプリのサーバーが --events で実行し、進み具合を画面に出す）。
+    コマンドで使うときは program フォルダで:
 
     python -m ipt_build 変換データ.inventor.json              部品（と組立）を作る
     python -m ipt_build 変換データ.inventor.json --dry-run    Inventor を使わずに作成計画と期待値を確かめる
@@ -11,11 +11,12 @@
     --only KEY ...   指定した部品だけ作る（例: --only p01 p03）
     --no-assembly    組立（.iam）を作らない
     --template FILE  部品のテンプレート（.ipt）
-    --gui            画面つきで実行する（起動ファイルが使う）: 作る前にダイアログで確かめ、進み具合と結果を HTML のページで示す
+    --events         進み具合を 1 行 1 つの JSON で知らせる（アプリのサーバーが読む。{"event": …, 進み具合}）
 """
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -40,25 +41,25 @@ def dry_run(spec) -> int:
     return 0 if not mismatches else 1
 
 
-def build(spec, out_dir: Path, only: set[str], assembly: bool, template: str | None) -> int:
-    """部品と組立を作り、黒い画面に 1 行ずつ結果を表示する。"""
+def print_progress(event, run, result=None):
+    """黒い画面に 1 行ずつ表示する。"""
+    if event == "connecting":
+        print("Inventor に接続しています…")
+    elif event == "start":
+        print(f"部品 {len(run.parts)} 種類を作ります（保存先: {run.out_dir}）")
+    elif event == "part":
+        verdict = {"ok": "一致", "mismatch": "不一致", "failed": "失敗"}[runner.verdict(result)]
+        detail = result.error or f"体積 {runner.pct(result.volume_diff)}  表面積 {runner.pct(result.area_diff)}  {result.extent_detail}"
+        print(f"  {verdict}  {result.part.key}  {result.part.name}  {detail}", flush=True)
+    elif event == "done":
+        if run.assembly_path:
+            print(f"組立: {run.assembly_path.name}（配置 {run.placed} か所）" + (f"  失敗: {run.assembly_error}" if run.assembly_error else ""))
+        print(f"結果: 一致 {run.good} / {len(run.results)}（詳細は {run.out_dir / REPORT}）")
 
-    def progress(event, run, result=None):
-        if event == "connecting":
-            print("Inventor に接続しています…")
-        elif event == "start":
-            print(f"部品 {len(run.parts)} 種類を作ります（保存先: {run.out_dir}）")
-        elif event == "part":
-            verdict = "一致" if result.ok else ("失敗" if result.error else "不一致")
-            detail = result.error or f"体積 {runner.pct(result.volume_diff)}  表面積 {runner.pct(result.area_diff)}  {result.extent_detail}"
-            print(f"  {verdict}  {result.part.key}  {result.part.name}  {detail}", flush=True)
-        elif event == "done":
-            if run.assembly_path:
-                print(f"組立: {run.assembly_path.name}（配置 {run.placed} か所）" + (f"  失敗: {run.assembly_error}" if run.assembly_error else ""))
-            print(f"結果: 一致 {run.good} / {len(run.results)}（詳細は {run.out_dir / REPORT}）")
 
-    run = runner.build(spec, out_dir, only, assembly, template, progress)
-    return 0 if run.ok else 1
+def emit(event: str, **data) -> None:
+    """1 行 1 つの JSON（ASCII だけで書く: 受け取る側の文字コードの設定に左右されない）。"""
+    print(json.dumps({"event": event, **data}), flush=True)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -69,26 +70,31 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-assembly", action="store_true", help="組立（.iam）を作らない")
     parser.add_argument("--template", help="部品のテンプレート（.ipt）")
     parser.add_argument("--dry-run", action="store_true", help="Inventor を使わずに作成計画と期待値を確かめる")
-    parser.add_argument("--gui", action="store_true", help="画面つきで実行する（確認はダイアログ、進み具合と結果は HTML）")
-    parser.add_argument("--yes", action="store_true", help=argparse.SUPPRESS)  # --gui で、作る前の確認を省く（ライブラリを入れた後の再実行）
+    parser.add_argument("--events", action="store_true", help="進み具合を 1 行 1 つの JSON で知らせる（アプリが使う）")
     args = parser.parse_args(argv)
-    if args.gui:
-        from . import gui  # noqa: PLC0415
-
-        return gui.run(args.spec, confirmed=args.yes)
     try:
         spec = load_spec(args.spec)
     except SpecError as error:
-        print(f"エラー: {error}", file=sys.stderr)
+        if args.events:
+            emit("error", message=str(error))
+        else:
+            print(f"エラー: {error}", file=sys.stderr)
         return 2
     if args.dry_run:
         return dry_run(spec)
     out_dir = args.out or runner.default_out_dir(args.spec)
+    progress = (lambda event, run, result=None: emit(event, **run.status())) if args.events else print_progress
     try:
-        return build(spec, out_dir, set(args.only), not args.no_assembly, args.template)
-    except RuntimeError as error:
-        print(f"エラー: {error}", file=sys.stderr)
+        run = runner.build(spec, out_dir, set(args.only), not args.no_assembly, args.template, progress)
+    except Exception as error:  # noqa: BLE001 — 接続できない・保存できないなど。理由を知らせる（Inventor の例外は COM の説明を取り出す）
+        from .inventor import com_error_text  # noqa: PLC0415
+
+        if args.events:
+            emit("error", message=com_error_text(error))
+        else:
+            print(f"エラー: {com_error_text(error)}", file=sys.stderr)
         return 2
+    return 0 if run.ok else 1
 
 
 if __name__ == "__main__":

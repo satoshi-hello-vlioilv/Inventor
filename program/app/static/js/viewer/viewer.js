@@ -55,7 +55,8 @@ export class Viewer {
   /**
    * 形状を表示する（前の形状は破棄する）。
    * scene.bodies    … 部品（ipt・STEP の部品）の面（平面・円筒など）と稜線。面ごとに当たり判定する
-   * scene.instances … 組立（iam・STEP）。部品ごとに作った形状を、配置の数だけ置く。配置ごとに当たり判定する
+   * scene.instances … 組立（iam・STEP）と変換データ。部品ごとに作った形状を、配置の数だけ置く。配置ごとに当たり判定する
+   *                    （部品は面 bodies を持つか、作った形 geometry を持つ。変換データは convert/preview.js が作る）
    * scene.meshes    … HTML から取り出した三角形メッシュ（部品ごとの groups 付き）
    * @returns {{ volume?: number, volumes?: number[] }}  体積（mm³）。組立は部品ごと
    */
@@ -111,6 +112,7 @@ export class Viewer {
   /** 組立: 部品ごとの形状（面をまとめたもの・稜線）を 1 回だけ作り、配置（4×4 行優先、mm）ごとに置く */
   #showAssembly({ parts, instances }) {
     const shapes = parts.map((part) => {
+      if (part.geometry) return { geometry: part.geometry, volume: meshVolume(part.geometry), edges: new THREE.EdgesGeometry(part.geometry, EDGE_ANGLE_DEG) };
       if (!part.bodies?.length) return null;
       const { geometry, volume } = partGeometry(part.bodies);
       return { geometry, volume, edges: this.#edgeGeometry(part.bodies.flatMap((b) => b.edges)) };

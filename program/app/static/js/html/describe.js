@@ -16,8 +16,8 @@ export const EXCLUDED_LABEL = {
 
 const CORNER_NOTE_MIN = 1e-3; // mm。これを超える差があれば、角付近の差として書き添える
 
-/** 面取りの説明: 「面取り C1（穴の縁・両面）」。 */
-function describeChamfers(chamfers) {
+/** 面取りの説明: 「面取り C1（穴の縁・両面）」。side は ±1（認識結果）か "+Z"・"-Z"（変換データ）。 */
+export function describeChamfers(chamfers) {
   const groups = new Map();
   for (const c of chamfers) {
     const key = `${c.loop === 0 ? "外周" : "穴"}の縁|${+c.distance.toFixed(3)}`;

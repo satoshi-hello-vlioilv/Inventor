@@ -215,6 +215,24 @@ export function buildInventorSpec(source, recognition) {
   };
 }
 
+/**
+ * 変換データ（.inventor.json の文字列）を読み、形式・版・単位を確かめる。作れるかの細かい確かめはビルダー（Python）が行う。
+ * @throws {Error} 変換データではない・読めない版のとき（利用者に見せる理由）
+ */
+export function readSpec(text) {
+  let spec;
+  try {
+    spec = JSON.parse(text);
+  } catch {
+    throw new Error("JSON として読めません");
+  }
+  if (spec?.format !== FORMAT) throw new Error("変換データ（format: inventor-builder）ではありません");
+  if (!(spec.version >= 1 && spec.version <= VERSION)) throw new Error(`この版（version ${spec.version}）には対応していません。アプリを新しくしてください`);
+  if (spec.units !== "mm") throw new Error("単位は mm のみ対応しています");
+  if (!Array.isArray(spec.parts)) throw new Error("部品（parts）がありません");
+  return { ...spec, source: spec.source ?? {}, skipped: spec.skipped ?? [] };
+}
+
 /** 変換データを読みやすい JSON 文字列にする（数値の配列は 1 行にまとめる）。 */
 export function formatSpec(spec) {
   return JSON.stringify(spec, null, 1).replace(/\[\s+(-?[\d.e+-]+(?:,\s+-?[\d.e+-]+)*)\s+\]/g, (_, inner) => `[${inner.replace(/\s+/g, " ")}]`) + "\n";

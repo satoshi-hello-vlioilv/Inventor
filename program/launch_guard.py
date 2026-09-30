@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
 """起動の係（start_app.py から呼ぶ。Start.vbs が窓を出さずに起動する）。転写距離・ピッチ解析の launch_guard.py と同じ作り。
 
-    Start.vbs [ドロップされたファイル…]
-      .json（変換データ）  Inventor で部品を作る（ipt_build --gui を別のプロセスで。確認はダイアログ、進み具合と結果は HTML）
-      それ以外・引数なし   アプリで開く:
+    Start.vbs [ドロップされたファイル…]  アプリで開く（.ipt・.iam・.stp・.html・変換データ .json。引数なしなら開くだけ）
         1. 受け取ったファイルを記録する（handoff.py。開いた画面が受け取る）
         2. 足りないライブラリ（requirements.txt。Flask）があれば、入れるかを尋ねる
         3. 起動画面（loading.html）を開く（Edge があればアドレスバーの無いアプリの窓で）。サーバーが答えると画面が切り替わる
@@ -28,13 +26,11 @@ from typing import Callable
 
 import handoff
 import local_app
-from settings import APP_ID, APP_NAME, BASE, LOCAL_ROOT, LOG_DIR, PORT, PYCACHE, RUNTIME, URL
+from settings import APP_ID, APP_NAME, BASE, LOCAL_ROOT, LOG_DIR, PORT, RUNTIME, URL, child_env
 
 LOG = LOG_DIR / "launcher.log"
-SERVER_CONSOLE = LOG_DIR / "server_console.log"    # サーバーの画面出力（起動の途中で落ちたときの Python のエラー）
-BUILDER_CONSOLE = LOG_DIR / "builder_console.log"  # 部品を作る係の画面出力
+SERVER_CONSOLE = LOG_DIR / "server_console.log"  # サーバーの画面出力（起動の途中で落ちたときの Python のエラー）
 REQUIREMENTS = BASE / "requirements.txt"
-SPEC_SUFFIX = ".json"
 WAIT_SECONDS = 120
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 DETACHED = (CREATE_NO_WINDOW | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | 0x00000008) if os.name == "nt" else 0
@@ -137,30 +133,14 @@ def _open_page(url: str) -> str:
     return "webbrowser" if webbrowser.open(url) else "none"
 
 
-# ---- 別のプロセス（サーバー・部品を作る係）---------------------------------------------------------
-def child_env() -> dict:
-    env = os.environ.copy()
-    env["INVENTOR_TOOL_LOCAL_ROOT"] = str(LOCAL_ROOT)
-    env["PYTHONPYCACHEPREFIX"] = str(PYCACHE)  # .pyc を program フォルダに作らない
-    env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(BASE), env.get("PYTHONPATH")]))
-    return env
-
-
-def _spawn(args: list[str], console: Path) -> subprocess.Popen:
+# ---- サーバーのプロセス ------------------------------------------------------------------------
+def _spawn_server() -> subprocess.Popen:
     """窓を出さずに起動する。作業フォルダは手元の作業場所（program フォルダを「使用中」にしない）。画面出力はファイルへ。"""
     LOCAL_ROOT.mkdir(parents=True, exist_ok=True)
     LOG_DIR.mkdir(parents=True, exist_ok=True)
-    with console.open("w", encoding="utf-8") as out:
-        return subprocess.Popen([sys.executable, "-X", "utf8", *args], cwd=str(LOCAL_ROOT), env=child_env(),
+    with SERVER_CONSOLE.open("w", encoding="utf-8") as out:
+        return subprocess.Popen([sys.executable, "-X", "utf8", str(BASE / "server.py")], cwd=str(LOCAL_ROOT), env=child_env(),
                                 stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, creationflags=DETACHED)
-
-
-def _spawn_server() -> subprocess.Popen:
-    return _spawn([str(BASE / "server.py")], SERVER_CONSOLE)
-
-
-def _spawn_builder(spec: Path) -> subprocess.Popen:
-    return _spawn(["-m", "ipt_build", "--gui", str(spec)], BUILDER_CONSOLE)
 
 
 @dataclass
@@ -171,7 +151,6 @@ class Env:
     install: Callable[[], tuple] = _install
     open_page: Callable[[str], str] = _open_page
     spawn_server: Callable[[], object] = _spawn_server
-    spawn_builder: Callable[[Path], object] = _spawn_builder
 
 
 # ---- サーバー ----------------------------------------------------------------------------------
@@ -249,19 +228,10 @@ def main(argv: list[str] | None = None, env: Env | None = None) -> int:
     args = [Path(a) for a in (sys.argv[1:] if argv is None else argv)]
     log(f"START pid={os.getpid()} python={sys.executable} base={BASE} args={len(args)}")
     say(f"  Python: {sys.executable}\n  アプリ: {BASE}\n  記録: {LOG_DIR}")
-    specs = [p for p in args if p.suffix.lower() == SPEC_SUFFIX]
-    views = [p for p in args if p not in specs]
-    for spec in specs:
-        proc = env.spawn_builder(spec)
-        log(f"BUILDER_SPAWN pid={getattr(proc, 'pid', '?')} spec={spec.name}")
-        say(f"Inventor で部品を作る係を起動しました: {spec.name}")
-    if specs and not views:
-        return 0  # 変換データだけなら、アプリの画面は開かない
-
     try:
         RUNTIME.mkdir(parents=True, exist_ok=True)
-        if views:
-            handoff.record(views)  # 画面を開く前に書く（開いた画面が受け取る）
+        if args:
+            handoff.record(args)  # 画面を開く前に書く（開いた画面が受け取る）
         missing = env.missing()
         if missing and not env.ask(f"{APP_NAME}を動かすための Python のライブラリ（{', '.join(missing)}）が入っていません。\n"
                                    "今入れますか？（インターネットから入れます。1 分ほどかかることがあります）"):
