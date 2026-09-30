@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cトング（コイル吊りCフック）3Dモデル</title>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#dde3ea;font-family:"Segoe UI","Yu Gothic UI","Meiryo",sans-serif;color:#222;}
+#view{position:fixed;inset:0;}
+#panel{position:fixed;top:10px;left:10px;width:320px;max-height:calc(100vh - 20px);overflow-y:auto;background:rgba(255,255,255,.95);border-radius:8px;box-shadow:0 2px 12px rgba(0,0,0,.18);font-size:13px;}
+#panel h1{font-size:15px;margin:0;padding:10px 12px;background:#34495e;color:#fff;border-radius:8px 8px 0 0;position:sticky;top:0;z-index:2;}
+details{border-bottom:1px solid #e3e6ea;}
+summary{cursor:pointer;padding:8px 12px;font-weight:600;background:#f4f6f8;user-select:none;}
+.grp{padding:6px 12px 10px;}
+.row{margin:6px 0;}
+.row .lab{display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;}
+.row input[type=number]{width:72px;padding:2px 4px;font-size:12px;text-align:right;border:1px solid #bbb;border-radius:4px;}
+.row .unit{font-size:11px;color:#777;margin-left:3px;}
+.row input[type=range]{width:100%;margin:0;}
+.chk{display:flex;align-items:center;gap:6px;margin:6px 0;cursor:pointer;}
+select{padding:2px 4px;font-size:13px;}
+button{width:100%;margin:4px 0;padding:7px;font-size:13px;border:1px solid #2c3e50;background:#fff;border-radius:5px;cursor:pointer;}
+button:hover{background:#ecf0f1;}
+#info{position:fixed;right:10px;bottom:10px;width:300px;background:rgba(255,255,255,.95);border-radius:8px;box-shadow:0 2px 12px rgba(0,0,0,.18);font-size:12.5px;padding:10px 12px;line-height:1.6;}
+#info table{width:100%;border-collapse:collapse;}
+#info td{padding:1px 0;}
+#info td:last-child{text-align:right;font-variant-numeric:tabular-nums;}
+#info .warn{color:#c0392b;font-weight:600;margin-top:6px;}
+#info .ok{color:#1e8449;font-weight:600;margin-top:6px;}
+#help{position:fixed;right:10px;top:10px;background:rgba(255,255,255,.85);border-radius:6px;padding:5px 10px;font-size:12px;color:#444;}
+</style>
+</head>
+<body>
+<div id="view"></div>
+<div id="panel"><h1>Cトング 3Dモデル（押し出し形状）</h1><div id="ui"></div></div>
+<div id="info"></div>
+<div id="help">左ドラッグ：回転　右ドラッグ：移動　ホイール：拡大縮小</div>
+
+<script type="importmap">
+{"imports":{
+  "three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
+import {toCreasedNormals} from 'three/addons/utils/BufferGeometryUtils.js';
+
+/* ============ パラメータ（単位：mm） ============ */
+const P={
+  W:400, Lb:2200, Hb:380, G:1150, Ht:400, Lt:1600, t:200, taper:250,
+  Rin:260, Rout:120, Rtip:40, bevel:12,
+  ex:1000, lugR:200, lugH:260, rEye:90,
+  OD:1800, ID:610, CW:1500, coilOff:150, padT:40,
+  showCoil:true, mat:'al', hang:true, showShackle:true, showProfile:false
+};
+const DENS={al:2.70e-6, steel:7.85e-6}; // kg/mm3
+const RHO_TONG=7.85e-6;
+
+/* ============ シーン ============ */
+const view=document.getElementById('view');
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth,innerHeight);
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=1.05;
+renderer.shadowMap.enabled=true;
+renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+view.appendChild(renderer.domElement);
+
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0xdde3ea);
+const pmrem=new THREE.PMREMGenerator(renderer);
+scene.environment=pmrem.fromScene(new RoomEnvironment(),0.04).texture;
+
+const camera=new THREE.PerspectiveCamera(40,innerWidth/innerHeight,0.01,200);
+const controls=new OrbitControls(camera,renderer.domElement);
+controls.enableDamping=true;
+controls.dampingFactor=0.08;
+
+scene.add(new THREE.HemisphereLight(0xffffff,0x8a8f96,0.6));
+const sun=new THREE.DirectionalLight(0xffffff,1.6);
+sun.position.set(4,8,6);
+sun.castShadow=true;
+sun.shadow.mapSize.set(2048,2048);
+Object.assign(sun.shadow.camera,{left:-5,right:5,top:5,bottom:-5,near:0.5,far:30});
+sun.shadow.bias=-0.0005;
+scene.add(sun);
+
+const ground=new THREE.Mesh(new THREE.PlaneGeometry(40,40),new THREE.MeshStandardMaterial({color:0xcfd6de,roughness:0.95}));
+ground.rotation.x=-Math.PI/2;
+ground.receiveShadow=true;
+scene.add(ground);
+const grid=new THREE.GridHelper(20,40,0x8a96a3,0xb3bcc6);
+grid.position.y=0.001;
+scene.add(grid);
+
+/* ============ マテリアル ============ */
+const matBody=new THREE.MeshPhysicalMaterial({color:0xf0c419,metalness:0.3,roughness:0.42,clearcoat:0.35,clearcoatRoughness:0.35});
+const matPad=new THREE.MeshStandardMaterial({color:0x2d2f33,metalness:0.0,roughness:0.85});
+const matAl=new THREE.MeshStandardMaterial({color:0xdfe3e8,metalness:1.0,roughness:0.22});
+const matSteel=new THREE.MeshStandardMaterial({color:0x8d939b,metalness:0.9,roughness:0.38});
+const matShackle=new THREE.MeshStandardMaterial({color:0xb83227,metalness:0.35,roughness:0.45});
+const matPin=new THREE.MeshStandardMaterial({color:0xc9ccd1,metalness:1.0,roughness:0.3});
+const matRope=new THREE.MeshStandardMaterial({color:0x3b3f45,metalness:0.6,roughness:0.55});
+const matLine=new THREE.LineBasicMaterial({color:0xd32f2f});
+
+/* ============ 階層 ============ */
+const root=new THREE.Group(); root.scale.setScalar(0.001); scene.add(root);   // mm → m
+const pivot=new THREE.Group(); root.add(pivot);    // アイ中心（吊り点）
+const asm=new THREE.Group(); pivot.add(asm);       // 本体＋パッド＋コイル
+const shg=new THREE.Group(); root.add(shg);        // シャックル（常に鉛直）
+
+/* ============ 角R付き多角形 → 滑らかな輪郭 ============ */
+function roundedOutline(pts){
+  const n=pts.length, inf=[], dReq=[];
+  for(let i=0;i<n;i++){
+    const p=pts[i], a=pts[(i-1+n)%n], b=pts[(i+1)%n];
+    const v1=new THREE.Vector2(a.x-p.x,a.y-p.y), v2=new THREE.Vector2(b.x-p.x,b.y-p.y);
+    const l1=v1.length(), l2=v2.length(); v1.normalize(); v2.normalize();
+    const th=Math.acos(THREE.MathUtils.clamp(v1.dot(v2),-1,1));
+    const tanh=Math.tan(th/2);
+    const r=p.r||0;
+    dReq.push((r>0&&th>1e-3&&th<Math.PI-1e-3)?r/tanh:0);
+    inf.push({p,v1,v2,l1,l2,th,tanh});
+  }
+  // 隣接R同士が辺長を超えないよう按分縮小
+  const eF=[];
+  for(let i=0;i<n;i++){const j=(i+1)%n, s=dReq[i]+dReq[j]; eF.push(s>inf[i].l2*0.998?inf[i].l2*0.998/s:1);}
+  const out=[], rEff=[];
+  for(let i=0;i<n;i++){
+    const f=Math.min(eF[i],eF[(i-1+n)%n]), d=dReq[i]*f, o=inf[i];
+    if(d<=0.01){out.push(new THREE.Vector2(o.p.x,o.p.y)); rEff.push(0); continue;}
+    const r=d*o.tanh; rEff.push(r);
+    const t1=new THREE.Vector2(o.p.x+o.v1.x*d,o.p.y+o.v1.y*d);
+    const t2=new THREE.Vector2(o.p.x+o.v2.x*d,o.p.y+o.v2.y*d);
+    const bis=o.v1.clone().add(o.v2).normalize();
+    const c=new THREE.Vector2(o.p.x,o.p.y).addScaledVector(bis,r/Math.sin(o.th/2));
+    const a1=Math.atan2(t1.y-c.y,t1.x-c.x), a2=Math.atan2(t2.y-c.y,t2.x-c.x);
+    let da=a2-a1; while(da>Math.PI)da-=2*Math.PI; while(da<-Math.PI)da+=2*Math.PI;
+    const seg=Math.max(6,Math.ceil(Math.abs(da)/(Math.PI/2)*24));
+    for(let k=0;k<=seg;k++){const a=a1+da*k/seg; out.push(new THREE.Vector2(c.x+r*Math.cos(a),c.y+r*Math.sin(a)));}
+  }
+  const clean=[];
+  for(const q of out){ if(!clean.length||clean[clean.length-1].distanceTo(q)>0.05) clean.push(q); }
+  if(clean.length>2&&clean[0].distanceTo(clean[clean.length-1])<0.05) clean.pop();
+  return {outline:clean,rEff};
+}
+
+/* ============ Cトング断面プロファイル ============ */
+function computeProfile(){
+  const W=P.W, Hb=P.Hb, G=P.G, Ht=P.Ht, t=P.t, lugR=P.lugR;
+  const Lt=Math.max(P.Lt,W+100,2*lugR+80);
+  const taper=Math.min(P.taper,Math.max(0,P.Lb-W-300));
+  const Lb=Math.max(P.Lb,W+taper+200);
+  const H=Hb+G+Ht;
+  const tipH=Hb*0.55;
+  const lugH=Math.max(P.lugH,lugR*0.6);
+  const ex=THREE.MathUtils.clamp(P.ex,lugR+30,Lt-lugR-30);
+  const eyeY=H+lugH-lugR;
+  const holeR=Math.min(P.rEye,lugR-40);
+  const pts=[
+    {x:0,       y:0,         r:P.Rout},
+    {x:Lb-taper,y:0,         r:taper>0?P.Rtip*3:P.Rtip},
+    {x:Lb,      y:tipH,      r:P.Rtip},
+    {x:Lb,      y:Hb,        r:P.Rtip},
+    {x:W,       y:Hb,        r:P.Rin},   // 開口下隅（index 4）
+    {x:W,       y:Hb+G,      r:P.Rin},   // 開口上隅
+    {x:Lt,      y:Hb+G,      r:P.Rtip*1.5},
+    {x:Lt,      y:H,         r:P.Rout*0.6},
+    {x:ex+lugR, y:H,         r:50},
+    {x:ex+lugR, y:H+lugH,    r:lugR},
+    {x:ex-lugR, y:H+lugH,    r:lugR},
+    {x:ex-lugR, y:H,         r:50},
+    {x:0,       y:H,         r:P.Rout}
+  ];
+  const {outline,rEff}=roundedOutline(pts);
+  // 面積・図心（アイ穴を差し引き）
+  let A=0,cx=0,cy=0;
+  for(let i=0;i<outline.length;i++){
+    const p=outline[i],q=outline[(i+1)%outline.length],c=p.x*q.y-q.x*p.y;
+    A+=c; cx+=(p.x+q.x)*c; cy+=(p.y+q.y)*c;
+  }
+  A*=0.5; cx/=(6*A); cy/=(6*A);
+  const Ah=Math.PI*holeR*holeR, An=A-Ah;
+  const gx=(A*cx-Ah*ex)/An, gy=(A*cy-Ah*eyeY)/An;
+  return {outline,rEff,W,Lb,Lt,Hb,G,H,t,taper,ex,eyeY,holeR,lugR,area:An,gx,gy,mass:An*t*RHO_TONG};
+}
+
+/* ============ コイル位置・干渉・重心 ============ */
+function coilProps(pr){
+  const ro=P.OD/2, ri=P.ID/2, t=pr.t, Hb=pr.Hb;
+  const warn=[];
+  const cyPad=Hb+P.padT-ri;                       // パッド円弧の中心
+  const cyCorner=ri>t/2?Hb-Math.sqrt(ri*ri-t*t/4):Infinity; // アーム上面角で支持される場合
+  const cy=Math.max(cyPad,cyCorner);
+  const contact=(cyCorner>cyPad+0.01)?'アーム上面角部':'パッド';
+  const cx0=pr.W+P.coilOff, cx1=cx0+P.CW;
+  const mass=Math.PI*(ro*ro-ri*ri)*P.CW*DENS[P.mat];
+  let lowClr=NaN, topClr=NaN;
+  if(ri<=t/2){ warn.push('コイル内径が板厚より小さく、アームが挿入できません'); }
+  else{
+    lowClr=ri-Math.hypot(cy,t/2);
+    if(lowClr<0) warn.push('アーム下面角がコイル内径と干渉します');
+  }
+  if(ro<=ri) warn.push('コイル外径が内径以下です');
+  if(pr.Lt>cx0){ topClr=(pr.Hb+pr.G)-(cy+ro); if(topClr<0) warn.push('コイル外径が上アーム下面と干渉します'); }
+  if(cx1>pr.Lb) warn.push('コイル幅が下アーム長さを超えています');
+  // 開口下隅Rとコイル内径の干渉（コイル端面位置でのR立上り）
+  const R=pr.rEff[4];
+  if(P.coilOff<R){
+    const rise=R-Math.sqrt(R*R-(R-P.coilOff)**2);
+    if(pr.Hb+rise>cy+ri) warn.push('開口下隅のRがコイル端部内径と干渉します（隙間を増やす）');
+  }
+  if(P.padT>0&&ri>t/2&&P.padT<=ri-Math.sqrt(ri*ri-t*t/4)) warn.push('パッドが薄く、アーム角部で支持されています');
+  return {ro,ri,cy,cyPad,cx0,cx1,mass,contact,lowClr,topClr,warn};
+}
+
+function combinedCG(pr,cp){
+  if(!P.showCoil||!cp) return {x:pr.gx,y:pr.gy,m:pr.mass};
+  const m=pr.mass+cp.mass;
+  return {x:(pr.mass*pr.gx+cp.mass*(cp.cx0+P.CW/2))/m, y:(pr.mass*pr.gy+cp.mass*cp.cy)/m, m};
+}
+
+/* ============ 形状生成 ============ */
+function clearGroup(g){
+  while(g.children.length){const c=g.children.pop(); c.traverse(o=>{if(o.geometry)o.geometry.dispose();});}
+}
+function smooth(g){ return toCreasedNormals(g,THREE.MathUtils.degToRad(35)); }
+function mesh(geo,mat){const m=new THREE.Mesh(geo,mat); m.castShadow=true; m.receiveShadow=true; return m;}
+
+class BowCurve extends THREE.Curve{
+  constructor(legL,zs){super(); this.legL=legL; this.zs=zs;}
+  getPoint(u,target=new THREE.Vector3()){
+    const L1=this.legL, zs=this.zs, A=Math.PI*zs, tot=2*L1+A; let s=u*tot;
+    if(s<=L1) return target.set(0,s,-zs);
+    s-=L1;
+    if(s<=A){const th=Math.PI-s/zs; return target.set(0,L1+zs*Math.sin(th),zs*Math.cos(th));}
+    s-=A; return target.set(0,L1-s,zs);
+  }
+}
+
+let first=true;
+function build(){
+  clearGroup(asm); clearGroup(shg);
+  const pr=computeProfile();
+  const cp=coilProps(pr);
+  const t=pr.t;
+
+  // --- 本体：C形断面を板厚方向へ押し出し ---
+  const shape=new THREE.Shape(pr.outline);
+  const hole=new THREE.Path(); hole.absarc(pr.ex,pr.eyeY,pr.holeR,0,Math.PI*2,true);
+  shape.holes.push(hole);
+  const bv=Math.max(0,Math.min(P.bevel,t/2-5,pr.holeR*0.4));
+  const depth=Math.max(1,t-2*bv);
+  let g=new THREE.ExtrudeGeometry(shape,{depth,bevelEnabled:bv>0.5,bevelThickness:bv,bevelSize:bv,bevelOffset:-bv,bevelSegments:6,curveSegments:72,steps:1});
+  g.translate(0,0,-depth/2);
+  asm.add(mesh(smooth(g),matBody));
+
+  // --- コイル受けパッド：コイル内径に沿う円弧断面を下アーム長手方向へ押し出し ---
+  const R4=pr.rEff[4];
+  const px0=pr.W+R4+10, px1=pr.Lb-Math.max(pr.rEff[3],0)-20;
+  const wp=t-2*bv, ri=cp.ri;
+  if(P.padT>0&&px1-px0>50&&ri>wp/2){
+    const edgeY=cp.cyPad+Math.sqrt(ri*ri-wp*wp/4);
+    if(edgeY>pr.Hb+1){
+      const s=new THREE.Shape();
+      s.moveTo(-wp/2,pr.Hb); s.lineTo(wp/2,pr.Hb); s.lineTo(wp/2,edgeY);
+      const aR=Math.atan2(edgeY-cp.cyPad,wp/2), aL=Math.PI-aR;
+      s.absarc(0,cp.cyPad,ri,aR,aL,false); s.lineTo(-wp/2,pr.Hb);
+      const pb=Math.min(4,P.padT/3), len=px1-px0;
+      let pg=new THREE.ExtrudeGeometry(s,{depth:Math.max(1,len-2*pb),bevelEnabled:pb>0.5,bevelThickness:pb,bevelSize:pb,bevelOffset:-pb,bevelSegments:3,curveSegments:48});
+      pg.rotateY(Math.PI/2); pg.translate(px0+pb,0,0);
+      asm.add(mesh(smooth(pg),matPad));
+    }
+  }
+
+  // --- 吊荷コイル：円環断面を幅方向へ押し出し ---
+  if(P.showCoil&&cp.ro>cp.ri){
+    const cs=new THREE.Shape(); cs.absarc(0,0,cp.ro,0,Math.PI*2,false);
+    const ch=new THREE.Path(); ch.absarc(0,0,cp.ri,0,Math.PI*2,true); cs.holes.push(ch);
+    const cb=Math.min(15,(cp.ro-cp.ri)/4,P.CW/4);
+    let cg=new THREE.ExtrudeGeometry(cs,{depth:Math.max(1,P.CW-2*cb),bevelEnabled:true,bevelThickness:cb,bevelSize:cb,bevelOffset:-cb,bevelSegments:4,curveSegments:128});
+    cg.rotateY(Math.PI/2); cg.translate(cb,0,0);
+    const cm=mesh(smooth(cg),P.mat==='al'?matAl:matSteel);
+    cm.position.set(cp.cx0,cp.cy,0);
+    asm.add(cm);
+  }
+
+  // --- 押し出し断面の輪郭線 ---
+  if(P.showProfile){
+    const z=t/2+2;
+    const lp=pr.outline.map(v=>new THREE.Vector3(v.x,v.y,z)); lp.push(lp[0].clone());
+    asm.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(lp),matLine));
+    const hp=[]; for(let k=0;k<=96;k++){const a=k/96*Math.PI*2; hp.push(new THREE.Vector3(pr.ex+pr.holeR*Math.cos(a),pr.eyeY+pr.holeR*Math.sin(a),z));}
+    asm.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(hp),matLine));
+  }
+
+  // --- 吊り点と傾き ---
+  asm.position.set(-pr.ex,-pr.eyeY,0);
+  pivot.position.set(pr.ex,pr.eyeY,0);
+  shg.position.set(pr.ex,pr.eyeY,0);
+  const cg=combinedCG(pr,P.showCoil?cp:null);
+  let tilt=-Math.PI/2-Math.atan2(cg.y-pr.eyeY,cg.x-pr.ex);
+  while(tilt>Math.PI)tilt-=2*Math.PI; while(tilt<-Math.PI)tilt+=2*Math.PI;
+  pivot.rotation.z=P.hang?tilt:0;
+
+  // --- シャックル（ピンはアイ穴を貫通、弓部は常に鉛直） ---
+  let bowTop=0;
+  if(P.showShackle){
+    const rb=Math.max(20,pr.holeR*0.75), rp=pr.holeR*0.88;
+    const zs=t/2+rb+20, legL=pr.lugR+120;
+    shg.add(mesh(new THREE.TubeGeometry(new BowCurve(legL,zs),160,rb,28,false),matShackle));
+    for(const sgn of[-1,1]){
+      const boss=new THREE.CylinderGeometry(rb*1.55,rb*1.55,rb*1.6,40); boss.rotateX(Math.PI/2);
+      const bm=mesh(boss,matShackle); bm.position.z=sgn*zs; shg.add(bm);
+    }
+    const plen=2*(zs+rb*0.8)+60;
+    const pin=new THREE.CylinderGeometry(rp,rp,plen,48); pin.rotateX(Math.PI/2);
+    shg.add(mesh(pin,matPin));
+    const head=new THREE.CylinderGeometry(rp*1.6,rp*1.6,40,48); head.rotateX(Math.PI/2);
+    const hm=mesh(head,matPin); hm.position.z=-(zs+rb*0.8+20); shg.add(hm);
+    const nut=new THREE.CylinderGeometry(rp*1.7,rp*1.7,45,6); nut.rotateX(Math.PI/2);
+    const nm=mesh(nut,matPin); nm.position.z=zs+rb*0.8+25; shg.add(nm);
+    bowTop=legL+zs+rb;
+  }
+
+  // --- 床上に配置（最下点を床から50mm上げる） ---
+  root.position.set(0,0,0); root.updateMatrixWorld(true);
+  const box=new THREE.Box3().setFromObject(root);
+  root.position.set(-(box.min.x+box.max.x)/2,-box.min.y+0.05,0);
+  root.updateMatrixWorld(true);
+  const fitBox=new THREE.Box3().setFromObject(root);
+
+  // --- ワイヤ（吊り下げ時） ---
+  if(P.hang&&P.showShackle){
+    const rope=new THREE.CylinderGeometry(22,22,2500,20);
+    const rm=mesh(rope,matRope); rm.position.y=bowTop-10+1250; shg.add(rm);
+  }
+
+  if(first){fitView(fitBox); first=false;}
+  updateInfo(pr,cp,cg,tilt);
+}
+
+/* ============ 情報表示 ============ */
+const f0=v=>Number.isFinite(v)?Math.round(v).toLocaleString():'-';
+function updateInfo(pr,cp,cg,tilt){
+  const rows=[
+    ['本体質量（鋼 7.85 概算）',f0(pr.mass)+' kg'],
+    ['本体重心 X / Y',f0(pr.gx)+' / '+f0(pr.gy)+' mm'],
+  ];
+  let warn=[];
+  if(P.showCoil){
+    rows.push(['コイル質量（'+(P.mat==='al'?'アルミ 2.70':'鋼 7.85')+'）',f0(cp.mass)+' kg']);
+    rows.push(['合計質量',f0(cg.m)+' kg']);
+    rows.push(['コイル支持',cp.contact]);
+    rows.push(['上アーム下クリアランス',Number.isFinite(cp.topClr)?f0(cp.topClr)+' mm':'-']);
+    rows.push(['内径下側クリアランス',Number.isFinite(cp.lowClr)?f0(cp.lowClr)+' mm':'-']);
+    warn=cp.warn.slice();
+  }
+  rows.push(['合成重心 X / Y',f0(cg.x)+' / '+f0(cg.y)+' mm']);
+  rows.push(['アイ中心 X（有効値）',f0(pr.ex)+' mm']);
+  rows.push(['重心とアイの水平偏差',f0(cg.x-pr.ex)+' mm']);
+  rows.push(['吊り下げ時の傾き',(-THREE.MathUtils.radToDeg(tilt)).toFixed(1)+' °']);
+  if(Math.abs(P.ex-pr.ex)>0.5) warn.push('アイ位置は上アーム範囲内に制限されています');
+  let h='<table>'+rows.map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join('')+'</table>';
+  h+=warn.length?warn.map(w=>`<div class="warn">${w}</div>`).join(''):(P.showCoil?'<div class="ok">干渉なし</div>':'');
+  h+='<div style="font-size:11px;color:#666;margin-top:4px">傾き：正＝先端（開口側）下がり</div>';
+  document.getElementById('info').innerHTML=h;
+}
+
+/* ============ 視点 ============ */
+let lastFit=null;
+function fitView(box){
+  lastFit=box.clone();
+  const c=box.getCenter(new THREE.Vector3()), s=box.getSize(new THREE.Vector3()).length();
+  const dir=new THREE.Vector3(0.55,0.25,1).normalize();
+  camera.position.copy(c).addScaledVector(dir,s*1.35);
+  controls.target.copy(c); controls.update();
+}
+
+/* ============ 重心直上へのアイ自動調整 ============ */
+function autoEye(){
+  for(let k=0;k<12;k++){
+    const pr=computeProfile(); const cp=coilProps(pr);
+    P.ex=combinedCG(pr,P.showCoil?cp:null).x;
+  }
+  P.ex=Math.round(computeProfile().ex);
+  syncUI('ex');
+}
+
+/* ============ UI ============ */
+const groups=[
+  {title:'本体寸法（押し出し断面）',open:true,items:[
+    ['W','背柱幅',200,900,5],['Lb','下アーム長さ',1000,4000,10],['Hb','下アーム高さ',150,700,5],
+    ['G','開口高さ（内法）',500,3000,10],['Ht','上アーム高さ',200,900,5],['Lt','上アーム長さ',500,3500,10],
+    ['t','板厚（押し出し量）',60,500,5],['taper','下アーム先端テーパ長',0,800,10]]},
+  {title:'R（フィレット）',open:false,items:[
+    ['Rin','開口部の隅R',20,700,5],['Rout','背面の角R',0,500,5],['Rtip','アーム先端R',0,200,2],['bevel','稜線R（押し出し面の縁）',0,40,1]]},
+  {title:'吊りラグ・アイ',open:false,items:[
+    ['ex','アイ中心位置X（背面から）',200,3500,5],['lugR','ラグ外半径',100,450,5],['lugH','ラグ突出高さ',80,700,5],['rEye','アイ穴半径',30,300,1]]},
+  {title:'吊荷コイル・パッド',open:false,items:[
+    ['OD','コイル外径',600,3000,10],['ID','コイル内径',300,1000,1],['CW','コイル幅',200,2500,10],
+    ['coilOff','背柱面からの隙間',0,600,5],['padT','パッド厚（中央）',0,120,1]]}
+];
+const ui=document.getElementById('ui');
+const inputs={};
+let pending=false;
+const schedule=()=>{pending=true;};
+
+for(const gdef of groups){
+  const d=document.createElement('details'); if(gdef.open)d.open=true;
+  d.innerHTML=`<summary>${gdef.title}</summary>`;
+  const box=document.createElement('div'); box.className='grp';
+  for(const [k,label,mn,mx,st] of gdef.items){
+    const row=document.createElement('div'); row.className='row';
+    row.innerHTML=`<div class="lab"><span>${label}</span><span><input type="number" min="${mn}" max="${mx}" step="${st}"><span class="unit">mm</span></span></div><input type="range" min="${mn}" max="${mx}" step="${st}">`;
+    const num=row.querySelector('input[type=number]'), rng=row.querySelector('input[type=range]');
+    num.value=rng.value=P[k];
+    rng.addEventListener('input',()=>{P[k]=+rng.value; num.value=rng.value; schedule();});
+    num.addEventListener('change',()=>{let v=+num.value; if(!Number.isFinite(v))v=P[k]; v=Math.min(mx,Math.max(mn,v)); P[k]=v; num.value=v; rng.value=v; schedule();});
+    inputs[k]={num,rng};
+    box.appendChild(row);
+  }
+  d.appendChild(box); ui.appendChild(d);
+}
+function syncUI(k){ if(inputs[k]){inputs[k].num.value=P[k]; inputs[k].rng.value=P[k];} }
+
+// 表示・操作
+const dv=document.createElement('details'); dv.open=true;
+dv.innerHTML=`<summary>表示・操作</summary>`;
+const vb=document.createElement('div'); vb.className='grp';
+const checks=[['showCoil','吊荷コイルを表示'],['hang','吊り下げ姿勢（重心による傾きを反映）'],['showShackle','シャックル・ワイヤを表示'],['showProfile','押し出し断面の輪郭線を表示']];
+for(const [k,label] of checks){
+  const l=document.createElement('label'); l.className='chk';
+  l.innerHTML=`<input type="checkbox" ${P[k]?'checked':''}><span>${label}</span>`;
+  l.querySelector('input').addEventListener('change',e=>{P[k]=e.target.checked; schedule();});
+  vb.appendChild(l);
+}
+const ml=document.createElement('div'); ml.className='chk';
+ml.innerHTML=`<span>コイル材質</span><select><option value="al">アルミニウム</option><option value="steel">鋼</option></select>`;
+const sel=ml.querySelector('select'); sel.value=P.mat;
+sel.addEventListener('change',()=>{P.mat=sel.value; schedule();});
+vb.appendChild(ml);
+const b1=document.createElement('button'); b1.textContent='アイ位置を合成重心の直上へ自動調整';
+b1.onclick=()=>{autoEye(); schedule();};
+const b2=document.createElement('button'); b2.textContent='視点リセット';
+b2.onclick=()=>{root.updateMatrixWorld(true); const b=new THREE.Box3(); asm.updateMatrixWorld(true); b.setFromObject(pivot); fitView(b);};
+vb.appendChild(b1); vb.appendChild(b2);
+dv.appendChild(vb); ui.appendChild(dv);
+
+/* ============ 起動 ============ */
+autoEye();
+build();
+
+addEventListener('resize',()=>{
+  camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+});
+renderer.setAnimationLoop(()=>{
+  if(pending){pending=false; build();}
+  controls.update();
+  renderer.render(scene,camera);
+});
+</script>
+</body>
+</html>
