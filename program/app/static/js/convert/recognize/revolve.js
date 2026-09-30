@@ -26,6 +26,12 @@ function angularExtent(thetas) {
   return { full: false, start, span: (end - start + 2 * Math.PI) % (2 * Math.PI) };
 }
 
+/** 半径 r の円周上の角度 thetas の点を順に結んだ多角形の面積 */
+function polygonArea(thetas, r) {
+  const s = [...thetas].sort((a, b) => a - b);
+  return s.reduce((sum, a, i) => sum + (r * r * Math.sin(((i + 1 < s.length ? s[i + 1] : s[0] + 2 * Math.PI) - a))) / 2, 0);
+}
+
 /**
  * @param {Float64Array} points  統合済みの頂点（ワールド座標）
  * @param {Int32Array} tris      この部品の三角形
@@ -90,6 +96,25 @@ export function detectRevolve(points, tris, origin, dir, tol) {
     const [a, b] = [Math.floor(key / rings.length), key % rings.length];
     adjacent[a].add(b);
     adjacent[b].add(a);
+  }
+  // 中心の頂点が無い円板の端面（円周上の点だけで三角形に分けたもの。縁を塞いだ管・円筒など）は、
+  // 同じ高さの軸上の点とつながる端面とみなす（CylinderGeometry の端面と同じ断面になる）。
+  // 円周の点だけの三角形が、円周の多角形をちょうど覆うときに限る（外周だけの三角形を含む輪の端面は、覆う面積が足りない）
+  if (extent.full) {
+    const selfArea = new Float64Array(rings.length);
+    for (let k = 0; k < tris.length; k += 3) {
+      const ids = [local.get(tris[k]), local.get(tris[k + 1]), local.get(tris[k + 2])];
+      if (ringOf[ids[0]] !== ringOf[ids[1]] || ringOf[ids[1]] !== ringOf[ids[2]]) continue;
+      const [a, b, c] = ids.map((i) => [r[i] * Math.cos(t[i]), r[i] * Math.sin(t[i])]);
+      selfArea[ringOf[ids[0]]] += Math.abs((b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1])) / 2;
+    }
+    for (const g of [...rings]) {
+      if (onAxis(g) || selfArea[g.id] < polygonArea(g.members.map((i) => t[i]), g.r) * (1 - 1e-6)) continue;
+      const center = { h: g.h, r: 0, members: [], id: rings.length };
+      rings.push(center);
+      adjacent.push(new Set([g.id]));
+      adjacent[g.id].add(center.id);
+    }
   }
   for (const g of rings) {
     const degree = adjacent[g.id].size;

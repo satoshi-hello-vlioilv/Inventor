@@ -5,7 +5,8 @@
  "source": {
   "file": "spool_reel_assembly_v2.html",
   "three": "160",
-  "captured_at": "fixture"
+  "captured_at": "fixture",
+  "unit_mm": 1
  },
  "parts": [
   {
@@ -1390,6 +1391,11 @@
      [
       {
        "type": "line",
+       "a": [-7.5, -15],
+       "b": [7.5, -15]
+      },
+      {
+       "type": "line",
        "a": [7.5, -15],
        "b": [7.5, 15]
       },
@@ -1402,11 +1408,6 @@
        "type": "line",
        "a": [-7.5, 15],
        "b": [-7.5, -15]
-      },
-      {
-       "type": "line",
-       "a": [-7.5, -15],
-       "b": [7.5, -15]
       }
      ]
     ]

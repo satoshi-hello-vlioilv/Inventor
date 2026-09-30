@@ -5,7 +5,8 @@
  "source": {
   "file": "plate_holes.html",
   "three": "170",
-  "captured_at": "fixture"
+  "captured_at": "fixture",
+  "unit_mm": 1
  },
  "parts": [
   {
@@ -16,6 +17,11 @@
     "plane": "XY",
     "loops": [
      [
+      {
+       "type": "line",
+       "a": [0, 0],
+       "b": [21, 0]
+      },
       {
        "type": "line",
        "a": [21, 0],
@@ -30,11 +36,6 @@
        "type": "line",
        "a": [0, 7.5],
        "b": [0, 0]
-      },
-      {
-       "type": "line",
-       "a": [0, 0],
-       "b": [21, 0]
       }
      ],
      [

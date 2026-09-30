@@ -1,10 +1,12 @@
 // 検証用 HTML（samples/html）を実際のブラウザで動かし、アプリと同じフックで形状を取り出して
 // tests/fixtures/html/ に保存する。形状認識のテストはこのデータを使う。
 //
-//   npm run fixtures:html
+//   npm run fixtures:html               全ての HTML
+//   npm run fixtures:html -- 2号機       名前がこれで始まる HTML だけ
 //
-// 開発時だけ使う。Playwright（npm i -g playwright）が必要。three.js を CDN から取得できない環境では、
-// THREE_MIRROR にバージョンごとのコピーの場所（<dir>/three-<version>/node_modules/three）を指定する。
+// 開発時だけ使う。Playwright（npm i -g playwright）が必要。CDN（unpkg・jsdelivr・cdnjs）から取得できない環境では、
+// THREE_MIRROR にパッケージのコピーの場所を指定する: <dir>/<名前>-<版>/node_modules/<名前>（例 three-0.160.0、cannon-es-0.20.0。
+// npm i で作れる）。cdnjs の three.js（…/three.js/r128/…）は three-0.128.0 を使う。見つからないもの（書体・画像）は 404 にする。
 
 import fs from "node:fs";
 import path from "node:path";
@@ -19,6 +21,7 @@ const { chromium } = require(path.join(execSync("npm root -g").toString().trim()
 const OUT = path.join(ROOT, "tests/fixtures/html");
 const MIRROR = process.env.THREE_MIRROR;
 
+// 取り込む状態: [名前, その状態にする操作]。null は開いたときの表示のまま
 const CASES = {
   "LS4_parts_viewer.html": [
     ["blade", null],
@@ -34,7 +37,21 @@ const CASES = {
     ["reel", (p) => p.click("#kind [data-k=reel]")],
     ["assy", async (p) => { await p.click("#mode [data-m=assy]"); await p.click("#aSleeve [data-s='1']"); await p.click("#aSpool [data-p=steel]"); }],
   ],
+  "2号機.html": [["mill", null]], // 32 単位 = 1500 mm。開いた円筒の壁とリングで作った筒
+  "クレーン外観R10.html": [["crane", null]], // 1 単位 = 1 m
+  "メッセンジャーワイヤー方式.html": [["wire", null]], // 1 単位 = 1 m。端の開いた管（TubeGeometry）
+  "タイヤシミュレータR2.html": [["tire", null]], // three.js r128（isWebGLRenderer が無い版）
 };
+
+const TYPES = { ".js": "application/javascript", ".mjs": "application/javascript", ".css": "text/css" };
+/** CDN の URL → THREE_MIRROR の中のファイル */
+function mirrored(url) {
+  let m = url.match(/(?:unpkg\.com|cdn\.jsdelivr\.net\/npm)\/(@?[^@/]+)@([\d.]+)\/(.*)$/);
+  if (m) return path.join(MIRROR, `${m[1]}-${m[2]}`, "node_modules", m[1], m[3]);
+  m = url.match(/cdnjs\.cloudflare\.com\/ajax\/libs\/three\.js\/r(\d+)\/(.*)$/);
+  if (m) return path.join(MIRROR, `three-0.${m[1]}.0`, "node_modules/three/build", m[2]);
+  return null;
+}
 
 // ページ内でフックに取り出しを依頼し、型付き配列を base64 にして返す
 const EXTRACT = () => new Promise((resolve) => {
@@ -56,12 +73,14 @@ const EXTRACT = () => new Promise((resolve) => {
 });
 
 const browser = await chromium.launch({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
-for (const [file, steps] of Object.entries(CASES)) {
+const only = process.argv.slice(2);
+for (const [file, steps] of Object.entries(CASES).filter(([f]) => !only.length || only.some((o) => f.startsWith(o)))) {
   const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
   if (MIRROR) {
-    await page.route(/three@([\d.]+)\/(.*)$/, (route) => {
-      const [, version, rest] = route.request().url().match(/three@([\d.]+)\/(.*)$/);
-      route.fulfill({ path: path.join(MIRROR, `three-${version}`, "node_modules/three", rest), contentType: "application/javascript" });
+    await page.route(/^https?:\/\//, (route) => {
+      const file = mirrored(route.request().url());
+      if (file && fs.existsSync(file)) return route.fulfill({ path: file, contentType: TYPES[path.extname(file)] ?? "application/octet-stream" });
+      return route.fulfill({ status: 404, body: "" });
     });
   }
   await page.addInitScript(`(${threeHook.toString()})()`);

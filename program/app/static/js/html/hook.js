@@ -2,7 +2,8 @@
 // 関数の文字列をそのまま埋め込むため、この関数の外側の識別子を参照しないこと（自己完結で書く）。
 //
 // 仕組み: three.js は Scene / WebGLRenderer を生成すると window.__THREE_DEVTOOLS__ に "observe" を通知する
-// （r160・r170・r180 で確認）。これを受けてレンダラーの render を包み、画面に描かれた最後のシーンを覚えておく。
+// （r128・r160・r170・r180 で確認）。これを受けてレンダラーの render を包み、画面に描かれた最後のシーンを覚えておく。
+// レンダラーは印（isWebGLRenderer。r128 には無い）ではなく、描画に要る働き（render・getContext）で見分ける。
 // 親から { type: "ipt:extract", id } が届いたら、そのシーンの見えているメッシュを送り返す。
 
 export function threeHook() {
@@ -11,7 +12,7 @@ export function threeHook() {
 
   devtools.addEventListener("observe", (event) => {
     const renderer = event.detail;
-    if (!renderer || !renderer.isWebGLRenderer || renderer.__iptHooked) return;
+    if (!renderer || typeof renderer.render !== "function" || typeof renderer.getContext !== "function" || renderer.__iptHooked) return;
     renderer.__iptHooked = true;
     const render = renderer.render;
     renderer.render = function (scene, camera) {
@@ -46,6 +47,17 @@ export function threeHook() {
     return out;
   };
 
+  // インスタンス描画（InstancedMesh）: 同じ形を置く 1 か所ごとのワールド行列（メッシュの行列 × インスタンスの行列）
+  const instanceMatrices = (object) => {
+    const out = [];
+    const local = object.matrixWorld.clone(), world = object.matrixWorld.clone();
+    for (let i = 0; i < object.count; i++) {
+      object.getMatrixAt(i, local);
+      out.push(world.clone().multiply(local).elements.slice());
+    }
+    return out;
+  };
+
   const extract = () => {
     const scene = state.scene;
     if (!scene) return { payload: { error: "three.js の描画がまだ行われていません" }, transfer: [] };
@@ -53,7 +65,6 @@ export function threeHook() {
     const meshes = [], transfer = [], excluded = {};
     const skip = (reason) => (excluded[reason] = (excluded[reason] || 0) + 1);
     scene.traverseVisible((object) => {
-      if (object.isInstancedMesh) return skip("instanced");
       if (object.isLine || object.isLineSegments) return skip("line");
       if (object.isSprite) return skip("sprite");
       if (object.isPoints) return skip("points");
@@ -73,6 +84,7 @@ export function threeHook() {
         geometryType: geometry.type,
         parameters: plain(geometry.parameters),
         matrix: object.matrixWorld.elements.slice(),
+        instances: object.isInstancedMesh ? instanceMatrices(object) : null,
         positions,
         normals,
         index,

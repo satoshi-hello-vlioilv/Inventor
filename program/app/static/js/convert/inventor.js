@@ -197,7 +197,7 @@ export function buildInventorSpec(source, recognition) {
     format: FORMAT,
     version: VERSION,
     units: "mm",
-    source: { file: source.file, three: source.revision, captured_at: source.capturedAt },
+    source: { file: source.file, three: source.revision, captured_at: source.capturedAt, unit_mm: recognition.unit ?? 1 },
     parts: [...shapes.values()].map(({ shape, label, instances }, i) => {
       const expect = expectedProperties(shape);
       return {

@@ -15,6 +15,7 @@ import { setSpec } from "./ui/convert.js";
 import { claimLaunch, keepAlive, listSamples } from "./server.js";
 import { PartLibrary, acceptFiles } from "./ui/files.js";
 import { initBuild } from "./ui/build.js";
+import { setupUnit } from "./ui/units.js";
 import { renderAsmPanel, renderHeader, renderHtmlPanel, renderIptPanel, renderSpecPanel, setPanelMode } from "./ui/panel.js";
 import { LAUNCHER } from "./ui/product.js";
 import { startDialog } from "./ui/start.js";
@@ -39,6 +40,7 @@ let thumbnailUrl = null;
 let assembly = null; // 表示中（または部品を開く前）の組立 { model, header, doc: { bytes, name, isSample } }
 let source = null; // 表示中の元のページ（SourceFrame）
 let sourceName = ""; // 表示中の HTML のファイル名
+let captured = null; // 最後に取り込んだシーン { snapshot, at, unit }（単位を変えたら認識し直す）
 
 // ---- 強調表示（3D ⇄ パネルの双方向） -----------------------------------------
 function highlight(ids, text, groupKey) {
@@ -165,16 +167,14 @@ async function capture() {
   setSourceStatus("取り込み中…");
   try {
     const snapshot = await source.extract();
-    const recognition = recognizeSnapshot(snapshot);
-    const describe = describeRecognition(recognition);
-    const rows = renderHtmlPanel({ describe }, rowHandlers((g) => g.ids));
-    current = { info: describe.partInfo, rows };
-    viewer?.show({ meshes: buildDisplayMeshes(snapshot, recognition) });
-    highlight([]);
-    showAlert(recognition.parts.length ? "" : "取り込める形状がありませんでした。元のページで部品を表示してから、もう一度取り込んでください。");
-    const now = new Date();
-    setSourceStatus(`${now.toLocaleTimeString("ja-JP")} に取り込み · three.js r${snapshot.revision ?? "?"}`);
-    setSpec(buildInventorSpec({ file: sourceName, revision: snapshot.revision, capturedAt: now.toISOString() }, recognition), sourceName);
+    captured = { snapshot, at: new Date() };
+    captured.unit = setupUnit(sourceName, snapshot, (unit) => {
+      captured.unit = unit;
+      analyze();
+    });
+    analyze();
+    showAlert(snapshot.meshes.length ? "" : "取り込める形状がありませんでした。元のページで部品を表示してから、もう一度取り込んでください。");
+    setSourceStatus(`${captured.at.toLocaleTimeString("ja-JP")} に取り込み · three.js r${snapshot.revision ?? "?"}`);
   } catch (error) {
     console.warn(error);
     showAlert(`取り込みに失敗しました（${error.message}）。元のページの表示が終わってから、もう一度お試しください。`);
@@ -185,11 +185,24 @@ async function capture() {
 }
 $("capture").addEventListener("click", capture);
 
+/** 取り込んだシーンを、選んだ単位で認識し、表示と変換データを作り直す */
+function analyze() {
+  const { snapshot, at, unit } = captured;
+  const recognition = recognizeSnapshot(snapshot, { unit });
+  const describe = describeRecognition(recognition);
+  const rows = renderHtmlPanel({ describe }, rowHandlers((g) => g.ids));
+  current = { info: describe.partInfo, rows };
+  viewer?.show({ meshes: buildDisplayMeshes(snapshot, recognition) });
+  highlight([]);
+  setSpec(buildInventorSpec({ file: sourceName, revision: snapshot.revision, capturedAt: at.toISOString() }, recognition), sourceName);
+}
+
 function loadHtml(text, name, isSample = false) {
   showAlert("");
   assembly = null;
   setMode("html");
   sourceName = name;
+  captured = null;
   setSpec(null);
   renderHeader({ eyebrow: "three.js の HTML", name, meta: "元のページで表示を選び「この状態を取り込む」を押すと、その形状を取り込みます", isSample });
   current = null;

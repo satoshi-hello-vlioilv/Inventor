@@ -24,7 +24,8 @@ export function sanitizeSnapshot(data) {
     m && m.positions instanceof Float32Array && m.positions.length % 3 === 0 &&
     (m.index === null || m.index instanceof Uint32Array) &&
     (m.normals === null || (m.normals instanceof Float32Array && m.normals.length === m.positions.length)) &&
-    isNumberArray(m.matrix, 16));
+    isNumberArray(m.matrix, 16) &&
+    (m.instances == null || (Array.isArray(m.instances) && m.instances.every((x) => isNumberArray(x, 16)))));
   const excluded = {};
   for (const [key, value] of Object.entries(data.excluded ?? {})) if (Number.isInteger(value)) excluded[String(key)] = value;
   return {
@@ -35,6 +36,7 @@ export function sanitizeSnapshot(data) {
       path: Array.isArray(m.path) ? m.path.map(String) : [],
       geometryType: String(m.geometryType ?? ""),
       matrix: m.matrix,
+      instances: m.instances ?? null,
       positions: m.positions,
       normals: m.normals,
       index: m.index,

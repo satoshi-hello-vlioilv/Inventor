@@ -183,3 +183,67 @@ describe("three.js 標準の形状クラス", () => {
     });
   });
 });
+
+// 利用者が追加した設備の HTML。単位は HTML ごとに違うので、ソースの定数から決めた単位で認識する
+const partsOf = (name, unit) => recognizeSnapshot(readHtmlFixture(name), { unit }).parts;
+const byKind = (parts) => parts.reduce((m, p) => ({ ...m, [p.kind]: (m[p.kind] ?? 0) + 1 }), {});
+
+describe("2 号機（three.js r160、32 単位 = 1500 mm）", () => {
+  const parts = partsOf("2号機.mill", 1500 / 32);
+  test("コイル: 開いた円筒の外壁・内壁と両端のリング（4 メッシュ）を縫い合わせ、φ1500/φ508 × 1400 と φ560/φ508 × 1400", () => {
+    const coils = parts.filter((p) => p.repair === "stitched");
+    assert.equal(coils.length, 2);
+    for (const c of coils) assert.equal(c.sources.length, 4);
+    const [large, small] = coils.sort((a, b) => b.outerDiameter - a.outerDiameter);
+    expectRevolve(large, { od: 1500, id: 508, length: 1400, lines: 4 }); // REAL_MAX_DIA・REAL_CORE_ID・REAL_WIDTH
+    expectRevolve(small, { od: 560, id: 508, length: 1400, lines: 4 }); // REAL_MIN_DIA
+  });
+  test("ロール: ワーク φ550・バックアップ φ1350・ガイド φ200（ソースの定数）。除外は床だけ", () => {
+    const diameters = new Set(parts.filter((p) => p.kind === "revolve").map((p) => +p.outerDiameter.toFixed(3)));
+    for (const d of [550, 1350, 200]) assert.ok(diameters.has(d), `φ${d}`);
+    assert.deepEqual(parts.filter((p) => p.kind === "open").map((p) => p.geometryType), ["PlaneGeometry"]);
+    assert.equal(byKind(parts).mesh, undefined, "近似なし");
+  });
+  test("単位を変えても（1 = 1 mm のまま）同じ形として認識する（φ32 のコイル）", () => {
+    const raw = partsOf("2号機.mill", 1);
+    assert.deepEqual(byKind(raw), byKind(parts));
+    assert.ok(raw.some((p) => p.repair === "stitched" && Math.abs(p.outerDiameter - 32) < 1e-3));
+  });
+});
+
+describe("クレーン外観（three.js r160、1 単位 = 1 m）", () => {
+  const parts = partsOf("クレーン外観R10.crane", 1000);
+  test("巻上げ胴 φ1200 × 2500・モーター φ800 × 1200・車輪 φ600 × 200 × 4、桁は 20 m の押し出し", () => {
+    expectRevolve(parts.find((p) => p.kind === "revolve" && Math.abs(p.outerDiameter - 1200) < 1e-3), { od: 1200, id: 0, length: 2500, lines: 4 });
+    expectRevolve(parts.find((p) => p.kind === "revolve" && Math.abs(p.outerDiameter - 800) < 1e-3), { od: 800, id: 0, length: 1200, lines: 4 });
+    assert.equal(parts.filter((p) => p.kind === "revolve" && Math.abs(p.outerDiameter - 600) < 1e-3 && Math.abs(p.length - 200) < 1e-3).length, 4);
+    assert.equal(parts.filter((p) => p.kind === "prism" && Math.abs(p.length - 20000) < 1e-3).length, 2);
+  });
+  test("フックの管（TubeGeometry）は両端を塞いで立体に（近似）。除外は床だけ", () => {
+    const hook = parts.find((p) => p.geometryType === "TubeGeometry");
+    assert.equal(hook.repair, "capped");
+    assert.equal(hook.kind, "mesh");
+    assert.deepEqual(parts.filter((p) => p.kind === "open").map((p) => p.geometryType), ["PlaneGeometry"]);
+  });
+});
+
+describe("メッセンジャーワイヤー（three.js r160、1 単位 = 1 m）", () => {
+  test("電線の管 12 本は両端を塞いで立体に。柱 φ600 × 12960・端の球 φ700", () => {
+    const parts = partsOf("メッセンジャーワイヤー方式.wire", 1000);
+    const tubes = parts.filter((p) => p.geometryType === "TubeGeometry");
+    assert.equal(tubes.length, 12);
+    for (const t of tubes) assert.equal(t.repair, "capped");
+    assert.equal(parts.filter((p) => p.kind === "revolve" && Math.abs(p.outerDiameter - 600) < 1e-3 && Math.abs(p.length - 12960) < 1e-3).length, 2);
+    expectRevolve(parts.find((p) => p.geometryType === "SphereGeometry"), { od: 700, id: 0, length: 700, lines: 1, arcs: 1 });
+  });
+});
+
+describe("タイヤ（three.js r128）", () => {
+  test("r128 でも取り込める。トレッドの六角タイル 584 個は同じ押し出し、タイヤ本体は回転体 2 つ", () => {
+    const parts = partsOf("タイヤシミュレータR2.tire", 100);
+    const hex = parts.filter((p) => p.kind === "prism" && p.shape === "6 角形");
+    assert.equal(hex.length, 584);
+    assert.equal(new Set(hex.map((p) => [p.width, p.height, p.length].map((v) => v.toFixed(3)).join())).size, 1);
+    assert.equal(parts.filter((p) => p.kind === "revolve").length, 2);
+  });
+});

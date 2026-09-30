@@ -77,6 +77,12 @@
     </header>
     <section data-mode="html" hidden>
       <h2>取り込み結果</h2>
+      <div class="unit-field">
+        <label for="unit-select">シーンの 1 単位</label>
+        <select id="unit-select"></select>
+        <span class="unit-custom" id="unit-custom" hidden><input type="number" id="unit-mm" min="0" step="any" inputmode="decimal" aria-label="1 単位の長さ（mm）"> mm</span>
+      </div>
+      <p class="unit-note" id="unit-note"></p>
       <div class="tally" id="tally"></div>
     </section>
     <section data-mode="spec" hidden>

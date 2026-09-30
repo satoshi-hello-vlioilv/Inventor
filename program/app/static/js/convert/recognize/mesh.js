@@ -1,17 +1,31 @@
-// 三角形メッシュの下準備: ワールド座標への変換、重なった頂点の統合、閉じた立体かの判定、連結成分への分割。
+// 三角形メッシュの下準備: ワールド座標（mm）への変換、重なった頂点の統合、座標の精度に見合う許容差。
+// 殻（つながり・閉じた立体か・向き）は shells.js。
 
 import { cross, dot, length, sub } from "../../core/vec.js";
 
-/** 4×4 行列（three.js の列優先 elements）で点列を変換する。 */
-export function transformPoints(positions, m) {
+/** 4×4 行列（three.js の列優先 elements）で点列を変換し、scale 倍する（シーンの単位 → mm）。 */
+export function transformPoints(positions, m, scale = 1) {
   const out = new Float64Array(positions.length);
   for (let i = 0; i < positions.length; i += 3) {
     const [x, y, z] = [positions[i], positions[i + 1], positions[i + 2]];
-    out[i] = m[0] * x + m[4] * y + m[8] * z + m[12];
-    out[i + 1] = m[1] * x + m[5] * y + m[9] * z + m[13];
-    out[i + 2] = m[2] * x + m[6] * y + m[10] * z + m[14];
+    out[i] = (m[0] * x + m[4] * y + m[8] * z + m[12]) * scale;
+    out[i + 1] = (m[1] * x + m[5] * y + m[9] * z + m[13]) * scale;
+    out[i + 2] = (m[2] * x + m[6] * y + m[10] * z + m[14]) * scale;
   }
   return out;
+}
+
+const FLOAT32_EPSILON = 2 ** -23;
+
+/**
+ * 長さの許容差（mm）。three.js の頂点は float32 なので、座標が大きいほど丸めの誤差が大きい。
+ * 最小 base（設計上の寸法差より十分小さい値）と、座標の大きさに見合う float32 の丸め幅の 8 倍の大きい方。
+ */
+export function tolerance(positions, m, scale, base) {
+  let max = 0;
+  for (let i = 0; i < positions.length; i++) max = Math.max(max, Math.abs(positions[i]));
+  const stretch = Math.max(...[0, 4, 8].map((k) => Math.hypot(m[k], m[k + 1], m[k + 2])));
+  return Math.max(base, 8 * FLOAT32_EPSILON * max * stretch * scale);
 }
 
 export const pointAt = (points, i) => [points[3 * i], points[3 * i + 1], points[3 * i + 2]];
@@ -62,57 +76,20 @@ function triangleArea(points, a, b, c) {
 }
 
 /**
- * 統合後の頂点・三角形（面積ゼロを除く）と、連結成分ごとの三角形の集合を返す。
- * closed は「全ての稜線をちょうど 2 枚の三角形が共有する」（厚みのある閉じた立体）かどうか。
+ * 頂点を統合し、面積の無い三角形を除く。
+ * @returns {{ points: Float64Array, tris: Int32Array, source: Int32Array }}  source は元のメッシュでの三角形の番号（表示の色分けに使う）
  */
-export function prepare(worldPoints, index, tol) {
+export function weldTriangles(worldPoints, index, tol) {
   const { points, map } = weld(worldPoints, tol);
   const raw = triangleIndices(index, worldPoints.length / 3);
-  const tris = [], source = []; // source: 元のメッシュでの三角形番号（表示で部品ごとに色分けするため）
+  const tris = [], source = [];
   for (let k = 0; k + 2 < raw.length; k += 3) {
     const [a, b, c] = [map[raw[k]], map[raw[k + 1]], map[raw[k + 2]]];
     if (a === b || b === c || a === c || triangleArea(points, a, b, c) <= tol * tol) continue;
     tris.push(a, b, c);
     source.push(k / 3);
   }
-  const n = points.length / 3;
-  // 連結成分（union-find）
-  const parent = Int32Array.from({ length: n }, (_, i) => i);
-  const find = (i) => {
-    while (parent[i] !== i) i = parent[i] = parent[parent[i]];
-    return i;
-  };
-  for (let k = 0; k < tris.length; k += 3) {
-    parent[find(tris[k + 1])] = find(tris[k]);
-    parent[find(tris[k + 2])] = find(tris[k]);
-  }
-  const groups = new Map();
-  for (let k = 0; k < tris.length; k += 3) {
-    const root = find(tris[k]);
-    if (!groups.has(root)) groups.set(root, { tris: [], source: [] });
-    const g = groups.get(root);
-    g.tris.push(tris[k], tris[k + 1], tris[k + 2]);
-    g.source.push(source[k / 3]);
-  }
-  return {
-    points,
-    components: [...groups.values()].map((g) => ({
-      tris: Int32Array.from(g.tris),
-      sourceTriangles: Int32Array.from(g.source),
-      closed: isClosed(g.tris, n),
-    })),
-  };
-}
-
-function isClosed(tris, n) {
-  const count = new Map();
-  for (let k = 0; k < tris.length; k += 3) {
-    for (const [a, b] of [[tris[k], tris[k + 1]], [tris[k + 1], tris[k + 2]], [tris[k + 2], tris[k]]]) {
-      const key = Math.min(a, b) * n + Math.max(a, b);
-      count.set(key, (count.get(key) ?? 0) + 1);
-    }
-  }
-  return count.size > 0 && [...count.values()].every((c) => c === 2);
+  return { points, tris: Int32Array.from(tris), source: Int32Array.from(source) };
 }
 
 /** 1 次元の値を、隣との差が tol を超えるところで区切ってまとめる。 */
