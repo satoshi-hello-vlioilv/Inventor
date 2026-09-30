@@ -1,9 +1,11 @@
 """変換データから STEP ファイル（AP214）を書く。Inventor を使わない。
 
-構造は Inventor が書き出す STEP と同じ:
-  部品ごとに PRODUCT → PRODUCT_DEFINITION → 形（ADVANCED_BREP_SHAPE_REPRESENTATION。部品の座標系）
+製品の構造は、Inventor 2026 が書き出す STEP（samples/stp）と同じつなぎ方にする:
+  部品ごとに PRODUCT → PRODUCT_DEFINITION → 形状表現（SHAPE_REPRESENTATION。部品の座標系の AXIS2_PLACEMENT_3D だけ）
+  → SHAPE_REPRESENTATION_RELATIONSHIP → 形（ADVANCED_BREP_SHAPE_REPRESENTATION）。
   配置が 2 か所以上なら組立の PRODUCT を作り、出現ごとに NEXT_ASSEMBLY_USAGE_OCCURRENCE と、
   部品の座標系 → 組立の中の位置の変換（ITEM_DEFINED_TRANSFORMATION）を書く。
+  点・方向・座標系は部品の中でだけ使い回す（別の部品の形状表現と共有しない）。改行は CR+LF、1 行はおよそ 80 文字。
 形は部品ごとに、厳密な面（回転体・押し出し）か、三角形をまとめた平らな面（近似の部品・面取り付きの押し出し）で書く（brep.py）。
 """
 from __future__ import annotations
@@ -56,8 +58,9 @@ def _product(w: P21Writer, app: Ref, product_context: Ref, definition_context: R
     return w.add("PRODUCT_DEFINITION", "design", "", formation, definition_context)
 
 
-def _placement(topo: brep.Topology, frame) -> Ref:
-    return topo.placement(frame.origin, frame.z, frame.x)
+def _placement(topo: brep.Topology, origin, z, x) -> Ref:
+    """形状表現の要素にする座標系（形の中の座標系とは使い回さない。同じ位置の出現も別の実体にする）"""
+    return topo.w.add("AXIS2_PLACEMENT_3D", "", topo.point(origin), topo.direction(z), topo.direction(x))
 
 
 def _solid(topo: brep.Topology, part) -> tuple[Ref, str, str | None]:
@@ -83,17 +86,20 @@ def write_step(spec: Spec, path: str | Path, name: str | None = None, assembly: 
     w = P21Writer()
     context = _context(w)
     app = w.add("APPLICATION_CONTEXT", "core data for automotive mechanical design processes")
-    w.add("APPLICATION_PROTOCOL_DEFINITION", "international standard", "automotive_design", 2000, app)
-    product_context = w.add("PRODUCT_CONTEXT", "", app, "mechanical")
+    w.add("APPLICATION_PROTOCOL_DEFINITION", "international standard", "automotive_design", 2010, app)  # AP214 第 3 版（FILE_SCHEMA と同じ）
+    product_context = w.add("PRODUCT_CONTEXT", "part definition", app, "mechanical")
     definition_context = w.add("PRODUCT_DEFINITION_CONTEXT", "part definition", app, "design")
 
     results, shapes = [], []
     placed = sum(len(p.instances) for p in spec.parts)
     for part in spec.parts:
+        w.forget()  # 点・方向・座標系を、別の部品と共有しない
         topo = brep.Topology(w)
         solid, how, note = _solid(topo, part)
-        origin = topo.placement((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
-        shape = w.add("ADVANCED_BREP_SHAPE_REPRESENTATION", part.name, (solid, origin), context)
+        brep_shape = w.add("ADVANCED_BREP_SHAPE_REPRESENTATION", part.name, (solid,), context)
+        origin = _placement(topo, (0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
+        shape = w.add("SHAPE_REPRESENTATION", part.name, (origin,), context)
+        w.add("SHAPE_REPRESENTATION_RELATIONSHIP", "", "", shape, brep_shape)
         definition = _product(w, app, product_context, definition_context, part.key, part.name)
         w.add("SHAPE_DEFINITION_REPRESENTATION", w.add("PRODUCT_DEFINITION_SHAPE", "", "", definition), shape)
         shapes.append((part, definition, shape, origin, topo))
@@ -101,13 +107,14 @@ def write_step(spec: Spec, path: str | Path, name: str | None = None, assembly: 
 
     assembly = placed > 1 if assembly is None else assembly
     if assembly:
+        w.forget()
         topo = brep.Topology(w)
-        root_origin = topo.placement((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
+        root_origin = _placement(topo, (0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
         items = [root_origin]
         occurrences = []
         for part, definition, shape, origin, _ in shapes:
             for n, frame in enumerate(part.instances, start=1):
-                target = _placement(topo, frame)
+                target = _placement(topo, frame.origin, frame.z, frame.x)
                 items.append(target)
                 occurrences.append((part, definition, shape, origin, target, n))
         root_shape = w.add("SHAPE_REPRESENTATION", name, items, context)
@@ -125,5 +132,5 @@ def write_step(spec: Spec, path: str | Path, name: str | None = None, assembly: 
             w.add("CONTEXT_DEPENDENT_SHAPE_REPRESENTATION", relation, w.add("PRODUCT_DEFINITION_SHAPE", "", "", usage))
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(w.text(path.name, f"{SYSTEM} で three.js の形から作成", SYSTEM), encoding="ascii")
+    path.write_text(w.text(path.name, f"{SYSTEM} で three.js の形から作成", SYSTEM), encoding="ascii", newline="")  # 改行は text の CR+LF のまま
     return StepResult(path, tuple(results), placed, assembly)

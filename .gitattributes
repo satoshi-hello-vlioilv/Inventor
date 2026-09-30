@@ -1,3 +1,6 @@
 # Windows のコマンドプロンプト・WSH がそのまま読む形（CP932・CRLF）を保つ。改行や文字の変換をしない
 *.bat -text
 *.vbs -text
+# STEP は書いたままのバイト（CR+LF）を保つ（Inventor が書く STEP と同じ。改行の違いを切り分けに使う）
+*.stp -text
+*.step -text

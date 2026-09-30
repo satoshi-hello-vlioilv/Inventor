@@ -188,6 +188,25 @@ class AssemblyTest(unittest.TestCase):
         self.assertEqual(result.placed, 25)
         self.assertEqual(got, expected)
 
+    def test_structure_matches_what_inventor_writes(self):
+        # Inventor 2026 が書き出す STEP（samples/stp）と同じつなぎ方: 形状定義 → 形状表現（座標系だけ）→ 関係 → B-rep の形状表現。
+        # 座標系は部品ごと（別の部品の形状表現と共有しない）。改行は CR+LF
+        with tempfile.TemporaryDirectory() as tmp:
+            result = write_step(load_spec(FIXTURES / "wire.inventor.json"), Path(tmp) / "wire.stp")
+            raw = result.path.read_bytes()
+            brep = Brep(result.path)
+        e = brep.e
+        ref = lambda v: v[1]  # noqa: E731
+        used = [ref(e[i][1][1]) for i in brep.of("SHAPE_DEFINITION_REPRESENTATION")]
+        self.assertTrue(used and all(e[r][0] == "SHAPE_REPRESENTATION" for r in used), "形状定義は形状表現につなぐ")
+        links = {ref(e[i][1][2]): ref(e[i][1][3]) for i in brep.of("SHAPE_REPRESENTATION_RELATIONSHIP")}
+        parts = [r for r in used if r in links]
+        self.assertEqual(len(parts), 15, "部品ごとに関係が 1 つ")
+        self.assertTrue(all(e[links[r]][0] == "ADVANCED_BREP_SHAPE_REPRESENTATION" for r in parts))
+        items = [ref(i) for r in used for i in e[r][1][1]]
+        self.assertEqual(len(items), len(set(items)), "形状表現の座標系を共有しない")
+        self.assertFalse(b"\n" in raw.replace(b"\r\n", b""), "改行は CR+LF だけ")
+
     def test_single_placement_writes_only_the_part(self):
         with tempfile.TemporaryDirectory() as tmp:
             result = write_step(load_spec(FIXTURES / "finger.inventor.json"), Path(tmp) / "finger.stp")
