@@ -5,7 +5,8 @@
 //   斜面 … 端面の縁と側壁の端をつなぐ帯。側壁の端から端面までの高さ a と、端面の縁が輪郭から材料側へ入る距離が
 //          等しければ等距離の面取り（C a）。斜面の各頂点が「輪郭を材料側へずらした線」の上にあるかで確かめる
 // 面取りの角付近は、作り方（留め継ぎ・丸め・角度での再分割など）で形が変わる。変換後の形は CAD の留め継ぎになるので、
-// 輪郭の角から 2a 以内（CORNER_ZONE）は照合から外し、その範囲での縁の位置の差の最大値（cornerDeviation）を報告する。
+// 輪郭の角から 2a 以内（CORNER_ZONE）の縁の点は照合から外し、その範囲での縁の位置の差の最大値（cornerDeviation）を報告する。
+// 斜面の途中の高さの点（丸い面取りの分割）は、角の範囲でも照合する（多角形の輪郭では丸い面取りの点が全て角の範囲にあるため）。
 
 import { dot, sub } from "../../core/vec.js";
 import { distanceToLoop, loopCorners, offsetIntoMaterial } from "./geometry2d.js";
@@ -152,7 +153,10 @@ export function detectPrism(points, tris, origin, dir, tol) {
     if (!outline) return fail("面取り後の輪郭を作れない（面取りが形状に対して大きすぎる）");
     const residual = distanceToLoop(p, outline);
     if (t <= tol) capRing.get(target).push(gaps[section.index]);
-    const nearCorner = section.corners.some((c) => Math.hypot(p[0] - c[0], p[1] - c[1]) <= CORNER_ZONE * a);
+    // 角の範囲で照合から外すのは、端面の縁（t = 0）と側壁の端（t = a）の点だけ。まっすぐな面取りの斜面は 2 つの縁を結ぶ帯なので
+    // 途中の高さに点を持たない。途中の高さの点（丸い面取りの分割）は、角の範囲でも必ず照合する
+    const between = t > tol && t < a - tol;
+    const nearCorner = !between && section.corners.some((c) => Math.hypot(p[0] - c[0], p[1] - c[1]) <= CORNER_ZONE * a);
     if (nearCorner) deviation.set(target, Math.max(deviation.get(target), residual));
     else if (residual > tol) {
       const ring = capRing.get(target).sort((x, y) => x - y);

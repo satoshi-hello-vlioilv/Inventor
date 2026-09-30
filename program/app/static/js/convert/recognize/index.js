@@ -9,6 +9,7 @@ import { detectPrism } from "./prism.js";
 import { detectRevolve } from "./revolve.js";
 import { describeSegments, fitSegments } from "./segments.js";
 import { buildShells, closeOpenShells } from "./shells.js";
+import { featureOf, maxDeviation, reverseDeviation } from "../inventor.js";
 
 export const TOL = 1e-3; // mm。許容差の最小値。float32 の丸め誤差（座標 1000 mm で約 1e-4 mm）より大きく、設計上の寸法差より十分小さい
 
@@ -105,6 +106,31 @@ function recognizeSolid(points, tris, origin, axes, tol) {
   return { kind: "mesh", reason: explain(prism.reasons, reasons) };
 }
 
+const VERIFY_TOL = 4; // 元の形との差の許容（長さの許容差の倍数）
+
+/**
+ * 安全網: 認識した寸法から作る形（変換データの形。寸法の丸めを含む）と元のメッシュが一致するかを、両方向で確かめる。
+ *   元 → 作る形: 元の全ての頂点が、作る形の面の上にある（maxDeviation）
+ *   作る形 → 元: 作る形の角に元の頂点があり、元の端面の縁が作る形の輪郭の上にある（reverseDeviation。作る形が広がっていないか）
+ * 差が許容（許容差の 4 倍。面取りの角は、作り方の違いとして示した差を加える）を超えたら、正確な形とせず近似にする。
+ * 認識の判定を通り抜けた誤り（丸めの誤り、判定の見落とし）を、作る前に止める。
+ */
+export function verify(part) {
+  if (part.kind !== "revolve" && part.kind !== "prism") return part;
+  const corner = Math.max(0, ...(part.chamfers ?? []).map((c) => c.cornerDeviation));
+  const allowed = VERIFY_TOL * part.tol + corner;
+  let feature = null, deviation = Infinity;
+  try {
+    feature = featureOf(part);
+    deviation = Math.max(maxDeviation(part, feature), reverseDeviation(part, feature, Math.max(allowed * 4, 1)));
+  } catch {
+    // 形を作れない（面取りの輪郭が作れないなど）→ 近似
+  }
+  if (deviation <= allowed) return { ...part, feature, deviation };
+  const how = Number.isFinite(deviation) ? `最大 ${deviation.toFixed(3)} mm` : "形を作れない";
+  return { ...part, kind: "mesh", fit: null, feature: null, reason: `認識した寸法で作る形が元の形と合わない（${how}）` };
+}
+
 /**
  * 認識できなかった理由。押し出しの判定で最も惜しかった軸（高さの段数が最少）の理由を優先し、
  * 無ければ回転体の判定で最も多く出た理由を使う。
@@ -146,7 +172,7 @@ const OPEN_REASON = {
 export function recognizeSnapshot(snapshot, { unit = 1 } = {}) {
   const parts = [];
   const open = []; // 開いた殻（メッシュをまたいで縫い合わせる候補）
-  const push = (part) => parts.push({ id: parts.length, ...part });
+  const push = (part) => parts.push(verify({ id: parts.length, ...part }));
   snapshot.meshes.forEach((mesh, meshIndex) => {
     (mesh.instances ?? [mesh.matrix]).forEach((matrix, instance) => {
       const tol = tolerance(mesh.positions, matrix, unit, TOL);

@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import * as THREE from "three";
-import { recognizeMesh, recognizeSnapshot } from "../../app/static/js/convert/recognize/index.js";
+import { recognizeMesh, recognizeSnapshot, verify } from "../../app/static/js/convert/recognize/index.js";
 import { readHtmlFixture } from "./helpers.mjs";
 
 const near = (actual, expected, label, tol = 1e-3) => assert.ok(Math.abs(actual - expected) <= tol, `${label}: ${actual} ≠ ${expected}`);
@@ -181,6 +181,16 @@ describe("three.js 標準の形状クラス", () => {
       const p = plate({ bevelSegments: 3, bevelSize: 1, bevelThickness: 1 });
       assert.equal(p.kind, "mesh");
     });
+    test("穴の無い四角い板の丸い面取り（分割の点が全て角の範囲にある）→ 途中の高さの点を照合して近似", () => {
+      const rect = new THREE.Shape();
+      rect.moveTo(0, 0); rect.lineTo(40, 0); rect.lineTo(40, 20); rect.lineTo(0, 20); rect.lineTo(0, 0);
+      for (const bevelSegments of [2, 4, 8]) {
+        const [p] = recognize(new THREE.ExtrudeGeometry(rect, { depth: 5, bevelEnabled: true, bevelSize: 1, bevelThickness: 1, bevelSegments }));
+        assert.equal(p.kind, "mesh", `分割 ${bevelSegments}: 丸い面取りを C1 と誤認しない`);
+      }
+      const [straight] = recognize(new THREE.ExtrudeGeometry(rect, { depth: 5, bevelEnabled: true, bevelSize: 1, bevelThickness: 1, bevelSegments: 1 }));
+      assert.equal(straight.kind, "prism", "まっすぐな面取りは C1");
+    });
   });
 });
 
@@ -245,5 +255,39 @@ describe("タイヤ（three.js r128）", () => {
     assert.equal(hex.length, 584);
     assert.equal(new Set(hex.map((p) => [p.width, p.height, p.length].map((v) => v.toFixed(3)).join())).size, 1);
     assert.equal(parts.filter((p) => p.kind === "revolve").length, 2);
+  });
+});
+
+describe("安全網（認識した寸法で作る形が元の形の全ての頂点を通るか）", () => {
+  const recognize = (geometry) => recognizeMesh({ positions: geometry.attributes.position.array, index: geometry.index?.array ?? null, matrix: new THREE.Matrix4().elements });
+  test("正しく認識した部品は、元の形との差（許容差以内）を記録して通す", () => {
+    const [p] = recognize(new THREE.CylinderGeometry(15, 15, 40, 48));
+    assert.equal(p.kind, "revolve");
+    assert.ok(p.deviation <= 4 * p.tol, `差 ${p.deviation}`);
+    assert.equal(p.feature.kind, "revolve");
+  });
+  test("寸法が狂った部品（認識の誤りを模して、断面の半径を 0.1 mm 変える）→ 近似に落とし、差を理由に示す", () => {
+    const [p] = recognize(new THREE.BoxGeometry(24, 12, 100));
+    const wrong = { ...p, segments: { ...p.segments, outer: p.segments.outer.map((s) => ({ ...s, a: s.a.map((v) => v * 1.01), b: s.b.map((v) => v * 1.01) })) } };
+    const checked = verify(wrong);
+    assert.equal(checked.kind, "mesh");
+    assert.match(checked.reason, /元の形と合わない（最大 0\.1\d\d mm）/);
+  });
+  test("穴を 0.1 mm 小さく認識したら（元の穴の縁は作る形の端面の上に乗る）→ 端面の縁の点が輪郭から離れているので近似", () => {
+    const plate = new THREE.Shape();
+    plate.moveTo(0, 0); plate.lineTo(40, 0); plate.lineTo(40, 20); plate.lineTo(0, 20); plate.lineTo(0, 0);
+    plate.holes.push(new THREE.Path().absarc(20, 10, 5, 0, 2 * Math.PI, true));
+    const [p] = recognize(new THREE.ExtrudeGeometry(plate, { depth: 4, bevelEnabled: false, curveSegments: 48 }));
+    assert.equal(p.kind, "prism");
+    const wrong = { ...p, segments: { ...p.segments, holes: p.segments.holes.map((loop) => loop.map((s) => ({ ...s, radius: s.radius - 0.1 }))) } };
+    assert.equal(verify(wrong).kind, "mesh");
+  });
+  test("回転体を軸方向に 1% 長く認識したら（元の端面の点は作る形の軸・側面の上に乗る）→ 断面の角に元の頂点が無いので近似", () => {
+    const [p] = recognize(new THREE.CylinderGeometry(10, 10, 100, 48));
+    const stretch = (s) => ({ ...s, ...(s.a && { a: [s.a[0], s.a[1] * 1.01], b: [s.b[0], s.b[1] * 1.01] }) });
+    const wrong = { ...p, segments: p.segments.map(stretch) };
+    const checked = verify(wrong);
+    assert.equal(checked.kind, "mesh");
+    assert.match(checked.reason, /最大 0\.5\d\d mm/);
   });
 });
