@@ -62,7 +62,7 @@ STEP だけのときの指示、近似の部品の STEP）は、3 つの確か�
 
 ### Inventor 2026 で開けないという報告の調査
 
-「アプリの STEP が Inventor 2026 で開けない」という報告を受けて調べた（エラーの文はまだ分からない）。
+「アプリの STEP が Inventor 2026 で開けない」という報告を受けて調べた。**結論: 開けないことは無かった**（下の「実物で確かめた結果」。報告は勘違いだった）。
 
 | 調べたこと | 結果 |
 |---|---|
@@ -73,9 +73,16 @@ STEP だけのときの指示、近似の部品の STEP）は、3 つの確か�
 | 行の長さ | 字句の切れ目（区切りの後・複合実体の構成要素の間）で、1 行 80 文字以内に改行する（Inventor も 75〜98 文字。Inventor は文字列の途中でも改行するが、アプリはしない）。長い日本語の名前の文字列は 1 行に置く |
 | 残した違い | 形の精度（アプリ 0.00001 mm・Inventor 0.01 mm。アプリの形は精度が高いので、そのとおりに書く）。材質・色・作成日（アプリの変換データに無い。開くのに要らない） |
 
-原因がファイルか Inventor 側かは、実物の Inventor で確かめるまで分からない。1 つずつ条件を変えた確認用の STEP を
-[step-check/](step-check/README.md) に置いた（直す前・直した後・別の書き手の書いたもの）。今の書き方のもの（4〜8）と 9 は、
-`python tools/step_check_kit.py`（program フォルダで）で今の書き手から作り直せる。
+**実物で確かめた結果**（2026 年 10 月）: 「Inventor で作る」（部品 33 種類・69 か所）で、アプリが書いた近似の部品の STEP 5 つを
+Inventor 2026 が開き（API の `Documents.Open`）、体積・表面積が相対 2e-7 以内で一致した。作った STEP（組立）も Inventor 2026 で普通に開けた
+（利用者の報告）。今のアプリの STEP は Inventor 2026 で開ける。
+
+直す前の書き方の STEP（[step-check/](step-check/README.md) の 1〜3）も、今の書き方の STEP も、Inventor 2026 で開けた（利用者が確かめた）。
+はじめの報告は勘違いで、アプリの STEP にも Inventor にも問題は無かった。上の表の「そろえた」書き方は、開けるようにするための修正ではなかったことになる。
+どれも規格上正しく、Inventor の書き方に近いので残す（`tests/test_step.py` が samples/stp の Inventor の STEP と照合し続ける）。
+
+確認用の STEP（[step-check/](step-check/README.md)）は、STEP の書き方を変えたときに Inventor で開けるかを確かめるために残す。
+今の書き方のもの（4〜8）と 9 は、`python tools/step_check_kit.py`（program フォルダで）で今の書き手から作り直せる。
 
 検査の再現（開発用）: `git clone https://github.com/stepcode/stepcode` → `cmake .. -DSC_BUILD_SCHEMAS=ap214e3` →
 `make p21read_sdai_ap214e3` → `p21read_sdai_ap214e3 -s ファイル.stp`（「SECOND PASS complete: N instances valid」なら規格どおり）。
@@ -85,7 +92,7 @@ STEP だけのときの指示、近似の部品の STEP）は、3 つの確か�
 - この STEP を Inventor で開いたときの振る舞い: 取り込みの設定（「変換」か「参照」か）によって、.ipt が STEP を参照し続けるかが変わるはずだが、
   既定の設定と API（`Documents.Open`）での振る舞いは**分からない**。「Inventor で作る」は近似の部品の STEP を保存先の `step` フォルダに残すので、
   参照のままでも .ipt は開ける
-- Inventor が形の精度（0.00001 mm）をどう扱うか（Inventor 自身の STEP は 0.01 mm と書く）
+- （確かめた）Inventor は形の精度 0.00001 mm の STEP（三角形の部品）を開き、体積・表面積が相対 2e-7 以内で一致した（Inventor 自身の STEP は 0.01 mm と書く）
 
 ## 3. .ipt・.iam: Inventor なしでは作らない
 
