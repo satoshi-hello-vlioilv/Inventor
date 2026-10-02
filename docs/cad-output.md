@@ -62,7 +62,7 @@ STEP だけのときの指示、近似の部品の STEP）は、3 つの確か�
 
 ### Inventor 2026 で開けないという報告の調査
 
-「アプリの STEP が Inventor 2026 で開けない」という報告を受けて調べた（エラーの文はまだ分からない）。
+「アプリの STEP が Inventor 2026 で開けない」という報告を受けて調べた。**結論: 開けないことは無かった**（下の「実物で確かめた結果」。報告は勘違いだった）。
 
 | 調べたこと | 結果 |
 |---|---|
@@ -77,9 +77,12 @@ STEP だけのときの指示、近似の部品の STEP）は、3 つの確か�
 Inventor 2026 が開き（API の `Documents.Open`）、体積・表面積が相対 2e-7 以内で一致した。作った STEP（組立）も Inventor 2026 で普通に開けた
 （利用者の報告）。今のアプリの STEP は Inventor 2026 で開ける。
 
-はじめの報告（開けなかった）の原因が、直す前の書き方か Inventor 側かは分からないまま。1 つずつ条件を変えた確認用の STEP を
-[step-check/](step-check/README.md) に置いた（直す前・直した後・別の書き手の書いたもの）。直す前の書き方の `1_old_box.stp` が開けるかで分かる。今の書き方のもの（4〜8）と 9 は、
-`python tools/step_check_kit.py`（program フォルダで）で今の書き手から作り直せる。
+直す前の書き方の STEP（[step-check/](step-check/README.md) の 1〜3）も、今の書き方の STEP も、Inventor 2026 で開けた（利用者が確かめた）。
+はじめの報告は勘違いで、アプリの STEP にも Inventor にも問題は無かった。上の表の「そろえた」書き方は、開けるようにするための修正ではなかったことになる。
+どれも規格上正しく、Inventor の書き方に近いので残す（`tests/test_step.py` が samples/stp の Inventor の STEP と照合し続ける）。
+
+確認用の STEP（[step-check/](step-check/README.md)）は、STEP の書き方を変えたときに Inventor で開けるかを確かめるために残す。
+今の書き方のもの（4〜8）と 9 は、`python tools/step_check_kit.py`（program フォルダで）で今の書き手から作り直せる。
 
 検査の再現（開発用）: `git clone https://github.com/stepcode/stepcode` → `cmake .. -DSC_BUILD_SCHEMAS=ap214e3` →
 `make p21read_sdai_ap214e3` → `p21read_sdai_ap214e3 -s ファイル.stp`（「SECOND PASS complete: N instances valid」なら規格どおり）。
