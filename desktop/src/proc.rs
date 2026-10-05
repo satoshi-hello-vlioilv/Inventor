@@ -172,11 +172,15 @@ mod tests {
         argv.extend(python.args.iter().map(OsString::from));
         argv.extend(["-c".into(), code.into()]);
         let mut s = spawn(&argv, &dir, &[], Stdio::null(), Stdio::null(), Stdio::null()).unwrap();
+        // 数として読めるまで待つ（Python はファイルを作ってから書くので、その間に読むと空。Windows の CI で起きた）
         let end = Instant::now() + Duration::from_secs(20);
-        while !pidfile.is_file() && Instant::now() < end {
+        let grandchild: u32 = loop {
+            if let Some(pid) = std::fs::read_to_string(&pidfile).ok().and_then(|t| t.trim().parse().ok()) {
+                break pid;
+            }
+            assert!(Instant::now() < end, "孫の PID が 20 秒たっても書かれない");
             std::thread::sleep(Duration::from_millis(50));
-        }
-        let grandchild: u32 = std::fs::read_to_string(&pidfile).unwrap().trim().parse().unwrap();
+        };
         assert!(alive(grandchild), "孫が動いている");
         s.kill_tree();
         let _ = s.child.wait();

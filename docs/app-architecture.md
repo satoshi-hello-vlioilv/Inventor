@@ -105,7 +105,7 @@ Node のテストでそのまま確かめる。
 | 7 ✅ | ほかのアプリと同じ形（Start.vbs ＋ program、Flask）へ。ビルドと Node.js を不要に | 通しの評価（本物の起動の係とサーバー）とブラウザーでの確認（§11） |
 | 8 ✅ | 「Inventor で作る」をアプリの中に。変換データ（.json）もアプリで開いて 3D で確かめ、同じボタンで作る | 本物の別のプロセスで作る評価（Inventor は代替オブジェクト）とブラウザーでの確認（§11） |
 | 9 ✅ | 制約を減らす: 単位・インスタンス描画・開いた面（継ぎ目の刻みの違いを含む）・元の形との照らし合わせ。STEP を Inventor なしで書き、近似の部品も出力する | サンプル 11 件の取り込み・3 つの独立した STEP の確かめ（自作・OpenCascade・アプリの読み取り）・誤りを入れた感度の評価（§13） |
-| 10 🟡 | デスクトップ版（Tauri・Rust の窓 ＋ 作るときだけ Python）へ。Flask・起動の係・Start.vbs を外し、exe を CI が作って置く（WaveLog と同じ配り方） | Rust の評価・手元（WebKitGTK）の自己診断は通った。Windows の CI（本物の WebView2）の自己診断が通れば ✅（[desktop.md](desktop.md)） |
+| 10 ✅ | デスクトップ版（Tauri・Rust の窓 ＋ 作るときだけ Python）へ。Flask・起動の係・Start.vbs を外し、exe を CI が作って置く（WaveLog と同じ配り方） | Rust の評価と、Windows の CI（本物の WebView2）での自己診断 19 項目（exe へのドロップ・2 つめの起動・STEP を作る・HTML の取り込み）が通る（[desktop.md](desktop.md) §6） |
 
 ## 7. 段階 1 の実装と評価
 
