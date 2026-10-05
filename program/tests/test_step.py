@@ -50,7 +50,7 @@ def inventor_samples(version: str) -> list[Path]:
     return [p for p in sorted(SAMPLES_STP.glob("*.stp")) if f"'Autodesk Inventor {version}'" in p.read_bytes().decode("ascii", "replace")]
 
 
-I = {"origin": [0, 0, 0], "x": [1, 0, 0], "y": [0, 1, 0], "z": [0, 0, 1]}
+IDENTITY = {"origin": [0, 0, 0], "x": [1, 0, 0], "y": [0, 1, 0], "z": [0, 0, 1]}
 
 
 def line(a, b):
@@ -129,7 +129,7 @@ SHAPES = {
 def spec_of(parts: dict, instances=None):
     raw = []
     for i, (name, shape) in enumerate(parts.items(), start=1):
-        raw.append({"key": f"p{i:02d}", "name": name, **shape, "expect": {"volume": 0, "area": 0}, "instances": instances or [I]})
+        raw.append({"key": f"p{i:02d}", "name": name, **shape, "expect": {"volume": 0, "area": 0}, "instances": instances or [IDENTITY]})
     spec = parse_spec({"format": "inventor-builder", "version": 3, "units": "mm", "source": {"file": "test.html"}, "parts": raw})
     # 期待値は書き出しとは別の実装（断面の積分・三角形の和）で
     return replace(spec, parts=tuple(replace(p, expect_volume=part_properties(p)[0], expect_area=part_properties(p)[1]) for p in spec.parts))

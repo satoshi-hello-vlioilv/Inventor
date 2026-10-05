@@ -9,7 +9,7 @@ import json
 import math
 import re
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 FORMAT = "inventor-builder"
 VERSIONS = (1, 2, 3)  # 2: 押し出しの面取り（chamfers）、3: 近似の部品（kind: mesh）と STEP 用の三角形（mesh）
@@ -32,8 +32,9 @@ def safe_name(text: str) -> str:
 
 
 def source_stem(source: dict) -> str:
-    """変換データの元のファイルの名前（拡張子を除く）。保存先・STEP・組立の名前に使う（名前が無い・null でもよい）"""
-    return safe_name(Path(str(source.get("file") or "")).stem)
+    """変換データの元のファイルの名前（拡張子を除く）。保存先・STEP・組立の名前に使う（名前が無い・null でもよい）。
+    どの OS でも同じ名前にする（Windows の Path は「a:」をドライブと読み、「a:b.html」が「b」になる。取り込んだ PC と作る PC は違ってよい）"""
+    return safe_name(PurePosixPath(str(source.get("file") or "")).stem)
 
 
 @dataclass(frozen=True)

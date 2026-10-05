@@ -1,85 +1,104 @@
-"""配る形（Start.vbs と program フォルダ）の約束の評価。WaveLog・転写距離・ピッチ解析と同じ形であること。
+"""配る形（最上位の Inventor3DTool.exe と program フォルダ）と、窓（desktop/）・画面・作る係の約束の評価。
 
-    - リポジトリの最上位の入口は Start.vbs だけ（.py・.bat を置かない）。アプリの中身はすべて program の中
-    - Start.vbs・*.bat は Windows がそのまま読む形（CP932・CRLF）。git が改行を変えない（.gitattributes）
-    - 同じ値（アプリの印・ポート・作業場所の名前）を持つファイルどうしが食い違わない
+    - 最上位の入口は exe だけ（.vbs・.bat・.py を置かない）。アプリの中身はすべて program の中。exe は CI が作って置く
+    - 同じ値（exe の名前・アプリの名前・作業場所の名前・自前の仕組みの名前）を持つファイルどうしが食い違わない
+    - 画面の合言葉の差し込み口と、作る係の問い合わせの形（--check・--libraries）が、窓の読み方と合う
 """
 import json
 import re
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 import tests
-import process_manager
-import settings
 
 REPO = tests.ROOT.parent
+DESKTOP = REPO / "desktop"
+EXE = "Inventor3DTool.exe"
+APP_NAME = "Inventor 3Dツール"
+APP_ID = "Inventor3DTool"
 
 
-def windows_text(path) -> str:
-    raw = path.read_bytes()
-    text = raw.decode("cp932")  # CP932 で読めること
-    self_check = raw.replace(b"\r\n", b"")
-    assert b"\n" not in self_check and b"\r" not in self_check, f"{path.name}: 改行は CRLF だけ"
-    return text
+def rust_const(name: str) -> str:
+    """desktop/src の Rust の定数（pub const NAME: &str = "…";）"""
+    for path in (DESKTOP / "src").glob("*.rs"):
+        m = re.search(rf'const {name}: &str = "([^"]*)";', path.read_text(encoding="utf-8"))
+        if m:
+            return m.group(1)
+    raise AssertionError(f"{name} が desktop/src にありません")
 
 
 class Layout(unittest.TestCase):
-    def test_top_level_has_one_entry(self):
+    def test_top_level_has_only_the_exe_as_an_entry(self):
         top = {p.name for p in REPO.iterdir() if p.is_file()}
-        self.assertIn("Start.vbs", top)
-        self.assertEqual([n for n in top if n.endswith((".py", ".bat", ".cmd"))], [], "最上位に .py・.bat を置かない")
-        self.assertEqual([n for n in top if n.endswith(".vbs")], ["Start.vbs"], "入口は 1 つ")
+        self.assertEqual([n for n in top if n.endswith((".py", ".bat", ".cmd", ".vbs"))], [], "最上位に .py・.bat・.vbs を置かない")
+        self.assertEqual([n for n in top if n.endswith(".exe")], [EXE] if EXE in top else [], "入口は 1 つ（CI が置く）")
+        self.assertFalse((tests.ROOT / "requirements.txt").exists(), "アプリを動かすのに Python のライブラリは要らない（作る係の分は ipt_build の中）")
 
-    def test_windows_files_keep_their_bytes(self):
-        attributes = (REPO / ".gitattributes").read_text(encoding="utf-8")
-        for pattern in ("*.bat -text", "*.vbs -text"):
-            self.assertIn(pattern, attributes)
-        for path in [REPO / "Start.vbs", *tests.ROOT.glob("*.bat")]:
-            windows_text(path)
+    def test_names_agree_across_the_window_the_page_and_the_workflow(self):
+        cargo = (DESKTOP / "Cargo.toml").read_text(encoding="utf-8")
+        conf = json.loads((DESKTOP / "tauri.conf.json").read_text(encoding="utf-8"))
+        self.assertIn('name = "Inventor3DTool"', cargo, "exe の名前")
+        self.assertEqual(conf["mainBinaryName"] + ".exe", EXE)
+        self.assertEqual((conf["productName"], rust_const("APP_NAME")), (APP_NAME, APP_NAME), "窓の題・保存先のフォルダ名")
+        self.assertEqual(rust_const("APP_ID"), APP_ID, "作業場所（%LOCALAPPDATA%）のフォルダ名")
+        version = re.search(r'^version = "([^"]+)"', cargo, re.M).group(1)
+        self.assertEqual(conf["version"], version, "版は Cargo.toml と tauri.conf.json で同じ")
+        product = (tests.ROOT / "app" / "static" / "js" / "ui" / "product.js").read_text(encoding="utf-8")
+        self.assertIn(f'export const LAUNCHER = "{EXE}";', product, "画面の案内の exe の名前")
+        page = (tests.ROOT / "app" / "index.html").read_text(encoding="utf-8")
+        self.assertIn(f"<title>{APP_NAME}</title>", page)
+        workflow = (REPO / ".github" / "workflows" / "desktop.yml").read_text(encoding="utf-8")
+        self.assertIn(f"built/{EXE}", workflow, "CI が置く exe の名前")
+        self.assertIn(f"{EXE} program/{APP_ID}.build.json", workflow.replace("'", ""), "CI は exe を最上位、作った元の控えを program に置く")
 
-    def test_start_vbs_hands_everything_to_start_app(self):
-        vbs = windows_text(REPO / "Start.vbs")
-        self.assertIn('app  = base & "\\program"', vbs)
-        self.assertIn('"\\start_app.py"', vbs)
-        self.assertIn("WScript.Arguments(i)", vbs, "ドロップされたファイルを渡す")
-        self.assertIn("sh.Run cmd, 0, False", vbs, "窓を出さない")
-        self.assertIn(f"\\{settings.APP_ID}\\logs", vbs)
-        code = "\n".join(line.split("'", 1)[0] for line in vbs.splitlines())  # 注記を除いた命令
-        self.assertNotIn(".Exec", code, "Exec は黒い窓を開く")
+    def test_page_has_one_token_slot_and_plain_paths(self):
+        page = (tests.ROOT / "app" / "index.html").read_text(encoding="utf-8")
+        self.assertEqual(page.count("{{ token }}"), 1, "合言葉の差し込み口（desktop/src/router.rs の index）")
+        self.assertIn('<meta name="app-token" content="{{ token }}">', page)
+        self.assertNotIn("{%", page, "テンプレートの書き方は使わない（窓が置き換えるのは合言葉だけ）")
+        self.assertEqual(re.findall(r"\{\{[^}]*\}\}", page), ["{{ token }}"])
+        for src in re.findall(r'(?:src|href)="(/static/[^"]+)"', page):
+            self.assertTrue((tests.ROOT / "app" / src.lstrip("/")).is_file(), src)
+        self.assertIn('"/static/vendor/three/three.module.min.js"', page, "ライブラリは同梱を読む")
 
-    def test_batch_files_call_the_python_entry_points(self):
-        start = windows_text(tests.ROOT / "start.bat")
-        self.assertIn('"%APPDIR%start_app.py" %*', start)
-        self.assertIn('set "INVENTOR_TOOL_DIAG=1"', start)
-        self.assertIn('"%APPDIR%process_manager.py"', windows_text(tests.ROOT / "stop.bat"))
-        for name in ("start.bat", "stop.bat"):
-            text = windows_text(tests.ROOT / name)
-            self.assertIn('cd /d "%TEMP%"', text, "program フォルダを「使用中」にしない")
-            self.assertIn(f"\\{settings.APP_ID}\\logs", start)
+    def test_the_window_scheme_is_used_by_the_selftest_and_the_page(self):
+        scheme = rust_const("SCHEME")
+        self.assertEqual(scheme, "inventor")
+        main = (DESKTOP / "src" / "main.rs").read_text(encoding="utf-8")
+        self.assertIn(f'"http://{scheme}.localhost"', main, "Windows（WebView2）の置き場")
+        launch = re.search(r'LAUNCH_EVENT_JS: &str = "([^"]+)"', main).group(1)
+        event = re.search(r"new Event\('([^']+)'\)", launch).group(1)
+        desktop_js = (tests.ROOT / "app" / "static" / "js" / "desktop.js").read_text(encoding="utf-8")
+        self.assertIn(f'addEventListener("{event}"', desktop_js, "2 つめの起動の知らせを画面が聞く")
 
-    def test_loading_page_agrees_with_the_settings(self):
-        page = (tests.ROOT / "loading.html").read_text(encoding="utf-8")
-        default = json.loads((tests.ROOT / "config" / "appsettings.json").read_text(encoding="utf-8"))["server"]["port"]
-        self.assertEqual(default, settings.SERVER_DEFAULTS["port"], "配った設定と既定のポートが同じ")
-        self.assertIn(f'|| "{default}"', page, "#port= が無いときの既定")
-        self.assertIn(f'href="http://127.0.0.1:{default}/"', page)
-        self.assertIn(f'var APP_ID = "{settings.APP_ID}"', page)
-        self.assertIn(f"%LOCALAPPDATA%\\{settings.APP_ID}\\logs", page)
-
-    def test_stop_recognizes_this_app_only(self):
-        """止める係は、同じフォルダの settings.py にこのアプリの印がある server.py だけを止める。"""
-        self.assertTrue(process_manager.is_ours(f'"pythonw.exe" -X utf8 "{tests.ROOT / "server.py"}"'))
-        other = Path(tempfile.mkdtemp())
-        (other / "server.py").write_text("", encoding="utf-8")
-        (other / "settings.py").write_text('APP_ID = "OtherApp"\n', encoding="utf-8")
-        self.assertFalse(process_manager.is_ours(f'"pythonw.exe" "{other / "server.py"}"'))
+    def test_builder_answers_in_the_shape_the_window_reads(self):
+        """窓（desktop/src/jobs.rs）は作る係の 1 行の JSON（--check・--libraries）を読む。形がずれると作り始められない。"""
+        spec = tests.ROOT / "tests" / "fixtures" / "builder" / "finger.inventor.json"
+        env_cmd = [sys.executable, "-X", "utf8", "-m", "ipt_build"]
+        run = lambda *args: subprocess.run([*env_cmd, *args], cwd=tests.ROOT, capture_output=True, text=True, encoding="utf-8", timeout=120)  # noqa: E731
+        checked = run(str(spec), "--check", "--step-only")
+        answer = json.loads(checked.stdout.strip().splitlines()[-1])
+        self.assertEqual((checked.returncode, answer["event"], answer["ok"], answer["name"]), (0, "check", True, "LS4_parts_viewer"))
+        self.assertEqual(set(answer["status"]), {"out_dir", "parts", "assembly", "step", "inventor", "inventor_error", "good", "total"})
+        self.assertFalse(answer["status"]["inventor"], "STEP だけ")
+        with tempfile.TemporaryDirectory() as tmp:
+            bad = Path(tmp) / "bad.json"
+            bad.write_text('{"format": "other"}', encoding="utf-8")
+            refused = run(str(bad), "--check")
+        answer = json.loads(refused.stdout.strip().splitlines()[-1])
+        self.assertEqual((refused.returncode, answer["event"], answer["ok"]), (2, "check", False))
+        self.assertTrue(answer["message"])
+        libraries = json.loads(run("--libraries").stdout.strip().splitlines()[-1])
+        self.assertEqual(libraries["event"], "libraries")
+        self.assertIsInstance(libraries["ready"], bool)
 
     def test_requirements_are_named(self):
-        for path in (tests.ROOT / "requirements.txt", tests.ROOT / "ipt_build" / "requirements.txt"):
-            names = [re.match(r"[A-Za-z0-9_.-]+", l).group(0) for l in path.read_text(encoding="utf-8").splitlines() if l and not l.startswith("#")]
-            self.assertTrue(names, path)
+        path = tests.ROOT / "ipt_build" / "requirements.txt"
+        names = [re.match(r"[A-Za-z0-9_.-]+", line).group(0) for line in path.read_text(encoding="utf-8").splitlines() if line and not line.startswith("#")]
+        self.assertEqual(names, ["pywin32"], "Inventor の操作に使うライブラリ（窓が pip で入れる）")
 
 
 if __name__ == "__main__":

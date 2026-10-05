@@ -3,9 +3,11 @@
 Autodesk Inventor の部品（.ipt）・組立（.iam）、STEP（.stp）と、three.js で作った 3D モデル（.html）をブラウザで表示・解析し、
 three.js のモデルを STEP（.stp。Inventor 不要）と Inventor の部品（.ipt）・組立（.iam）に変換する 1 つのアプリ。
 
-画面（HTML・JavaScript・CSS）と Python（Flask）のサーバーで動く。WaveLog・転写距離・ピッチ解析と同じ形
-（最上位の `Start.vbs` ＋ `program` フォルダ、Python と Flask だけで動く）にそろえてある。
+Windows のデスクトップアプリ（`Inventor3DTool.exe`。Tauri・Rust の窓が画面（HTML・JavaScript・CSS）を出す）。WaveLog と同じ作りと配り方
+（最上位の exe ＋ `program` フォルダ。exe は GitHub Actions が作り、本物の WebView2 で自己診断して main へ置く）。
+見るだけなら準備は要らない。CAD ファイルを作るときだけ、この PC の Python を使う。
 
+- デスクトップ版の構成・判断・評価: [docs/desktop.md](docs/desktop.md)
 - アプリの構成・設計の判断・段階計画: [docs/app-architecture.md](docs/app-architecture.md)
 - 形式の調査結果: [docs/ipt-format.md](docs/ipt-format.md)（部品）・[docs/iam-format.md](docs/iam-format.md)（組立・STEP との照合）
 - Inventor で部品を作る手順（「Inventor で作る」・変換データ・コマンド）: [docs/inventor-builder.md](docs/inventor-builder.md)
@@ -13,30 +15,31 @@ three.js のモデルを STEP（.stp。Inventor 不要）と Inventor の部品�
 
 ## はじめに（使い方）
 
-1. **準備（初回のみ）**: Python 3.10 以上と Flask を入れる（WaveLog などが動く PC なら、そのまま使える）。
-   Flask が入っていなければ、起動したときに「入れますか？」と尋ねる
-2. **起動**: 最上位の **`Start.vbs`** をダブルクリックする。すぐに起動画面が開き、準備ができるとそのままアプリに切り替わる
-   （Microsoft Edge があればアドレスバーの無いアプリの窓、無ければ既定のブラウザー）
-3. **終了**: 画面（窓・タブ）を閉じる。十数秒でサーバーも止まる
+1. **準備（初回のみ）**: GitHub の main を ZIP で落として展開する（`Inventor3DTool.exe` と `program` フォルダが並ぶ）。
+   見るだけなら、ほかに準備は要らない。**STEP を作る・Inventor で作る**ときは Python 3.10 以上が要る
+   （https://www.python.org/ から入れ、「Add python.exe to PATH」に印を付ける。WaveLog などが動く PC なら、そのまま使える）
+2. **起動**: 最上位の **`Inventor3DTool.exe`** をダブルクリックする（窓がすぐ開く）
+3. **終了**: 窓の × で閉じる。CAD ファイルを作っている途中なら「中止して閉じる／作り続ける」を聞く
 
 | 操作 | 動き |
 |---|---|
-| `Start.vbs` をダブルクリック | アプリを開く（起動画面 → アプリ。サーバーが動いていれば、それを使う） |
-| .ipt・.iam・.stp・.html・.inventor.json を `Start.vbs` にドロップ | そのファイルをアプリで開く（複数なら 1 つの窓にまとめ、起動画面の一覧から切り替える）。.iam は同じフォルダの .ipt も部品として使い、組み立てて表示する |
+| `Inventor3DTool.exe` をダブルクリック | アプリを開く（2 つめは開かず、開いている窓を前に出す） |
+| .ipt・.iam・.stp・.html・.inventor.json を `Inventor3DTool.exe` にドロップ（「プログラムから開く」でもよい） | そのファイルをアプリで開く（複数なら 1 つの窓にまとめ、起動画面の一覧から切り替える）。開いている間にドロップしても、同じ窓で開く。.iam は同じフォルダの .ipt も部品として使い、組み立てて表示する |
 | パネルの **STEP を作る** | 取り込んだ形（または開いた変換データ）から、STEP（.stp）を作る。Inventor もライブラリも使わない（下の「CAD ファイルを作る」） |
 | パネルの **Inventor で作る** | STEP に加えて、Inventor で部品（.ipt）と組立（.iam）を作り、部品ごとに体積・表面積を照合する |
-| `program\stop.bat` | 明示的に止める（program フォルダを入れ替える前など） |
-| `program\start.bat` | 診断起動: 起動しないときに、Python・Flask・ポートの確認と起動の段階をその窓に出す（ファイルをドロップしてもよい） |
 
 - 開いたあとも、画面へのドラッグ＆ドロップ・`Ctrl`+`O`・「サンプル・使い方」で開き直せる
-- 記録（うまく動かないときの手がかり）は `%LOCALAPPDATA%\Inventor3DTool\logs`（launcher.log・app.log・server_console.log）
-- ポートは 57840（`program\config\appsettings.json` で変えられる）。この PC の中（127.0.0.1）からだけ受け付ける
+- 記録（うまく動かないときの手がかり）は `%LOCALAPPDATA%\Inventor3DTool\logs`（`desktop.log`: 起動・終わり方・見つけた Python、
+  `builder_console.log`: 作る係のエラー出力、`install.log`: ライブラリを入れたときの出力）
+- ポートは使わない（窓の中で画面とやりとりする）。Python が見つからなければ、作るボタンの下に理由と入れ方が出る
+- 画面は Windows の WebView2（Windows 11 には入っている）で描く
 
 ### 配り方・更新
 
-`Start.vbs` と `program` フォルダを並べて置く（フォルダの名前は自由）。更新は `program\stop.bat` で止めてから `program` を入れ替える
-（git で取り込む場合も同じ）。止め忘れても、次の起動で「動いているサーバーが今のファイルと違う」ことに気づき、止めて起動し直す。
-作業場所（記録・受け渡し・.pyc）は `%LOCALAPPDATA%\Inventor3DTool` にあり、`program` フォルダは動いている間も「使用中」にならない。
+`Inventor3DTool.exe` と `program` フォルダを並べて置く（フォルダの名前は自由。exe だけを別の場所へ移さない。ショートカットは作ってよい）。
+更新は、窓を閉じてから新しい ZIP の中身で exe と `program` を置き換える。exe は main へ GitHub Actions が置く
+（Windows で作り、本物の WebView2 で自己診断を通った物だけ。作った元のコミットは `program\Inventor3DTool.build.json`）。
+作業場所（記録・.pyc）は `%LOCALAPPDATA%\Inventor3DTool` にあり、`program` フォルダは動いている間も「使用中」にならない。
 
 ## CAD ファイルを作る
 
@@ -57,7 +60,7 @@ three.js の HTML を開くと、元のページで表示中の形を取り込�
 保存先は `ドキュメント\Inventor 3Dツール\<HTML の名前>_cad`（同じ名前があれば「 (2)」…。前の結果を上書きしない）。
 STEP（.stp）・部品（.ipt）・組立（.iam）・照合の結果（`build-report.json`）・作ったときの変換データの写し（`.inventor.json`）が入る
 （近似の部品を Inventor で開くための部品ごとの STEP は `step` フォルダ）。保存先の親フォルダは `program\config\appsettings.json` の
-`build.output_dir` で変えられる。作っている間は、別のファイルを開いても、画面を閉じても、作り終えるまで続く。
+`build.output_dir` で変えられる。作っている間に別のファイルを開いても続く（窓を閉じるときは、中止して閉じるかを聞く）。
 Inventor に接続できなかったときも、STEP は残る（理由を表示する）。
 
 ### 取り込めるもの・作れるもの
@@ -81,7 +84,7 @@ Inventor に接続できなかったときも、STEP は残る（理由を表示
 
 | 使う場面 | 手順 |
 |---|---|
-| **Inventor の無い PC で取り込み、Inventor のある PC で作る** | 取り込んだ PC で「CAD ファイルを作る」→「あとで別の PC で作るとき（変換データを保存）」→ **変換データを保存**。そのファイルを Inventor のある PC に持っていき、アプリで開く（画面か `Start.vbs` にドロップ）→ **Inventor で作る**（STEP だけなら、取り込んだ PC で **STEP を作る** でよい） |
+| **Inventor の無い PC で取り込み、Inventor のある PC で作る** | 取り込んだ PC で「CAD ファイルを作る」→「あとで別の PC で作るとき（変換データを保存）」→ **変換データを保存**。そのファイルを Inventor のある PC に持っていき、アプリで開く（画面か `Inventor3DTool.exe` にドロップ）→ **Inventor で作る**（STEP だけなら、取り込んだ PC で **STEP を作る** でよい） |
 | 作ったものの記録・作り直し | 保存先に置かれる写し（`<名前>.inventor.json`）を開けば、同じ形をもう一度作れる |
 | 中身を確かめる | アプリで開くと、作る形を 3D で表示し、部品ごとの種類・寸法・数を並べる（面取りは形には描かず、説明に書く） |
 | コマンドで作る・Inventor を使わずに確かめる | `program` フォルダで `python -m ipt_build 名前.inventor.json`（`--step-only` で STEP だけ、`--dry-run` で何も作らずに期待値を確かめる）。[docs/inventor-builder.md](docs/inventor-builder.md) §2-3 |
@@ -90,15 +93,11 @@ Inventor に接続できなかったときも、STEP は残る（理由を表示
 
 ## リポジトリの見取り図
 
-リポジトリには**ソースだけ**を置く（ビルドも生成物も無い。ブラウザは `program/app/static` のファイルをそのまま読む）。
+リポジトリには**ソース**と、CI が作って置く exe（`Inventor3DTool.exe`）だけを置く。画面は `program/app` のファイルをそのまま読む（画面のビルドは無い）。
 
 ```mermaid
 flowchart LR
-  VBS["Start.vbs<br/>（入口）"] --> SA["program/start_app.py<br/>launch_guard.py（起動の係）"]
-  SA -- "起動画面" --> LOAD["program/loading.html"]
-  SA -- "起動・確かめ" --> SRV["program/server.py<br/>app/（Flask）"]
-  LOAD -. "準備ができたら切り替え" .-> UI
-  SRV -- "画面・サンプル・<br/>ドロップされたファイル" --> UI
+  EXE["Inventor3DTool.exe<br/>（desktop/。Rust・Tauri の窓）"] -- "画面・サンプル・<br/>ドロップされたファイル" --> UI
   subgraph js["program/app/static/js（ブラウザで動く）"]
     F["formats/ 読み取り<br/>.ipt・.iam・STEP"] --> M["model/ 形式によらない形<br/>面・稜線・寸法の要約"]
     H["html/ three.js の HTML から<br/>形状を取り出す"] --> C["convert/ 形状の認識と<br/>変換データ"]
@@ -106,8 +105,8 @@ flowchart LR
     C --> V
     V --> UI["ui/・main.js 画面"]
   end
-  C -- "変換データ（.inventor.json）<br/>「STEP を作る」「Inventor で作る」" --> SRV
-  SRV -- "python -m ipt_build --events" --> B["program/ipt_build<br/>（Python）"]
+  C -- "変換データ（.inventor.json）<br/>「STEP を作る」「Inventor で作る」" --> EXE
+  EXE -- "python -m ipt_build --events<br/>（作るときだけ）" --> B["program/ipt_build<br/>（この PC の Python）"]
   B -- "直接書く（Inventor 不要）" --> STP[".stp"]
   B -- "Inventor API" --> OUT[".ipt・.iam"]
   STP -. "アプリで開いて確かめる" .-> F
@@ -116,17 +115,16 @@ flowchart LR
 
 | 場所 | 中身 |
 |---|---|
-| `Start.vbs` | **入口**（これだけを使う。Python を探し、`program\start_app.py` を窓なしで起動する） |
-| `program/start_app.py`・`launch_guard.py` | 起動の係: ドロップされたファイルの記録・起動画面・サーバーの起動と確かめ |
-| `program/server.py`・`app/` | サーバー（Flask）: 画面（`templates/`・`static/`）を配り、サンプル・受け取ったファイルを渡し、「CAD ファイルを作る」の仕事を受け持ち（`builds.py`）、画面が閉じたら止まる |
-| `program/settings.py`・`config/appsettings.json` | アプリの印・ポート・作業場所（答えは 1 か所） |
-| `program/local_app.py`・`process_manager.py`・`handoff.py`・`app_build.py` | 動いているサーバーへ尋ねる・止める、ファイルの受け渡し、プログラムの指紋 |
-| `program/loading.html`・`start.bat`・`stop.bat`・`requirements.txt` | 起動画面・診断起動・停止・必要なライブラリ（Flask） |
-| `program/ipt_build/` | CAD ファイルを作るビルダー（Python。サーバーが別のプロセスで動かす。コマンドでも使える）。STEP は標準ライブラリだけで書き（`p21.py`・`brep.py`・`step.py`）、.ipt・.iam は Inventor で作る（操作に使うライブラリは中の `requirements.txt`） |
+| `Inventor3DTool.exe` | **入口**（これだけを使う。main へは CI が置く。作った元は `program/Inventor3DTool.build.json`） |
+| `desktop/` | 窓（Rust・Tauri）: 画面とサンプルを配り、受け取ったファイルを渡し、「CAD ファイルを作る」の仕事を受け持つ（`src/jobs.rs`）。1 つだけ起動。`cargo build` で exe を作る（[docs/desktop.md](docs/desktop.md)） |
+| `program/app/` | 画面（`index.html`・`static/`）。窓が配る |
+| `program/config/appsettings.json` | 「CAD ファイルを作る」の保存先（`build.output_dir`。空ならドキュメント\Inventor 3Dツール） |
+| `program/ipt_build/` | CAD ファイルを作るビルダー（Python。窓が作るときだけ別のプロセスで動かす。コマンドでも使える）。STEP は標準ライブラリだけで書き（`p21.py`・`brep.py`・`step.py`）、.ipt・.iam は Inventor で作る（操作に使うライブラリは中の `requirements.txt`） |
 | `program/samples/` | サンプルの置き場（起動画面のサンプル一覧兼、評価の題材） |
-| `program/tests/` | 評価。Python（`test_*.py`: サーバー・起動の係・配る形・ビルダー）と JavaScript（`js/`） |
-| `program/tools/` | 開発用の道具（ファイルの中身の調査・テスト用データの作成・書き出した STEP の形状カーネルでの確かめ） |
-| `docs/`・`package.json` | 設計と調査の記録、JavaScript の評価の実行（開発用） |
+| `program/tests/` | 評価。Python（`test_*.py`: 配る形・ビルダー・STEP）と JavaScript（`js/`）。窓の評価は `desktop/` の `cargo test` |
+| `program/tools/` | 開発用の道具（ファイルの中身の調査・テスト用データの作成・書き出した STEP の形状カーネルでの確かめ・アイコンの絵） |
+| `.github/workflows/desktop.yml` | Windows で exe を作り、自己診断し、main へ置く |
+| `docs/`・`package.json`・`CLAUDE.md` | 設計と調査の記録、JavaScript の評価の実行（開発用）、作業の決まり |
 
 ### 画面のソース（`program/app/static/js/`）
 
@@ -138,11 +136,11 @@ flowchart LR
 | `html/` | three.js の HTML を隔離した枠で動かし、表示中の形状を取り出す（フック・受け渡し・表示用データ） | ✓ |
 | `convert/` | 実寸の単位（`units.js`）。三角形メッシュを立体に閉じ（`recognize/shells.js`）、回転体・押し出し（面取りを含む）を認識して元の形と照らし合わせ（`recognize/`）、変換データを作る（`inventor.js`）。変換データを開いたときの 3D と説明（`preview.js`） | — |
 | `viewer/` | 三角形分割・3D 表示・面と部品の説明 | ✓ |
-| `ui/` | 画面の部品: 仕様パネル・起動画面・ファイルの受け付け・変換の節（`convert.js`）・シーンの単位（`units.js`）・「CAD ファイルを作る」（`build.js`）・起動ファイルの名前 | ✓ |
-| `server.js` | ローカルサーバーとのやりとり: サンプル・起動ファイルから届いたファイル・「CAD ファイルを作る」・「画面が開いている」の知らせ | ✓ |
+| `ui/` | 画面の部品: 仕様パネル・起動画面・ファイルの受け付け・変換の節（`convert.js`）・シーンの単位（`units.js`）・「CAD ファイルを作る」（`build.js`）・exe の名前 | ✓ |
+| `desktop.js` | 窓とのやりとり: サンプル・exe へドロップされたファイル（開いたままのドロップを含む）・「CAD ファイルを作る」 | ✓ |
 | `main.js` | 入口。ファイルを読み、表示し、3D ⇄ パネルを連動させる | ✓ |
 
-three.js・fzstd（Zstandard の展開）・Delaunator と Constrainautor（面の表示用の制約付き Delaunay 分割）は `static/vendor/` に同梱し、`templates/index.html` の importmap で読む（インターネットは要らない）。
+three.js・fzstd（Zstandard の展開）・Delaunator と Constrainautor（面の表示用の制約付き Delaunay 分割）は `static/vendor/` に同梱し、`app/index.html` の importmap で読む（インターネットは要らない）。
 
 ## できること
 
@@ -171,11 +169,21 @@ three.js・fzstd（Zstandard の展開）・Delaunator と Constrainautor（面�
 
 ## 開発
 
-Python の評価（program フォルダで。サーバー・起動の係・配る形・ビルダー。本物のサーバーを起動する通しの評価を含む）:
+push の前に通す確かめ（型・構文、lint、テスト）は [CLAUDE.md](CLAUDE.md) にまとめてある。
+
+窓の評価と exe（desktop フォルダで。Rust と、Python が要る。Linux では WebKitGTK も。[docs/desktop.md](docs/desktop.md) §7）:
+
+```
+cd desktop
+cargo test                 # 作る仕事（本物の別のプロセス＋Inventor の代替オブジェクト）・画面を配る・受け取ったファイル・孫まで止める
+cargo build --release      # target/release/Inventor3DTool.exe（main へ置くのは CI）
+```
+
+Python の評価（program フォルダで。配る形・ビルダー・STEP）:
 
 ```
 cd program
-python -m unittest discover -s tests -t .      # 「CAD ファイルを作る」は本物の別のプロセス＋Inventor の代替オブジェクトで確かめる
+python -m unittest discover -s tests -t .
 python -m ipt_build 名前.inventor.json --step-only  # STEP だけを作る（どの OS でも可）
 python -m ipt_build 名前.inventor.json --dry-run    # 何も作らずに変換データを確かめる（どの OS でも可）
 ```
@@ -192,4 +200,4 @@ npm run fixtures:html    # samples/html から形状を取り出し、テスト�
 npm run fixtures:builder # ビルダーのテスト用の変換データ（program/tests/fixtures/builder）を作り直す
 ```
 
-画面を手元で確かめるときは `Start.vbs`（Windows 以外では `python program/start_app.py`）で起動し、表示された URL を開く。
+画面を手元で確かめるときは `desktop` フォルダで `cargo run`（画面のファイルは `program/app` から読むので、直したら窓を開き直すだけで効く）。

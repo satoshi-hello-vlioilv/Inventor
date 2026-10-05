@@ -1,0 +1,40 @@
+[package]
+name = "inventor3d-desktop"
+version = "2.0.0"
+description = "Inventor 3Dツール デスクトップ版の窓"
+edition = "2021"
+rust-version = "1.90"
+publish = false
+
+[[bin]]
+name = "Inventor3DTool"
+path = "src/main.rs"
+
+[features]
+# 本番の形（画面の元を exe に埋め込む）。外すと Tauri の開発の形になる
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[build-dependencies]
+tauri-build = { version = "2.7", features = [] }
+
+[dependencies]
+# 版は WaveLog（同じ作りのデスクトップ版）と同じにする（Cargo.lock も同じものから始めた）
+tauri = { version = "2.12", features = [] }
+tauri-plugin-single-instance = "2.5"
+tauri-plugin-opener = "2.7"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+# 変換データの写しを、受け取ったままの順・値で書く（数の読み書きを往復させても変えない）
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+getrandom = "0.3"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_System_Registry", "Win32_System_Com", "Win32_UI_Shell"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

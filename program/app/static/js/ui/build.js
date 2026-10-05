@@ -1,11 +1,12 @@
-// 「CAD ファイルを作る」: 押すとサーバーが作り（program/app/builds.py）、ここに進み具合と結果を出す。
+// 「CAD ファイルを作る」: 押すと窓（Inventor3DTool.exe）が Python の作る係を動かし（desktop/src/jobs.rs）、ここに進み具合と結果を出す。
 //   Inventor で作る … STEP（.stp）と、Inventor で部品（.ipt）・組立（.iam）。部品ごとに体積・表面積を照合する
 //   STEP を作る     … STEP（.stp）だけ。Inventor もライブラリも使わない
 // この PC に Inventor が無ければ、STEP を主（塗りのボタン）にして勧める（Inventor のボタンも押せる）。
-// 1 度に 1 つ。作っている間にほかのファイルを開いてもよい（仕事はサーバーで続き、作っている間はどの変換の節にも状態を出す）。
+// Python が見つからなければ、押す前にその理由と入れ方を出す（作るのにだけ Python を使う。見るだけなら要らない）。
+// 1 度に 1 つ。作っている間にほかのファイルを開いてもよい（仕事は窓で続き、作っている間はどの変換の節にも状態を出す）。
 // 終わった結果は、作り始めたときの形（変換データ）を表示している間だけ出す（ほかの形の結果と取り違えない）。
 
-import { buildStatus, cancelBuild, openBuildFolder, startBuild } from "../server.js";
+import { buildStatus, cancelBuild, openBuildFolder, startBuild } from "../desktop.js";
 
 const $ = (id) => document.getElementById(id);
 const RUNNING = new Set(["installing", "step", "connecting", "building", "assembly"]);
@@ -14,9 +15,10 @@ const VERDICT = { ok: ["ok", "一致"], mismatch: ["warn", "不一致"], failed:
 
 let spec = null; // 表示中の形の変換データ（作れる部品が無ければ null）
 let owner = null; // 作り始めたときの変換データ
-let job = { state: "idle" }; // サーバーの仕事の状態（BuildRun.status() に state・message などを足したもの）
+let job = { state: "idle" }; // 窓の仕事の状態（BuildRun.status() に state・message などを足したもの）
 let root = ""; // 保存先の親フォルダ
 let inventorHere = true; // この PC に Inventor があるか（分かるまでは、ある前提）
+let pythonMissing = null; // Python が見つからない理由（見つかれば null）
 let asking = false; // ライブラリを入れるかを尋ねている
 
 let timer = 0;
@@ -119,8 +121,9 @@ function renderActions(running) {
   }
   inventor.className = inventorHere ? "primary" : "secondary";
   step.className = inventorHere ? "secondary" : "primary";
-  $("build-hint").hidden = inventorHere || !spec;
-  $("build-hint").textContent = "この PC には Inventor が見つかりません。STEP は Inventor なしで作れます（Inventor で開けば .ipt・.iam になります）";
+  const hint = pythonMissing ?? (inventorHere ? "" : "この PC には Inventor が見つかりません。STEP は Inventor なしで作れます（Inventor で開けば .ipt・.iam になります）");
+  $("build-hint").hidden = !hint || !spec;
+  $("build-hint").textContent = hint;
 }
 
 function render() {
@@ -145,16 +148,17 @@ function render() {
   $("build-open").hidden = running || !job.out_dir;
 }
 
-/** サーバーの状態を読み直し、作っている間は続けて読む */
+/** 窓の状態を読み直し、作っている間は続けて読む */
 async function refresh() {
   clearTimeout(timer);
   try {
     const answer = await buildStatus();
     root = answer.root ?? root;
     inventorHere = answer.inventor_installed ?? inventorHere;
+    pythonMissing = answer.python_missing ?? null;
     job = answer;
   } catch (error) {
-    console.warn(error); // サーバーが止まったときは、生存の知らせ（server.js keepAlive）が知らせる
+    console.warn(error); // 窓に届かない（作り始め・中止の答えが理由を出す）
     return;
   }
   render();
@@ -167,6 +171,7 @@ async function start(target, install = false) {
   try {
     const answer = await startBuild(spec, { install, target });
     root = answer.root ?? root;
+    pythonMissing = answer.python_missing ?? null;
     if (answer.needs_install) {
       asking = true;
     } else {
