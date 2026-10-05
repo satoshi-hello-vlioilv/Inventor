@@ -78,7 +78,7 @@ class Layout(unittest.TestCase):
 
     def test_requirements_are_named(self):
         for path in (tests.ROOT / "requirements.txt", tests.ROOT / "ipt_build" / "requirements.txt"):
-            names = [re.match(r"[A-Za-z0-9_.-]+", l).group(0) for l in path.read_text(encoding="utf-8").splitlines() if l and not l.startswith("#")]
+            names = [re.match(r"[A-Za-z0-9_.-]+", line).group(0) for line in path.read_text(encoding="utf-8").splitlines() if line and not line.startswith("#")]
             self.assertTrue(names, path)
 
 

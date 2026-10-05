@@ -5,9 +5,7 @@
     - 動いているサーバーが今のファイルと同じなら使い、違えば止めて起動し直す。起動の途中で終われば理由を知らせる
 """
 import shutil
-import tempfile
 import unittest
-from pathlib import Path
 from unittest import mock
 
 import tests  # noqa: F401
