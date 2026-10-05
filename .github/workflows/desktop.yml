@@ -1,0 +1,168 @@
+# デスクトップ版（desktop/・Tauri）を Windows で作り、本物の WebView2 で自己診断する（WaveLog と同じ配り方）。
+#
+# 1. 網: cargo test（作る仕事・画面を配る・受け取ったファイル・孫まで止める。Windows のジョブオブジェクトとレジストリを含む）と、
+#        Python の網のうち OS で振る舞いが違いうるもの（配る形・作る係）
+# 2. cargo build --release
+# 3. 作った exe を最上位に置いて、サンプルの組立（.iam）を渡して起こす（エクスプローラーで exe へドロップしたのと同じ）。
+#    画面が合図（stage=second）を出したら、2 つめの exe に変換データ（.inventor.json）を渡して起こす（1 つめの窓が受け取る）。
+#    画面は「STEP を作る」ボタンで STEP を作り、窓は INVENTOR_TOOL_SELFTEST に結果を書いて終わる（src/selftest.js）。
+#    結果と exe は Artifacts に置く。
+#
+# 4. main への push では、通った exe を最上位の Inventor3DTool.exe として main へ置く（publish）。
+#    利用者は main の ZIP を落として展開するので、exe も同じ ZIP で届く（exe と program の組がずれない）。
+#    置くのは「窓の元（desktop/・app_icon.py）が前に置いた exe と違う」ときだけ（program/Inventor3DTool.build.json の指紋）。
+name: desktop
+
+on:
+  push:
+    branches: [main]
+    paths: ["desktop/**", "program/**", ".github/workflows/desktop.yml"]
+  pull_request:
+    paths: ["desktop/**", "program/**", ".github/workflows/desktop.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# main へ続けて入っても、置くのは 1 本ずつ（後から来たほうが待つ）
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      PYTHONIOENCODING: utf-8
+      # exe が名乗る「作ったコミット」。publish が Inventor3DTool.build.json に書く commit と同じ値
+      INVENTOR_TOOL_BUILD_COMMIT: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Python の網（配る形・作る係）
+        working-directory: program
+        run: python -m unittest tests.test_layout tests.test_builder -v
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop
+
+      - name: Rust の網
+        working-directory: desktop
+        run: |
+          $env:INVENTOR_TOOL_PYTHON = (Get-Command python).Source
+          cargo test --locked
+
+      - name: exe を作る
+        working-directory: desktop
+        run: |
+          $env:INVENTOR_TOOL_PYTHON = (Get-Command python).Source
+          cargo build --release --locked
+
+      - name: 自己診断（本物の WebView2・ドロップと 2 つめの起動・STEP を作る）
+        run: |
+          Copy-Item desktop\target\release\Inventor3DTool.exe .\Inventor3DTool.exe
+          $out = "$env:RUNNER_TEMP\selftest.json"
+          $env:INVENTOR_TOOL_SELFTEST = $out
+          $iam = (Get-ChildItem program\samples\iam\*.iam | Select-Object -First 1).FullName
+          $spec = (Resolve-Path program\tests\fixtures\builder\finger.inventor.json).Path
+          $first = Start-Process -FilePath .\Inventor3DTool.exe -ArgumentList ('"{0}"' -f $iam) -PassThru
+          $deadline = (Get-Date).AddSeconds(240)
+          while (-not (Test-Path "$out.second") -and -not (Test-Path $out) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 1 }
+          $secondExited = $false
+          if (Test-Path "$out.second") {
+            $second = Start-Process -FilePath .\Inventor3DTool.exe -ArgumentList ('"{0}"' -f $spec) -PassThru
+            $secondExited = $second.WaitForExit(30000)
+            Write-Host "2 つめの起動: 終わった=$secondExited 終了コード=$($second.ExitCode)"
+          } else { Write-Host "画面が 2 つめの起動の合図を出していません" }
+          $deadline = (Get-Date).AddSeconds(360)
+          while (-not (Test-Path $out) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
+          $firstExited = $first.WaitForExit(60000)
+          Get-ChildItem "$env:LOCALAPPDATA\Inventor3DTool\logs" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "--- $($_.Name)"; Get-Content $_.FullName -Tail 30 -Encoding utf8 }
+          if (-not (Test-Path $out)) { Write-Host "結果のファイルがありません"; exit 2 }
+          $r = Get-Content $out -Raw -Encoding utf8 | ConvertFrom-Json
+          $r.results | ForEach-Object { Write-Host ("{0}: {1} -- {2}" -f ($(if ($_.ok) { "PASS" } else { "FAIL" })), $_.name, $_.info) }
+          if ($r.error) { Write-Host "ERROR: $($r.error)" }
+          if (-not $firstExited) { Write-Host "窓が結果を書いたあとに終わっていません"; exit 3 }
+          if (-not $secondExited) { Write-Host "2 つめの起動がすぐに終わっていません（1 つだけ起動の仕組み）"; exit 3 }
+          $step = Get-ChildItem -Path $r.job.out_dir -Filter *.stp -ErrorAction SilentlyContinue
+          if (-not $step) { Write-Host "STEP が保存先にありません: $($r.job.out_dir)"; exit 4 }
+          Write-Host "STEP: $($step.FullName)（$($step.Length) バイト）"
+          if (Get-Process python -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "*hostedtoolcache*" }) { Write-Host "作る係（Python）が残っています"; exit 5 }
+          if (-not $r.ok) { exit 1 }
+
+      # 置く物をまとめる: exe・自己診断の結果・作った元の指紋（publish が比べる）
+      - name: 成果物をまとめる
+        if: always()
+        run: |
+          $out = "$env:RUNNER_TEMP\out"
+          New-Item -ItemType Directory -Force $out | Out-Null
+          if (Test-Path desktop\target\release\Inventor3DTool.exe) { Copy-Item desktop\target\release\Inventor3DTool.exe $out }
+          if (Test-Path "$env:RUNNER_TEMP\selftest.json") { Copy-Item "$env:RUNNER_TEMP\selftest.json" $out }
+          "desktop:$(git rev-parse HEAD:desktop) icon:$(git rev-parse HEAD:program/tools/app_icon.py)" | Set-Content -NoNewline -Encoding ascii "$out\source.txt"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Inventor3DTool-windows
+          path: ${{ runner.temp }}/out/
+          if-no-files-found: warn
+
+  # main へ入ったときだけ、通った exe を main へ置く。書く権限はこの段だけが持つ
+  publish:
+    needs: windows
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/download-artifact@v4
+        with:
+          name: Inventor3DTool-windows
+          path: built
+      - name: exe を main へ置く
+        env:
+          BUILT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          built="$(cat built/source.txt)"
+          now="desktop:$(git rev-parse HEAD:desktop) icon:$(git rev-parse HEAD:program/tools/app_icon.py)"
+          # 作っているあいだに窓の元が変わった——古い exe で上書きしない（後の版が置く）
+          if [ "$built" != "$now" ]; then echo "窓の元が作った後に変わったので置かない（後の版が置く）"; exit 0; fi
+          have="$(python3 -c "import json;print(json.load(open('program/Inventor3DTool.build.json',encoding='utf-8'))['source'])" 2>/dev/null || true)"
+          if [ "$have" = "$now" ] && [ -f Inventor3DTool.exe ]; then echo "同じ元から作った exe がもう置いてある"; exit 0; fi
+          python3 - "$now" "$BUILT_SHA" <<'PY'
+          import datetime, json, pathlib, re, shutil, sys
+          src, sha = sys.argv[1], sys.argv[2]
+          shutil.copyfile('built/Inventor3DTool.exe', 'Inventor3DTool.exe')
+          st = json.load(open('built/selftest.json', encoding='utf-8'))
+          ver = re.search(r'^version = "([^"]+)"', open('desktop/Cargo.toml', encoding='utf-8').read(), re.M).group(1)
+          info = {'source': src, 'commit': sha, 'version': ver,
+                  'builtAt': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+                  'size': pathlib.Path('Inventor3DTool.exe').stat().st_size,
+                  'selftest': f"{sum(r['ok'] for r in st['results'])}/{len(st['results'])}"}
+          pathlib.Path('program/Inventor3DTool.build.json').write_text(json.dumps(info, ensure_ascii=False, indent=1) + '\n', encoding='utf-8')
+          print(info)
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add Inventor3DTool.exe program/Inventor3DTool.build.json
+          git commit -m "デスクトップ版の exe を置く（${BUILT_SHA:0:7} から作った・自己診断を通った物）[skip ci]"
+          for i in 1 2 3 4; do
+            git push origin HEAD:main && exit 0
+            sleep $((2 ** i)); git pull --rebase origin main
+          done
+          exit 1

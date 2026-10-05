@@ -2,7 +2,7 @@
 //   .ipt・.iam・.stp … モデル（部品・組立）として読み、表示する
 //   .html            … 隔離した iframe で動かし、three.js の形状を取り出して認識し（convert/recognize）、変換データを作る
 //   .json            … 変換データ（.inventor.json）。作る形を 3D で示し（convert/preview.js）、「Inventor で作る」で作る
-// ファイルの受け付けは ui/files.js、ローカルサーバー（サンプル・起動ファイルから届いたもの・生存の知らせ）は server.js、
+// ファイルの受け付けは ui/files.js、窓（Inventor3DTool.exe）とのやりとり（サンプル・起動で受け取ったファイル）は desktop.js、
 // 起動画面は ui/start.js、変換の節は ui/convert.js、「Inventor で作る」は ui/build.js。
 
 import { buildInventorSpec, readSpec } from "./convert/inventor.js";
@@ -12,12 +12,11 @@ import { OPENABLE, detectFormat, explainError, partOf, readModel } from "./forma
 import { buildDisplayMeshes, describeRecognition } from "./html/describe.js";
 import { SourceFrame } from "./html/frame.js";
 import { setSpec } from "./ui/convert.js";
-import { claimLaunch, keepAlive, listSamples } from "./server.js";
+import { claimLaunch, listSamples, onLaunch } from "./desktop.js";
 import { PartLibrary, acceptFiles } from "./ui/files.js";
 import { initBuild } from "./ui/build.js";
 import { setupUnit } from "./ui/units.js";
 import { renderAsmPanel, renderHeader, renderHtmlPanel, renderIptPanel, renderSpecPanel, setPanelMode } from "./ui/panel.js";
-import { LAUNCHER } from "./ui/product.js";
 import { startDialog } from "./ui/start.js";
 import { describeAssembly, describeBody } from "./viewer/describe.js";
 import { VIEWS, Viewer } from "./viewer/viewer.js";
@@ -259,7 +258,7 @@ async function load(bytes, name, isSample = false) {
   else await loadModel(bytes, name, isSample);
 }
 
-// ---- 受け取ったファイル（ドロップ・選択・起動ファイル）-----------------------------
+// ---- 受け取ったファイル（ドロップ・選択・exe へのドロップ）-----------------------------
 // 開けるものの最初の 1 つを開く（組立 → STEP → そのほかの順）。2 つ以上なら起動画面の「受け取ったファイル」に並べて切り替える。
 const library = new PartLibrary(); // 組立が参照する部品を探す場所（受け取ったファイル・サンプル）
 const SPEC = /\.json$/i; // 変換データ（.inventor.json）
@@ -275,7 +274,7 @@ let shown = null; // 表示中の受け取ったファイル（サンプルを�
 
 const renderReceived = () => startDialog.setReceived(received, shown, openItem);
 
-/** 受け取ったもの・サンプルの中身。読めなければ（サーバーが止まった・ファイルが消えた）理由を知らせて null */
+/** 受け取ったもの・サンプルの中身。読めなければ（窓に届かない・ファイルが消えた）理由を知らせて null */
 async function readItem(item) {
   try {
     return await item.read();
@@ -345,7 +344,7 @@ $("toggle-edges").addEventListener("click", (event) => {
   viewer?.setEdgesVisible(on);
 });
 
-// ---- サンプル（サーバーの samples フォルダ。中身は開くときに読む）------------------------------
+// ---- サンプル（program/samples フォルダ。中身は開くときに読む）------------------------------
 const noServer = (what) => (error) => {
   console.warn(error);
   showAlert(`${what}を読み込めませんでした。${error.message}。`);
@@ -353,7 +352,8 @@ const noServer = (what) => (error) => {
 };
 // 一覧と受け取ったファイルは同時に尋ねる（待ち時間を重ねない）
 const samplesReady = listSamples().catch(noServer("サンプルの一覧"));
-const launchReady = claimLaunch().catch(noServer("起動ファイルから受け取ったファイル"));
+const LAUNCH = "起動で受け取ったファイル";
+const launchReady = claimLaunch().catch(noServer(LAUNCH));
 const samples = (await samplesReady) ?? [];
 samples.forEach((item) => library.add(item));
 startDialog.setSamples(samples, async (item) => {
@@ -365,14 +365,19 @@ startDialog.setSamples(samples, async (item) => {
 });
 
 // ---- 起動 ----------------------------------------------------------------------
-setMode("empty");
-keepAlive({ onLost: () => showAlert(`アプリのサーバーが止まりました。起動ファイル（${LAUNCHER}）で開き直してください。`) });
-initBuild(); // 保存先と、作っている途中の仕事（画面を開き直したとき）を読む
-const launch = (await launchReady) ?? { items: [], parts: [], missing: [] };
-launch.parts.forEach((item) => library.add(item)); // 組立と同じフォルダの部品（組立が参照する部品を探す置き場）
-if (launch.items.length) await receive(launch.items); // 開き終えてから起動画面（案内）を出す（開くと起動画面は閉じるため）
-if (launch.missing.length) {
-  const note = `${launch.missing.join("、")} は見つかりませんでした（起動してから画面が開くまでに、移動・削除された可能性があります）。`;
-  showNotice([$("notice").hidden ? "" : $("notice").textContent, note].join(" ").trim());
+/** 起動で受け取ったもの（起動したとき・開いたまま exe へドロップされたとき）を開く。→ 開くものがあったか */
+async function takeLaunch(launch) {
+  const { items, parts, missing } = launch ?? { items: [], parts: [], missing: [] };
+  parts.forEach((item) => library.add(item)); // 組立と同じフォルダの部品（組立が参照する部品を探す置き場）
+  if (items.length) await receive(items); // 開き終えてから起動画面（案内）を出す（開くと起動画面は閉じるため）
+  if (missing.length) {
+    const note = `${missing.join("、")} は見つかりませんでした（起動してから画面が受け取るまでに、移動・削除された可能性があります）。`;
+    showNotice([$("notice").hidden ? "" : $("notice").textContent, note].join(" ").trim());
+  }
+  return items.length > 0;
 }
-if (!launch.items.length) startDialog.open();
+
+setMode("empty");
+initBuild(); // 保存先と、作っている途中の仕事（画面を開き直したとき）を読む
+onLaunch(async (claim) => takeLaunch(await claim.catch(noServer(LAUNCH))));
+if (!(await takeLaunch(await launchReady))) startDialog.open();

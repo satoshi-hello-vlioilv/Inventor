@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inventor 3Dツール — 起動できません</title>
+<!--
+  デスクトップ版の窓が、アプリの中身（program フォルダ）を見つけられないときに出す画面（exe に入る）。
+  窓（desktop/src/main.rs の fail_page）が {{ detail }}（理由）と {{ log }}（記録の場所）を埋める。
+  色は画面（program/app/static/css/app.css）の値に合わせる。
+-->
+<style>
+ :root {
+  --bg: #e8ecf0; --panel: #f8fafc; --ink: #16202b; --muted: #566272; --rule: #cdd5de;
+  --accent: #1a62c4; --critical: #b3261e; --critical-soft: rgba(179, 38, 30, 0.08);
+ }
+ @media (prefers-color-scheme: dark) {
+  :root { --bg: #141a21; --panel: #1a2129; --ink: #e5eaf0; --muted: #98a4b2; --rule: #2e3a47; --accent: #5e9dff; --critical: #ff8a80; --critical-soft: rgba(255, 138, 128, 0.1); }
+ }
+ * { box-sizing: border-box; }
+ html, body { height: 100%; }
+ body { margin: 0; display: grid; place-items: center; background: var(--bg); color: var(--ink); font: 14px/1.7 "Yu Gothic UI", "Meiryo", system-ui, sans-serif; }
+ .card { width: min(92vw, 640px); background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; padding: 24px 28px; }
+ h1 { margin: 0 0 4px; font-size: 18px; color: var(--critical); }
+ .lead { margin: 0 0 16px; color: var(--muted); }
+ ol { margin: 0 0 16px; padding-left: 1.4em; }
+ li { margin: 4px 0; }
+ pre { margin: 0; padding: 12px 14px; border-radius: 8px; background: var(--critical-soft); border: 1px solid var(--rule);
+       white-space: pre-wrap; word-break: break-all; font: 12.5px/1.6 Consolas, "Cascadia Mono", monospace; }
+ code { font: 12.5px Consolas, "Cascadia Mono", monospace; }
+ .foot { margin: 14px 0 0; color: var(--muted); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<section class="card" role="alert" aria-labelledby="title">
+  <h1 id="title">アプリの中身が見つかりません</h1>
+  <p class="lead">この exe は、配られたフォルダの中（<code>program</code> フォルダと並ぶ場所）に置いたまま起動してください。</p>
+  <ol>
+    <li>配られた ZIP を展開したフォルダを開く</li>
+    <li>その中の <code>Inventor3DTool.exe</code> をダブルクリックする（ショートカットを作るときは、この exe から作る）</li>
+  </ol>
+  <pre>{{ detail }}</pre>
+  <p class="foot">記録: {{ log }}</p>
+</section>
+</body>
+</html>

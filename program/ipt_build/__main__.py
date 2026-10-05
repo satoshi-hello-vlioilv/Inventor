@@ -1,12 +1,14 @@
 """使い方:
 
-    ふだんはアプリの「STEP を作る」「Inventor で作る」から使う（アプリのサーバーが --events で実行し、進み具合を画面に出す）。
+    ふだんはアプリの「STEP を作る」「Inventor で作る」から使う（アプリの窓（Inventor3DTool.exe）が --events で実行し、進み具合を画面に出す）。
     コマンドで使うときは program フォルダで:
 
     python -m ipt_build 変換データ.inventor.json              STEP と、Inventor で部品（と組立）を作る（Inventor のある Windows）
     python -m ipt_build 変換データ.inventor.json --step-only  STEP だけ作る（Inventor を使わない。どの OS でも可）
     python -m ipt_build 変換データ.inventor.json --dry-run    何も作らずに作成計画と期待値を確かめる
+    python -m ipt_build 変換データ.inventor.json --check      作れる変換データかを確かめ、作る計画を 1 行の JSON で知らせる（アプリが作り始める前に使う）
     python -m ipt_build --restore-inventor                    起動中の Inventor の画面の更新とダイアログを、ふだんの状態に戻す
+    python -m ipt_build --libraries                           Inventor の操作に使うライブラリ（pywin32）が入っているかを 1 行の JSON で知らせる
 
 オプション:
     --out DIR        保存先（既定: 変換データと同じ場所の「<名前>_cad」フォルダ）
@@ -14,7 +16,7 @@
     --only KEY ...   指定した部品だけ作る（例: --only p01 p03）
     --no-assembly    組立（.iam）を作らない
     --template FILE  部品のテンプレート（.ipt）
-    --events         進み具合を 1 行 1 つの JSON で知らせる（アプリのサーバーが読む。{"event": …, 進み具合}）。
+    --events         進み具合を 1 行 1 つの JSON で知らせる（アプリの窓が読む。{"event": …, 進み具合}）。
                      標準入力に「cancel」の行が来たら、作りかけの部品を終えたところで止め、Inventor をふだんの状態に戻して終わる
 """
 from __future__ import annotations
@@ -25,9 +27,9 @@ import sys
 import threading
 from pathlib import Path
 
-from . import runner
+from . import libraries, runner
 from .runner import REPORT
-from .spec import SpecError, load_spec, part_properties
+from .spec import SpecError, load_spec, part_properties, source_stem
 
 
 def dry_run(spec) -> int:
@@ -78,8 +80,24 @@ def emit(event: str, **data) -> None:
     print(json.dumps({"event": event, **data}), flush=True)
 
 
+def check(path: Path, inventor: bool) -> int:
+    """作れる変換データかを確かめ、1 行の JSON で知らせる（アプリが作り始める前に使う。確かめ方を 1 か所にする）。
+    {"event": "check", "ok": true, "name": 保存先・STEP の名前, "status": 作り始めたときの進み具合（保存先は呼ぶ側が決める）}
+    作れなければ {"event": "check", "ok": false, "message": 理由}"""
+    try:
+        spec = load_spec(path)
+    except SpecError as error:
+        emit("check", ok=False, message=str(error))
+        return 2
+    if not spec.parts:
+        emit("check", ok=False, message="作れる部品がありません")
+        return 2
+    emit("check", ok=True, name=source_stem(spec.source), status=runner.BuildRun(spec, Path(), list(spec.parts), inventor=inventor).status())
+    return 0
+
+
 def listen_for_cancel() -> threading.Event:
-    """標準入力の「cancel」の行（アプリのサーバーの中止ボタン）を待ち、来たら合図を立てる"""
+    """標準入力の「cancel」の行（アプリの中止ボタン）を待ち、来たら合図を立てる"""
     cancel = threading.Event()
 
     def listen():
@@ -102,14 +120,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true", help="何も作らずに作成計画と期待値を確かめる")
     parser.add_argument("--step-only", action="store_true", help="STEP だけ作る（Inventor を使わない）")
     parser.add_argument("--events", action="store_true", help="進み具合を 1 行 1 つの JSON で知らせる（アプリが使う）")
+    parser.add_argument("--check", action="store_true", help="作れる変換データかを確かめ、作る計画を 1 行の JSON で知らせる")
     parser.add_argument("--restore-inventor", action="store_true", help="起動中の Inventor を、画面の更新・ダイアログのふだんの状態に戻す")
+    parser.add_argument("--libraries", action="store_true", help="Inventor の操作に使うライブラリが入っているかを 1 行の JSON で知らせる")
     args = parser.parse_args(argv)
+    if args.libraries:
+        emit("libraries", ready=libraries.ready())
+        return 0
     if args.restore_inventor:
         from .inventor import restore_running_inventor  # noqa: PLC0415
 
         return 0 if restore_running_inventor() else 1
     if args.spec is None:
         parser.error("変換データ（.inventor.json）を指定してください")
+    if args.check:
+        return check(args.spec, inventor=not args.step_only)
     try:
         spec = load_spec(args.spec)
     except SpecError as error:

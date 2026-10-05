@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<!-- 起動ごとに変わる合言葉。サーバーはこの画面からの依頼だけを受け付ける（static/js/server.js が依頼に添える） -->
+<!-- 起動ごとに変わる合言葉。窓（Inventor3DTool.exe）が画面を配るときに埋め、この画面からの依頼だけを受け付ける（static/js/desktop.js が依頼に添える） -->
 <meta name="app-token" content="{{ token }}">
 <title>Inventor 3Dツール</title>
 <!-- 書体は読み込めたときだけ使う（読み込みを待たずに描く。つながらない PC では Yu Gothic UI などで表示する） -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+JP:wght@400;500;600&display=swap" media="print" onload="this.media='all'">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+<link rel="stylesheet" href="/static/css/app.css">
 <!-- ライブラリは static/vendor に同梱（インターネットにつながらない PC でも動く）。Node の評価もこの対応を読み、同じファイルを使う -->
 <script type="importmap">
 { "imports": {
@@ -22,7 +22,7 @@
   "robust-predicates": "/static/vendor/robust-predicates/index.js"
 } }
 </script>
-<script type="module" src="{{ url_for('static', filename='js/main.js') }}"></script>
+<script type="module" src="/static/js/main.js"></script>
 </head>
 <body>
 <div class="app is-empty" id="app">
@@ -120,7 +120,7 @@
       </div>
       <details class="convert-more" data-mode="html" hidden>
         <summary>あとで別の PC で作るとき（変換データを保存）</summary>
-        <p class="convert-hint">変換データ（.inventor.json）は、取り込んだ形を作るための設計図です（部品ごとの断面・回転／押し出し・配置、近似の部品の三角形と、照合に使う体積・表面積）。保存して別の PC（Inventor のある PC など）に持っていき、このアプリで開く（画面か Start.vbs にドロップ）と、そこで作れます。</p>
+        <p class="convert-hint">変換データ（.inventor.json）は、取り込んだ形を作るための設計図です（部品ごとの断面・回転／押し出し・配置、近似の部品の三角形と、照合に使う体積・表面積）。保存して別の PC（Inventor のある PC など）に持っていき、このアプリで開く（画面か Inventor3DTool.exe にドロップ）と、そこで作れます。</p>
         <div class="convert-actions">
           <button type="button" class="secondary" id="save-spec" disabled>変換データを保存</button>
           <button type="button" class="secondary" id="copy-spec" disabled>コピー</button>

@@ -1,4 +1,4 @@
-// ファイルの受け付け: 「ファイルを開く」・Ctrl+O・ドラッグ＆ドロップ。起動ファイル（Start.vbs）から届いたものは server.js が受け取る。
+// ファイルの受け付け: 「ファイルを開く」・Ctrl+O・ドラッグ＆ドロップ。exe（Inventor3DTool.exe）へドロップされたものは desktop.js が受け取る。
 // 受け取ったものは { name, size, read: () => Promise<Uint8Array> } にそろえる。
 
 /** <input type="file">・ドロップの FileList → 受け取ったもの */
