@@ -12,7 +12,7 @@ import threading
 import unittest
 from contextlib import redirect_stdout
 from dataclasses import replace
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from unittest import mock
 
 import tests  # noqa: F401 — program フォルダの ipt_build を import できるようにする
@@ -348,6 +348,9 @@ class SourceNameTest(unittest.TestCase):
         self.assertEqual(source_stem({"file": None}), "変換データ")
         self.assertEqual(source_stem({}), "変換データ")
         self.assertEqual(source_stem({"file": "a:b?.html"}), "a_b_")
+        with mock.patch("ipt_build.spec.Path", PureWindowsPath):  # Windows の解釈でも同じ名前（取り込んだ PC と作る PC は違ってよい）
+            self.assertEqual(source_stem({"file": "a:b?.html"}), "a_b_")
+            self.assertEqual(source_stem({"file": "x\\a.html"}), "x_a")
         spec = replace(spec_of("finger"), source={"file": None})
         with tempfile.TemporaryDirectory() as tmp:
             run = runner.build(spec, Path(tmp), inventor=False)

@@ -51,25 +51,31 @@ jobs:
         working-directory: program
         run: python -m unittest tests.test_layout tests.test_builder -v
 
+      # ここから先は、前の段が落ちても走らせる（1 回の CI で全ての段の結果が分かる。どれかが落ちればジョブは失敗）
       - uses: dtolnay/rust-toolchain@stable
+        if: ${{ !cancelled() }}
 
       - uses: Swatinem/rust-cache@v2
+        if: ${{ !cancelled() }}
         with:
           workspaces: desktop
 
       - name: Rust の網
+        if: ${{ !cancelled() }}
         working-directory: desktop
         run: |
           $env:INVENTOR_TOOL_PYTHON = (Get-Command python).Source
           cargo test --locked
 
       - name: exe を作る
+        if: ${{ !cancelled() }}
         working-directory: desktop
         run: |
           $env:INVENTOR_TOOL_PYTHON = (Get-Command python).Source
           cargo build --release --locked
 
       - name: 自己診断（本物の WebView2・ドロップと 2 つめの起動・STEP を作る）
+        if: ${{ !cancelled() }}
         run: |
           Copy-Item desktop\target\release\Inventor3DTool.exe .\Inventor3DTool.exe
           $out = "$env:RUNNER_TEMP\selftest.json"
