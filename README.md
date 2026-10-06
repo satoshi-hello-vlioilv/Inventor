@@ -47,7 +47,7 @@ Windows のデスクトップアプリ（`Inventor3DTool.exe`。Tauri・Rust の
 - **段階の帯**: 取り込む（開く）→ 単位（中身）を確かめる → 作る → 照合する。緑の ✓ は済み、青はいまの段、琥珀の ! は確かめてほしい段
   （単位を大きさから推定した、など）、赤は失敗。段を押すと、その段の欄へ移る
 - **行動ドック**: 上の縁の色が仕事の状態（青: 進行中・緑: 一致・琥珀: 注意・赤: 失敗）。進み具合・中止・作り直しもここに出る
-- 画面の決め方（改良案 5 案以上の比較と点数・測った値）は [docs/ui.md](docs/ui.md)
+- 画面の決め方（改良案を画像にして比べた点数・測った値）は [docs/ui.md](docs/ui.md)
 
 ### 配り方・更新
 
@@ -137,7 +137,7 @@ flowchart LR
 | `program/ipt_build/` | CAD ファイルを作るビルダー（Python。窓が作るときだけ別のプロセスで動かす。コマンドでも使える）。STEP は標準ライブラリだけで書き（`p21.py`・`brep.py`・`step.py`）、.ipt・.iam は Inventor で作る（操作に使うライブラリは中の `requirements.txt`） |
 | `program/samples/` | サンプルの置き場（「サンプル・受け取ったファイル」の一覧兼、評価の題材） |
 | `program/tests/` | 評価。Python（`test_*.py`: 配る形・ビルダー・STEP）と JavaScript（`js/`）。窓の評価は `desktop/` の `cargo test` |
-| `program/tools/` | 開発用の道具（ファイルの中身の調査・テスト用データの作成・書き出した STEP の形状カーネルでの確かめ・アイコンの絵・画面の撮影と測定 `ui-check.mjs`・その窓の代わり `ui_server.py`・改良案の評価関数 `ui_score.py`） |
+| `program/tools/` | 開発用の道具（ファイルの中身の調査・テスト用データの作成・書き出した STEP の形状カーネルでの確かめ・アイコンの絵・画面の撮影と測定 `ui-check.mjs`・改良案を画像にする `ui-variants.mjs`（案の定義は `ui-proposals/`。共通部分は `ui-harness.mjs`）・窓の代わり `ui_server.py`・改良案の評価関数 `ui_score.py`） |
 | `.github/workflows/desktop.yml` | Windows で exe を作り、自己診断し、main へ置く |
 | `docs/`・`package.json`・`CLAUDE.md` | 設計と調査の記録、JavaScript の評価の実行（開発用）、作業の決まり |
 
