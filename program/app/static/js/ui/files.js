@@ -21,10 +21,11 @@ export class PartLibrary {
 
 /**
  * ファイルを受け取る操作をつなぐ。
- * @param {{ input: HTMLInputElement, openers: HTMLElement[], dropzone: HTMLElement, overlay: HTMLElement, isStartOpen: () => boolean }} ui
+ * @param {{ input: HTMLInputElement, openers: HTMLElement[], dropzone: HTMLElement, overlay: HTMLElement, isDropzoneShown: () => boolean }} ui
+ *   dropzone … 始め方の受け口（見えているときはそこを強調し、見えていなければ画面全体に案内を出す）
  * @param {(items: object[]) => void} onReceive
  */
-export function acceptFiles({ input, openers, dropzone, overlay, isStartOpen }, onReceive) {
+export function acceptFiles({ input, openers, dropzone, overlay, isDropzoneShown }, onReceive) {
   for (const el of openers) el.addEventListener("click", () => input.click());
   input.addEventListener("change", () => {
     onReceive(fromFiles(input.files));
@@ -36,11 +37,11 @@ export function acceptFiles({ input, openers, dropzone, overlay, isStartOpen }, 
       input.click();
     }
   });
-  // ドラッグ＆ドロップ（画面のどこでも受け付ける。起動画面が開いていれば、その受け口を強調する）
+  // ドラッグ＆ドロップ（画面のどこでも受け付ける。始め方が見えていれば、その受け口を強調する）
   const hasFiles = (event) => [...(event.dataTransfer?.types ?? [])].includes("Files");
   const showDropTarget = (on) => {
-    dropzone.classList.toggle("is-over", on && isStartOpen());
-    overlay.hidden = !on || isStartOpen();
+    dropzone.classList.toggle("is-over", on && isDropzoneShown());
+    overlay.hidden = !on || isDropzoneShown();
   };
   addEventListener("dragover", (event) => {
     if (!hasFiles(event)) return;

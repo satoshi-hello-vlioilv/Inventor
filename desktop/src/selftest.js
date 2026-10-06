@@ -93,8 +93,8 @@
     extra.job = { state: job.state, out_dir: job.out_dir, step: job.step, message: job.message };
     ok("「STEP を作る」で STEP ができる（Python の作る係）", built && job.state === "done" && /\.stp$/.test(job.step?.file || "") && job.out_dir,
        `${job.state} ${job.step?.file ?? ""} ${job.out_dir ?? ""} ${job.message ?? ""}`);
-    await until(() => $("build-state").dataset.tone === "ok", 5000);
-    ok("画面に結果が出る（一致の色）", $("build-state").dataset.tone === "ok", $("build-state").textContent);
+    await until(() => $("dock").dataset.tone === "ok", 5000);
+    ok("画面に結果が出る（行動ドックが一致の色）", $("dock").dataset.tone === "ok", $("build-state").textContent);
 
     // 7) 理由の答え
     const bad = await post("/api/build", { spec: { format: "other" }, target: "step" });

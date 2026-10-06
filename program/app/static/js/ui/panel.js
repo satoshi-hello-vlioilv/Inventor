@@ -1,8 +1,8 @@
-// 右側の仕様パネル。4 つの表示を持つ。
+// 右の欄の中身。4 つの表示を持つ（欄の上の段階の帯は steps.js、下の行動ドックは build.js と main.js）。
 //   ipt  … 部品（.ipt・STEP の部品・組立の中の部品）: 寸法・形状要素・位相・材質と質量・ファイル構造
-//   asm  … 組立（.iam・STEP）: 外形寸法・部品表・見つからない部品・構成
-//   html … three.js の HTML: 取り込み結果（単位）・CAD ファイルを作る・部品・除外したもの
-//   spec … 変換データ（.inventor.json）: 中身の数・CAD ファイルを作る・部品
+//   asm  … 組立（.iam・STEP）: 外形寸法・見つからない部品・部品表・構成
+//   html … three.js の HTML: 照合の結果・単位・作る部品・除外したもの
+//   spec … 変換データ（.inventor.json）: ファイルの情報・照合の結果・作る部品
 
 import { AXES, fmt, fmtMass, fmtSize } from "../viewer/describe.js";
 

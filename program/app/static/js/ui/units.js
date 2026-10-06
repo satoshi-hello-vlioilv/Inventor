@@ -1,7 +1,8 @@
-// 単位の欄（「取り込み結果」の節）: シーンの 1 単位が何 mm かを選ぶ。形の大きさを実寸で並べ、選んだ単位が正しいかを確かめられるようにする。
+// 単位の欄（右の欄の「単位」。段階の帯の「単位を確かめる」から移れる）: シーンの 1 単位が何 mm かを選ぶ。形の大きさを実寸で並べ、選んだ単位が正しいかを確かめられるようにする。
 // 選んだ単位は HTML のファイル名ごとに覚える（このブラウザーだけ。次に同じ HTML を開いたとき選び直さなくてよい）。
 
 import { UNIT_PRESETS, formatSize, guessUnit, sceneExtent } from "../convert/units.js";
+import { updateFlow } from "./flow.js";
 
 const $ = (id) => document.getElementById(id);
 const KEY = (name) => `inventor3d.unit:${name}`;
@@ -40,6 +41,7 @@ function render() {
   const size = state.extent ? `全体 ${formatSize(state.extent.map((v) => v * state.mm))}` : "";
   $("unit-note").textContent = [size, ORIGIN_NOTE[state.origin]].filter(Boolean).join("。");
   $("unit-note").dataset.origin = state.origin;
+  updateFlow({ unit: { origin: state.origin, label: preset ? `1 ${preset.label}` : `${state.mm} mm` } }); // 段階の帯「単位を確かめる」
 }
 
 function apply(mm) {

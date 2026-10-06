@@ -1,12 +1,13 @@
-// 「CAD ファイルを作る」: 押すと窓（Inventor3DTool.exe）が Python の作る係を動かし（desktop/src/jobs.rs）、ここに進み具合と結果を出す。
+// 「CAD ファイルを作る」: 押すと窓（Inventor3DTool.exe）が Python の作る係を動かし（desktop/src/jobs.rs）、進み具合と結果を出す。
 //   Inventor で作る … STEP（.stp）と、Inventor で部品（.ipt）・組立（.iam）。部品ごとに体積・表面積を照合する
 //   STEP を作る     … STEP（.stp）だけ。Inventor もライブラリも使わない
-// この PC に Inventor が無ければ、STEP を主（塗りのボタン）にして勧める（Inventor のボタンも押せる）。
-// Python が見つからなければ、押す前にその理由と入れ方を出す（作るのにだけ Python を使う。見るだけなら要らない）。
-// 1 度に 1 つ。作っている間にほかのファイルを開いてもよい（仕事は窓で続き、作っている間はどの変換の節にも状態を出す）。
+// 出す場所: 行動ドック（右の欄の下端。次にすること・進み具合・中止・保存先を開く）と「照合の結果」の欄（帯と部品ごとの行）。
+// この PC に Inventor が無ければ STEP を主のボタンにして勧める（Inventor のボタンも押せる）。Python が見つからなければ、押す前に理由を出す。
+// 1 度に 1 つ。作っている間にほかのファイルを開いてもよい（仕事は窓で続き、どの表示でもドックに状態を出す）。
 // 終わった結果は、作り始めたときの形（変換データ）を表示している間だけ出す（ほかの形の結果と取り違えない）。
 
 import { buildStatus, cancelBuild, openBuildFolder, startBuild } from "../desktop.js";
+import { flow, onFlow, setNext, updateFlow } from "./flow.js";
 
 const $ = (id) => document.getElementById(id);
 const RUNNING = new Set(["installing", "step", "connecting", "building", "assembly"]);
@@ -30,21 +31,22 @@ function pct(value) {
   return text === "+0.0000%" || text === "-0.0000%" ? "0.0000%" : text;
 }
 
-/** STEP の結果の一言: 「STEP（部品 3 種類・うち三角形 1）」 */
+/** STEP の結果の一言: 「部品 3 種類・配置 459 か所の組立。うち 1 種類は三角形の面」 */
 function stepSummary(step) {
   const faceted = step.parts.filter((p) => p.how === "faceted").length;
   return `部品 ${step.parts.length} 種類${step.assembly ? `・配置 ${step.placed} か所の組立` : ""}${faceted ? `。うち ${faceted} 種類は三角形の面` : ""}`;
 }
 
+const madeCount = (j) => (j.parts ?? []).filter((p) => p.verdict).length;
+
 /** 状態の一文と色（run: 進行中・ok: できた・warn: 一部だけ・bad: 失敗・wait: 中止） */
 function describeJob(j) {
   const total = j.total ?? 0;
-  const made = (j.parts ?? []).filter((p) => p.verdict).length;
   switch (j.state) {
     case "installing": return ["run", "Inventor の操作に使うライブラリを入れています（1 分ほど）…"];
     case "step": return ["run", "STEP を書いています…"];
     case "connecting": return ["run", "Inventor に接続しています（起動していなければ起動します）…"];
-    case "building": return ["run", `部品を作っています（${made} / ${total}）`];
+    case "building": return ["run", `部品を作っています（${madeCount(j)} / ${total}）`];
     case "assembly": return ["run", "組立を作っています…"];
     case "done": {
       if (j.step?.error) return ["bad", j.step.error];
@@ -68,14 +70,15 @@ function commonPrefix(names) {
   return prefix.slice(0, prefix.lastIndexOf("_") + 1);
 }
 
+const node = (tag, className, text) => Object.assign(document.createElement(tag), { className, textContent: text ?? "" });
+
 /** 結果の 1 行: 札（色と文字）・名前・差、必要なら理由 */
 function row(tone, label, name, diff = "", error = null, title = "") {
   const li = document.createElement("li");
-  const chip = Object.assign(document.createElement("span"), { className: "verdict", textContent: label });
+  const chip = node("span", "verdict", label);
   chip.dataset.tone = tone;
-  li.append(chip, Object.assign(document.createElement("span"), { className: "name", textContent: name }),
-    Object.assign(document.createElement("span"), { className: "diff", textContent: diff }));
-  if (error) li.append(Object.assign(document.createElement("span"), { className: "error", textContent: error }));
+  li.append(chip, node("span", "name", name), node("span", "diff", diff));
+  if (error) li.append(node("span", "error", error));
   li.title = title;
   return li;
 }
@@ -112,40 +115,93 @@ function resultRows(j) {
   return rows;
 }
 
-/** この PC で勧める作り方を主（塗り）のボタンにする。Inventor が無ければ STEP を勧め、理由を添える */
-function renderActions(running) {
+/** 照合の要約: 帯（一致・不一致・失敗・作成中・待ちの割合）と、それぞれの数 */
+function renderSummary(j) {
+  const counts = { ok: 0, warn: 0, bad: 0, run: 0, wait: 0 };
+  if (j.inventor) {
+    const current = j.state === "building" ? (j.parts ?? []).findIndex((p) => !p.verdict) : -1;
+    (j.parts ?? []).forEach((p, i) => counts[VERDICT[p.verdict]?.[0] ?? (i === current ? "run" : "wait")]++);
+  }
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  const box = $("build-summary");
+  box.hidden = !total;
+  if (!total) return;
+  const bar = node("div", "verdict-bar");
+  bar.setAttribute("role", "img");
+  const legend = node("p", "verdict-legend");
+  const names = { ok: "一致", warn: "不一致", bad: "失敗", run: "作成中", wait: "待ち" };
+  for (const [tone, n] of Object.entries(counts)) {
+    if (!n) continue;
+    const seg = node("span", `is-${tone}`);
+    seg.style.width = `${(100 * n) / total}%`;
+    bar.append(seg);
+    const item = node("span", "");
+    item.dataset.tone = tone;
+    item.append(node("i", ""), node("span", "", names[tone]), node("b", "", String(n)));
+    legend.append(item);
+  }
+  bar.setAttribute("aria-label", [...legend.children].map((c) => c.textContent).join("・"));
+  box.replaceChildren(bar, legend);
+}
+
+/** この PC で勧める作り方を主（塗り）のボタンにする（again: 作り終えた後。「作り直す」として控えめに並べる）。Inventor が無ければ STEP を勧め、理由を添える */
+function renderChoices(again) {
   const [inventor, step] = [$("build"), $("build-step")];
   for (const button of [inventor, step]) {
-    button.disabled = !spec || running || asking;
-    button.title = running ? `「${job.name}」を作っています` : !spec ? "作れる部品がありません" : "";
+    button.disabled = !spec || asking;
+    button.title = !spec ? "作れる部品がありません" : "";
   }
-  inventor.className = inventorHere ? "primary" : "secondary";
-  step.className = inventorHere ? "secondary" : "primary";
+  inventor.className = !again && inventorHere ? "primary" : "secondary";
+  step.className = !again && !inventorHere ? "primary" : "secondary";
+  $("build-actions").classList.toggle("is-again", again);
   const hint = pythonMissing ?? (inventorHere ? "" : "この PC には Inventor が見つかりません。STEP は Inventor なしで作れます（Inventor で開けば .ipt・.iam になります）");
-  $("build-hint").hidden = !hint || !spec;
+  $("build-hint").hidden = !hint || !spec || again;
   $("build-hint").textContent = hint;
+  return again ? null : inventorHere ? inventor : step;
 }
 
 function render() {
+  const { mode } = flow();
   const running = RUNNING.has(job.state);
-  const shown = running || (job.state !== "idle" && owner !== null && owner === spec);
-  renderActions(running);
-  $("build-dest").textContent = shown && job.out_dir ? `保存先: ${job.out_dir}` : root ? `保存先: ${root}（この中に、作ったファイルをまとめた新しいフォルダを作ります）` : "";
-  $("build-ask").hidden = !asking;
-  $("build-status").hidden = !shown;
-  if (!shown) return;
-  const [tone, text] = describeJob(job);
-  const state = $("build-state");
-  state.dataset.tone = tone;
-  state.textContent = running && owner !== spec && job.name ? `「${job.name}」: ${text}` : text;
-  const made = (job.parts ?? []).filter((p) => p.verdict).length;
+  const own = owner !== null && owner === spec;
+  const finished = !running && job.state !== "idle" && own;
+  const convert = mode === "html" || mode === "spec";
+  $("dock-build").hidden = !(convert || running);
+  $("result-card").hidden = !(convert && own && job.state !== "idle" && (job.step || job.inventor || job.detail));
+
+  const [tone, text] = running || finished ? describeJob(job) : ["wait", ""];
+  $("dock").dataset.tone = running || finished ? tone : spec ? "run" : "wait";
+  $("build-state").textContent = running && !own && job.name ? `「${job.name}」: ${text}` : text;
+  $("convert-summary").hidden = running || finished || asking;
   $("build-bar").hidden = !running;
-  $("build-bar").firstElementChild.style.width = `${job.inventor ? (100 * made) / Math.max(job.total ?? 1, 1) : 0}%`;
-  $("build-detail").hidden = !job.detail;
-  $("build-detail").textContent = job.detail ?? "";
-  $("build-results").replaceChildren(...resultRows(job));
+  $("build-bar").firstElementChild.style.width = `${job.inventor ? (100 * madeCount(job)) / Math.max(job.total ?? 1, 1) : 35}%`;
+  $("build-ask").hidden = !asking;
   $("build-cancel").hidden = !running;
-  $("build-open").hidden = running || !job.out_dir;
+  $("build-open").hidden = running || !finished || !job.out_dir;
+  $("build-actions").hidden = running || asking || !convert;
+  const choice = renderChoices(finished && Boolean(job.out_dir)); // 何もできずに終わったら（保存先なし）、作るボタンがそのまま次にすること
+  $("build-dest").textContent = (running || finished) && job.out_dir ? `保存先: ${job.out_dir}` : root ? `保存先: ${root}（この中に新しいフォルダを作ります）` : "";
+  $("build-dest").title = $("build-dest").textContent;
+
+  $("build-detail").hidden = !own || !job.detail;
+  $("build-detail").textContent = own ? job.detail ?? "" : "";
+  $("build-results").replaceChildren(...(own ? resultRows(job) : []));
+  renderSummary(own ? job : {});
+
+  // 次にすること: 尋ねている → 入れて作る、終わった → 保存先を開く、作れる → 勧める作り方（作っている間は無し。中止は副）
+  const next = asking ? $("build-install") : finished && job.out_dir ? $("build-open") : !running && convert ? choice : null;
+  setNext("build", next);
+}
+
+/** 作る仕事の要約を流れに知らせる（段階の帯が「作る」「照合する」の段に使う） */
+function publish() {
+  const own = owner !== null && owner === spec;
+  const [tone] = describeJob(job);
+  updateFlow({
+    own,
+    job: { state: job.state, tone, made: madeCount(job), total: job.total ?? 0, good: job.good ?? 0, inventor: Boolean(job.inventor),
+      inventorError: Boolean(job.inventor_error), name: job.name },
+  });
 }
 
 /** 窓の状態を読み直し、作っている間は続けて読む */
@@ -161,7 +217,7 @@ async function refresh() {
     console.warn(error); // 窓に届かない（作り始め・中止の答えが理由を出す）
     return;
   }
-  render();
+  publish();
   if (RUNNING.has(job.state)) timer = setTimeout(refresh, POLL_MS);
 }
 
@@ -183,6 +239,7 @@ async function start(target, install = false) {
     owner = spec;
     job = { state: "failed", message: error.message };
   }
+  publish();
   render();
 }
 
@@ -190,11 +247,13 @@ async function start(target, install = false) {
 export function setBuildSpec(next) {
   spec = next;
   asking = false;
-  render();
+  publish();
 }
 
 /** 起動したとき: 保存先・この PC に Inventor があるか・作っている途中の仕事（画面を開き直したときなど）を読む */
 export const initBuild = () => refresh();
+
+onFlow(render); // 表示の切り替え・仕事の進み具合で描き直す
 
 $("build").addEventListener("click", () => start("inventor"));
 $("build-step").addEventListener("click", () => start("step"));

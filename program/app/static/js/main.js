@@ -1,9 +1,11 @@
-// アプリの入口: 受け取ったファイルを読み（formats/open.js）、3D（viewer/）と仕様パネル（ui/panel.js）に表示し、両者を連動させる。
+// アプリの入口: 受け取ったファイルを読み（formats/open.js）、3D（viewer/）と右の欄（ui/panel.js）に表示し、両者を連動させる。
+// 次にすること（主のボタン 1 つ）は ui/flow.js が決め、段階の帯（ui/steps.js）と行動ドックに出す（docs/ui.md）。
 //   .ipt・.iam・.stp … モデル（部品・組立）として読み、表示する
 //   .html            … 隔離した iframe で動かし、three.js の形状を取り出して認識し（convert/recognize）、変換データを作る
 //   .json            … 変換データ（.inventor.json）。作る形を 3D で示し（convert/preview.js）、「Inventor で作る」で作る
 // ファイルの受け付けは ui/files.js、窓（Inventor3DTool.exe）とのやりとり（サンプル・起動で受け取ったファイル）は desktop.js、
-// 起動画面は ui/start.js、変換の節は ui/convert.js、「Inventor で作る」は ui/build.js。
+// サンプルの窓は ui/start.js、変換データの受け渡しは ui/convert.js、「作る」と行動ドックは ui/build.js、
+// 流れの状態（表示・取り込み・単位・作る仕事）は ui/flow.js が持ち、段階の帯（ui/steps.js）と行動ドックがそれを見て描く。
 
 import { buildInventorSpec, readSpec } from "./convert/inventor.js";
 import { describeSpec, previewScene } from "./convert/preview.js";
@@ -12,6 +14,8 @@ import { OPENABLE, detectFormat, explainError, partOf, readModel } from "./forma
 import { buildDisplayMeshes, describeRecognition } from "./html/describe.js";
 import { SourceFrame } from "./html/frame.js";
 import { setSpec } from "./ui/convert.js";
+import { setNext, updateFlow } from "./ui/flow.js";
+import "./ui/steps.js";
 import { claimLaunch, listSamples, onLaunch } from "./desktop.js";
 import { PartLibrary, acceptFiles } from "./ui/files.js";
 import { initBuild } from "./ui/build.js";
@@ -29,9 +33,8 @@ const IDLE_TEXT = { ipt: readoutChip.textContent, asm: "部品にカーソルを
 IDLE_TEXT.html = IDLE_TEXT.spec = IDLE_TEXT.asm;
 const SETTLE_MS = 1200; // 元のページの最初の描画から取り込みまで待つ時間（初期化の完了待ち）
 const READY_TIMEOUT_MS = 15000;
-const EYEBROW = {
-  "part:ipt": "部品ファイル（ipt）", "part:step": "STEP（部品）", "assembly:step": "STEP（組立）", "assembly:iam": "組立ファイル（iam）",
-};
+// 見出しバーの種類の札（いま何を見ているか）
+const EYEBROW = { "part:ipt": "部品 .ipt", "part:step": "STEP 部品", "assembly:step": "STEP 組立", "assembly:iam": "組立 .iam" };
 
 let idleText = IDLE_TEXT.ipt;
 let current = null; // 表示中の強調の対応 { info: Map<id, {group, text}>, rows: Map<groupKey, element> }
@@ -84,12 +87,15 @@ function setMode(mode) {
   $("app").classList.toggle("is-empty", mode === "empty");
   $("stage-empty").hidden = mode !== "empty";
   $("source").hidden = mode !== "html";
+  $("back-to-assembly").hidden = $("add-missing").hidden = true;
   setPanelMode(mode);
   idleText = IDLE_TEXT[mode] ?? IDLE_TEXT.ipt;
   if (mode !== "html" && source) {
     source.dispose();
     source = null;
   }
+  updateFlow({ mode, ...(mode !== "html" && { capture: "none", revision: null, unit: null }) });
+  setNext("view", mode === "empty" ? $("welcome-open") : null); // 何も開いていなければ「ファイルを選ぶ」
 }
 
 function setThumbnail(png) {
@@ -126,15 +132,23 @@ function showAssembly(model, header) {
   current = { info: describe.info, rows };
   assembly = { ...assembly, model, header };
   highlight([]);
+  // 見つからない部品があれば、次にすることは「部品を加える」（行動ドック）
+  $("add-missing").hidden = !describe.missing.length;
+  $("add-missing").textContent = `見つからない部品を加える（${describe.missing.length} 種類）`;
+  setNext("view", describe.missing.length ? $("add-missing") : null);
 }
 
 /** 組立の中の部品を 1 つだけ開く（部品と同じ表示。「組立に戻る」で戻る） */
 function openAssemblyPart(index) {
   const part = partOf(assembly.model, index);
-  if (part) showPart(part, { eyebrow: `組立の部品（${assembly.header.name}）`, name: part.name, meta: part.meta, isSample: assembly.header.isSample, thumbnailUrl: null });
+  if (part) {
+    const meta = [`組立 ${assembly.header.name} の部品`, part.meta].filter(Boolean).join(" · ");
+    showPart(part, { eyebrow: "組立の部品", name: part.name, meta, isSample: assembly.header.isSample, thumbnailUrl: null });
+  }
 }
 
 $("back-to-assembly").addEventListener("click", () => assembly && showAssembly(assembly.model, assembly.header));
+$("add-missing").addEventListener("click", () => $("file-input").click());
 
 async function loadModel(bytes, name, isSample) {
   let model;
@@ -159,11 +173,19 @@ async function loadModel(bytes, name, isSample) {
 // ---- HTML ----------------------------------------------------------------------
 const setSourceStatus = (text) => ($("source-status").textContent = text);
 
+/** 取り込みの状態（none・run・ok・bad）を流れに知らせる。取り込めていなければ「この状態を取り込む」が次にすること */
+function setCapture(state, revision = null) {
+  updateFlow({ capture: state, revision });
+  $("capture").className = state === "ok" || state === "run" ? "secondary" : "primary";
+  setNext("view", state === "ok" || state === "run" ? null : $("capture"));
+}
+
 async function capture() {
   if (!source) return;
   const button = $("capture");
   button.disabled = true;
   setSourceStatus("取り込み中…");
+  setCapture("run");
   try {
     const snapshot = await source.extract();
     captured = { snapshot, at: new Date() };
@@ -174,10 +196,12 @@ async function capture() {
     analyze();
     showAlert(snapshot.meshes.length ? "" : "取り込める形状がありませんでした。元のページで部品を表示してから、もう一度取り込んでください。");
     setSourceStatus(`${captured.at.toLocaleTimeString("ja-JP")} に取り込み · three.js r${snapshot.revision ?? "?"}`);
+    setCapture(snapshot.meshes.length ? "ok" : "bad", snapshot.revision);
   } catch (error) {
     console.warn(error);
     showAlert(`取り込みに失敗しました（${error.message}）。元のページの表示が終わってから、もう一度お試しください。`);
     setSourceStatus("取り込みに失敗しました");
+    setCapture("bad");
   } finally {
     button.disabled = false;
   }
@@ -208,6 +232,7 @@ function loadHtml(text, name, isSample = false) {
   viewer?.clear();
   renderHtmlPanel({ describe: { counts: { exact: 0, approx: 0, excluded: 0 }, groups: [], excluded: [] } }, rowHandlers(() => []));
   setSourceStatus("読み込み中…");
+  setCapture("run");
   source?.dispose();
   let ready = false;
   const frame = new SourceFrame($("source-frame"), text, {
@@ -222,6 +247,7 @@ function loadHtml(text, name, isSample = false) {
   setTimeout(() => {
     if (!ready && source === frame) {
       setSourceStatus("three.js の描画が見つかりません");
+      setCapture("bad");
       showAlert(`${name}: three.js（WebGLRenderer）による描画が見つかりませんでした。three.js を使ったページか、必要なファイルがそろっているかを確かめてください。`);
     }
   }, READY_TIMEOUT_MS);
@@ -241,7 +267,7 @@ function loadSpec(text, name, isSample = false) {
   setMode("spec");
   const { file, captured_at: at } = spec.source;
   const when = at && !Number.isNaN(Date.parse(at)) ? new Date(at).toLocaleString("ja-JP") : null;
-  renderHeader({ eyebrow: "変換データ（Inventor 用）", name, meta: [file && `${file} から取り込み`, when].filter(Boolean).join(" · "), isSample, thumbnailUrl: null });
+  renderHeader({ eyebrow: "変換データ", name, meta: [file && `${file} から取り込み`, when].filter(Boolean).join(" · "), isSample, thumbnailUrl: null });
   const describe = describeSpec(spec);
   viewer?.show(previewScene(spec));
   const rows = renderSpecPanel({ describe }, rowHandlers((g) => g.ids));
@@ -287,9 +313,9 @@ async function readItem(item) {
 }
 
 async function openItem(item) {
-  const button = $("open");
+  const button = $("open"), label = button.querySelector(".label");
   button.disabled = true;
-  button.textContent = "読み込み中…";
+  label.textContent = "読み込み中…"; // 印と Ctrl+O は残す
   try {
     const bytes = await readItem(item);
     if (!bytes) return;
@@ -297,7 +323,7 @@ async function openItem(item) {
     shown = item;
   } finally {
     button.disabled = false;
-    button.textContent = "ファイルを開く";
+    label.textContent = "ファイルを開く";
     renderReceived();
   }
 }
@@ -331,7 +357,8 @@ async function receive(items) {
   showNotice(notes.join(" "));
 }
 
-acceptFiles({ input: $("file-input"), openers: [$("open"), $("dropzone")], dropzone: $("dropzone"), overlay: $("drop-overlay"), isStartOpen: () => startDialog.isOpen }, receive);
+acceptFiles({ input: $("file-input"), openers: [$("open"), $("welcome-open"), $("start-open")], dropzone: $("dropzone"), overlay: $("drop-overlay"),
+  isDropzoneShown: () => !$("stage-empty").hidden }, receive);
 
 // ---- ツールバー ----------------------------------------------------------------
 for (const button of document.querySelectorAll("[data-view]")) {
@@ -380,4 +407,4 @@ async function takeLaunch(launch) {
 setMode("empty");
 initBuild(); // 保存先と、作っている途中の仕事（画面を開き直したとき）を読む
 onLaunch(async (claim) => takeLaunch(await claim.catch(noServer(LAUNCH))));
-if (!(await takeLaunch(await launchReady))) startDialog.open();
+await takeLaunch(await launchReady); // 何も受け取っていなければ、3D の場所に始め方が見えている
