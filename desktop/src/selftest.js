@@ -79,15 +79,25 @@
     ok("作る仕事の状態（保存先・Python が見つかる）", before.root && !before.python_missing, JSON.stringify(extra.build_before));
     const button = $("build-step");
     await until(() => !button.disabled, 10000);
+    // 作っている間は次を受け付けない（409）。画面が出した「作り始める」依頼に答えが返った時点で、仕事は「作っている」
+    // （窓は変換データを確かめてから「作っている」にして答える）。その答えを受け取ったその場で、もう 1 つ頼む。
+    // 状態を問い合わせて「作っている」間を探すと、STEP だけの短い仕事やタイマーの間引きで見逃す（Windows の CI で一度見逃した）
+    const realFetch = window.fetch;
+    const busyAnswer = new Promise((resolve) => {
+      window.fetch = async (input, init) => {
+        const response = await realFetch(input, init);
+        if (init?.method === "POST" && String(input).endsWith("/api/build")) {
+          window.fetch = realFetch;
+          resolve(post("/api/build", { spec: { format: "other" }, target: "step" }));
+        }
+        return response;
+      };
+    });
     button.click();
-    // 作っている間は次を受け付けない（409）。作り始めを細かく見張って、作っている間にもう 1 つ頼む
-    const RUN = ["installing", "step", "connecting", "building", "assembly"];
-    let busy = null;
-    for (const end = performance.now() + 15000; !busy && performance.now() < end;) {
-      if (RUN.includes((await api("/api/build")).json?.state)) busy = await post("/api/build", { spec: { format: "other" }, target: "step" });
-      else await sleep(10);
-    }
-    ok("作成中は次を受け付けない（409 と、作っているものの名前）", busy?.r.status === 409 && /「LS4_parts_viewer」を作っています/.test(busy?.json?.message || ""), busy?.text);
+    const busy = await Promise.race([busyAnswer, sleep(15000).then(() => null)]);
+    window.fetch = realFetch;
+    ok("作成中は次を受け付けない（409 と、作っているものの名前）", busy?.r.status === 409 && /「LS4_parts_viewer」を作っています/.test(busy?.json?.message || ""),
+       busy ? busy.text : "画面の「作り始める」依頼が 15 秒たっても返りません");
     const built = await until(async () => ["done", "failed", "cancelled"].includes((await api("/api/build")).json?.state), 180000);
     const job = (await api("/api/build")).json ?? {};
     extra.job = { state: job.state, out_dir: job.out_dir, step: job.step, message: job.message };
