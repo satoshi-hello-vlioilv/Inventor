@@ -87,6 +87,12 @@ async function openFile(page, file) {
   await sleep(800);
 }
 
+/** 「Inventor で作る」を押し、仕事が始まる（中止のボタンが出る）まで待つ（その前に段階を進めると、進める先が無い） */
+async function startJob(page) {
+  await page.click("#build");
+  await page.waitForSelector("#build-cancel:not([hidden])", { timeout: 10000 });
+}
+
 // 状態: [名前, そこへ行く操作, 次に押すべきもの（新しい画面の data-next → 前の画面の部品 の順に探す）]
 export const STATES = [
   ["start", async () => {}, "[data-next], #start-open"],
@@ -103,11 +109,14 @@ export const STATES = [
   ["building", async (p, dev) => {
     await dev("env?ready=1"); await dev("freeze");
     await p.click("#build-ask-no").catch(() => {});
-    await p.click("#build");
+    await startJob(p);
     await dev("step?n=8");
     await sleep(1800);
   }, "#build-cancel"],
   ["done", async (p, dev) => { await dev("step?n=100"); await sleep(1800); }, "[data-next], #build-open"],
+  // 作り直して、不一致 2 つ・失敗 1 つが混じった結果（例外の見せ方を確かめる）
+  ["mixed", async (p, dev) => { await dev("mix?mismatch=4,11&failed=19"); await startJob(p); await dev("step?n=100"); await sleep(1800); await dev("mix"); },
+    "[data-next], #build-open"],
 ];
 
 /** 状態を順に進め、各状態で visit(名前, 次に押すべきもの) を呼ぶ（only を渡せば、その状態だけ） */

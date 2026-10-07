@@ -111,6 +111,7 @@
       <p class="mouse-help">ドラッグで回転・右ドラッグで移動・ホイールで拡大</p>
     </div>
     <canvas class="gizmo" id="gizmo" width="152" height="152" aria-hidden="true"></canvas>
+    <p class="stage-legend" id="stage-legend" hidden><span data-tone="ok">一致</span><span data-tone="warn">不一致</span><span data-tone="bad">失敗</span><span data-tone="run">作成中</span><span data-tone="wait">待ち</span></p>
     <div class="readout" id="readout" aria-live="polite"><span class="chip">面にカーソルを合わせると、種類と寸法を表示します</span></div>
   </main>
 
@@ -175,10 +176,9 @@
         <dl class="dims" id="dims"></dl>
       </section>
 
-      <section class="card" data-mode="asm" id="missing-section" hidden>
-        <h2 class="is-warn">見つからない部品</h2>
-        <p class="hint-text" id="missing-hint">組立が参照する部品ファイル（.ipt）を画面にドロップすると、組立に加わります。行を押すとファイルを選べます。</p>
-        <ul class="features is-bom" id="missing"></ul>
+      <section class="card" data-mode="ipt" id="mass-card">
+        <h2>材質・質量</h2>
+        <dl class="topology" id="mass"></dl>
       </section>
 
       <section class="card" data-mode="asm">
@@ -191,13 +191,19 @@
         </details>
       </section>
 
+      <section class="card" data-mode="asm" id="missing-section" hidden>
+        <h2 class="is-warn">見つからない部品</h2>
+        <p class="hint-text" id="missing-hint"></p>
+        <ul class="features is-bom" id="missing"></ul>
+      </section>
+
       <section class="card" data-mode="ipt">
         <h2>形状要素<span class="h-note">行にカーソルを合わせると、3D で強調します</span></h2>
         <ul class="features" id="features"></ul>
       </section>
 
       <details class="card more" data-mode="ipt">
-        <summary>位相・材質</summary>
+        <summary>位相</summary>
         <dl class="topology" id="topology"></dl>
       </details>
 

@@ -13,6 +13,9 @@
 //   ["class", 対象, クラス名]                                          … クラスを置き換える
 //   ["insert", HTML, "beforebegin"|"afterbegin"|"beforeend"|"afterend", 基準]
 //   ["clone", 写すもの, "before"|"after"|"prepend"|"append", 基準]     … 見た目だけの写し（押しても動かない。id は外す）
+//   ["attr", 対象, 属性の名前, 値]                                       … 属性を付ける（値が null なら外す）
+//   ["script", "JavaScript の文"]                                        … 頁の中で動かす（状態が変わるたびに描き直すなら
+//                                                                           MutationObserver を自分で付ける）
 
 import fs from "node:fs";
 import path from "node:path";
@@ -52,7 +55,11 @@ function applyOps(ops) {
       const copy = pick(a).cloneNode(true);
       for (const el of [copy, ...copy.querySelectorAll("[id]")]) el.removeAttribute("id");
       place(copy, b, pick(c));
-    } else throw new Error(`知らない操作: ${kind}`);
+    } else if (kind === "attr") {
+      if (c === null) pick(a).removeAttribute(b);
+      else pick(a).setAttribute(b, c);
+    } else if (kind === "script") new Function(a)();
+    else throw new Error(`知らない操作: ${kind}`);
   }
 }
 

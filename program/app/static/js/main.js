@@ -14,7 +14,7 @@ import { OPENABLE, detectFormat, explainError, partOf, readModel } from "./forma
 import { buildDisplayMeshes, describeRecognition } from "./html/describe.js";
 import { SourceFrame } from "./html/frame.js";
 import { setSpec } from "./ui/convert.js";
-import { setNext, updateFlow } from "./ui/flow.js";
+import { onFlow, setNext, updateFlow } from "./ui/flow.js";
 import "./ui/steps.js";
 import { claimLaunch, listSamples, onLaunch } from "./desktop.js";
 import { PartLibrary, acceptFiles } from "./ui/files.js";
@@ -38,6 +38,7 @@ const EYEBROW = { "part:ipt": "部品 .ipt", "part:step": "STEP 部品", "assemb
 
 let idleText = IDLE_TEXT.ipt;
 let current = null; // 表示中の強調の対応 { info: Map<id, {group, text}>, rows: Map<groupKey, element> }
+let specParts = null; // 表示中の変換データの部品（変換データの部品の順）。作った結果を 3D に塗る先・結果の升目から強調する先
 let thumbnailUrl = null;
 let assembly = null; // 表示中（または部品を開く前）の組立 { model, header, doc: { bytes, name, isSample } }
 let source = null; // 表示中の元のページ（SourceFrame）
@@ -94,6 +95,7 @@ function setMode(mode) {
     source.dispose();
     source = null;
   }
+  specParts = null;
   updateFlow({ mode, ...(mode !== "html" && { capture: "none", revision: null, unit: null }) });
   setNext("view", mode === "empty" ? $("welcome-open") : null); // 何も開いていなければ「ファイルを選ぶ」
 }
@@ -132,10 +134,13 @@ function showAssembly(model, header) {
   current = { info: describe.info, rows };
   assembly = { ...assembly, model, header };
   highlight([]);
-  // 見つからない部品があれば、次にすることは「部品を加える」（行動ドック）
+  // 見つからない部品があれば、次にすることは「部品を加える」（行動ドック）。Content Center の標準部品だけなら、
+  // この PC では .ipt を用意できないことが多いので、ボタンは控えめにし、主の行動にしない（欄の説明で用意の仕方を示す）
+  const addable = describe.missing.some((g) => !g.standard);
   $("add-missing").hidden = !describe.missing.length;
+  $("add-missing").className = addable ? "primary" : "secondary";
   $("add-missing").textContent = `見つからない部品を加える（${describe.missing.length} 種類）`;
-  setNext("view", describe.missing.length ? $("add-missing") : null);
+  setNext("view", addable ? $("add-missing") : null);
 }
 
 /** 組立の中の部品を 1 つだけ開く（部品と同じ表示。「組立に戻る」で戻る） */
@@ -146,6 +151,25 @@ function openAssemblyPart(index) {
     showPart(part, { eyebrow: "組立の部品", name: part.name, meta, isSample: assembly.header.isSample, thumbnailUrl: null });
   }
 }
+
+// 作った結果を 3D に塗る（表示中の変換データで作ったとき。一致は緑・不一致は琥珀・失敗は赤・作成中は青、待ちは元の色）。
+// 不一致・失敗・作成中があれば、それだけを不透明にし、ほかの部品を透かす（viewer.mark）。凡例は塗った色の種類だけ
+onFlow((s) => {
+  if (!viewer) return;
+  const tones = specParts && s.own ? s.job.parts ?? [] : [];
+  viewer.mark(tones.flatMap((tone, i) => (tone === "wait" ? [] : (specParts[i]?.ids ?? []).map((id) => [id, tone]))));
+  const shown = new Set(tones);
+  for (const item of $("stage-legend").children) item.hidden = !shown.has(item.dataset.tone);
+  $("stage-legend").hidden = !tones.some((tone) => tone !== "wait"); // 塗った部品が無ければ（全て待ち）出さない
+});
+
+// 結果の升目（ui/build.js）にカーソルを合わせると、その部品を 3D で強調する
+const resultHover = rowHandlers((g) => g.ids);
+$("build-summary").addEventListener("pointerover", (event) => {
+  const part = specParts?.[event.target.closest("[data-part]")?.dataset.part];
+  if (part) resultHover.onEnter(part);
+});
+$("build-summary").addEventListener("pointerleave", resultHover.onLeave);
 
 $("back-to-assembly").addEventListener("click", () => assembly && showAssembly(assembly.model, assembly.header));
 $("add-missing").addEventListener("click", () => $("file-input").click());
@@ -272,6 +296,7 @@ function loadSpec(text, name, isSample = false) {
   viewer?.show(previewScene(spec));
   const rows = renderSpecPanel({ describe }, rowHandlers((g) => g.ids));
   current = { info: describe.partInfo, rows };
+  specParts = describe.groups;
   highlight([]);
   setSpec(spec, name);
 }

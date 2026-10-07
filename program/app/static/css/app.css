@@ -22,6 +22,7 @@
   --warn: #c98b2b; /* 注意の印（帯・点） */
   --warn-soft: rgba(201, 139, 43, 0.14);
   --caution-ink: #8a5a12; /* 注意の文字（白地でコントラスト 5.9:1） */
+  --on-warn: #16202b; /* 注意の色（--warn）の塗りの上の文字 */
   --steel: #b4bbc3;
   --approx: #d3a867;
   --edge: #26303c;
@@ -43,7 +44,7 @@
     --ink: #e5eaf0; --muted: #a1acb9; --rule: #313c49; --rule-soft: #27313c;
     --accent: #6aa5ff; --accent-strong: #93bdff; --accent-ink: #0d1520; --accent-soft: rgba(106, 165, 255, 0.14);
     --critical: #ff8a80; --critical-soft: rgba(255, 138, 128, 0.1); --ok: #6fcf8a; --ok-soft: rgba(111, 207, 138, 0.12);
-    --warn: #e0a84e; --warn-soft: rgba(224, 168, 78, 0.14); --caution-ink: #e8bd75;
+    --warn: #e0a84e; --warn-soft: rgba(224, 168, 78, 0.14); --caution-ink: #e8bd75; --on-warn: #1a2129;
     --steel: #a9b1ba; --approx: #c89b58; --edge: #0f141a; --axis-x: #ff6a5c; --axis-y: #4cc46c; --axis-z: #5e9dff;
     --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4); --shadow-2: 0 -6px 18px rgba(0, 0, 0, 0.35); --shadow-3: 0 24px 64px rgba(0, 0, 0, 0.6);
     color-scheme: dark;
@@ -54,7 +55,7 @@
   --ink: #e5eaf0; --muted: #a1acb9; --rule: #313c49; --rule-soft: #27313c;
   --accent: #6aa5ff; --accent-strong: #93bdff; --accent-ink: #0d1520; --accent-soft: rgba(106, 165, 255, 0.14);
   --critical: #ff8a80; --critical-soft: rgba(255, 138, 128, 0.1); --ok: #6fcf8a; --ok-soft: rgba(111, 207, 138, 0.12);
-  --warn: #e0a84e; --warn-soft: rgba(224, 168, 78, 0.14); --caution-ink: #e8bd75;
+  --warn: #e0a84e; --warn-soft: rgba(224, 168, 78, 0.14); --caution-ink: #e8bd75; --on-warn: #1a2129;
   --steel: #a9b1ba; --approx: #c89b58; --edge: #0f141a; --axis-x: #ff6a5c; --axis-y: #4cc46c; --axis-z: #5e9dff;
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4); --shadow-2: 0 -6px 18px rgba(0, 0, 0, 0.35); --shadow-3: 0 24px 64px rgba(0, 0, 0, 0.6);
   color-scheme: dark;
@@ -166,6 +167,14 @@ kbd { font: 500 var(--fs-xs)/1.35 var(--font-num); padding: 0 5px; border: 1px s
 .readout.is-live { color: var(--ink); }
 .readout.is-live .chip { border-color: var(--accent); }
 .app.is-empty .toolbar, .app.is-empty .readout, .app.is-empty .gizmo { visibility: hidden; }
+/* 3D に塗った結果の凡例（右下） */
+.stage-legend {
+  position: absolute; right: 12px; bottom: 14px; margin: 0; display: flex; gap: 12px; padding: 6px 12px; pointer-events: none;
+  font-size: var(--fs-s); background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; box-shadow: var(--shadow-1);
+}
+.stage-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.stage-legend span::before { content: ""; width: 10px; height: 10px; border-radius: 3px; background: var(--tone); }
+.stage-legend [data-tone="wait"]::before { background: var(--steel); }
 
 /* ---- 始め方（何も開いていないとき。3D の場所に出す）---- */
 .welcome {
@@ -310,6 +319,16 @@ details.card.more[open] { gap: 8px; }
 .verdict-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .verdict-legend i { width: 10px; height: 10px; border-radius: 3px; background: var(--tone); }
 .verdict-legend b { font: 600 var(--fs-s) var(--font-num); font-variant-numeric: tabular-nums; }
+/* 部品ごとの升目（番号は変換データの部品の順）。結果の出た部品は塗り（一致 緑・不一致 琥珀・失敗 赤）、作成中は青、待ちは枠だけ */
+.verdict-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(34px, 1fr)); gap: 4px; }
+.verdict-grid li {
+  height: 30px; display: grid; place-items: center; border: 1.5px solid var(--tone); border-radius: 6px;
+  font: 600 var(--fs-xs) var(--font-num); font-variant-numeric: tabular-nums; color: var(--muted);
+}
+.verdict-grid li:not([data-tone="wait"]) { background: var(--tone); color: var(--surface); }
+.verdict-grid li[data-tone="warn"] { color: var(--on-warn); }
+.verdict-grid li[data-tone="run"] { color: var(--accent-ink); }
+.verdict-grid li:hover { outline: 2px solid var(--ink); outline-offset: 1px; }
 .build-results { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 46vh; overflow-y: auto; }
 .build-results li { display: grid; grid-template-columns: 4.4em minmax(0, 1fr) auto; column-gap: 8px; align-items: baseline; font-size: var(--fs-s); padding: 2px 0; }
 .build-results .verdict {

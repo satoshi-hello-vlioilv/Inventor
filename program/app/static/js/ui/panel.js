@@ -1,6 +1,6 @@
 // 右の欄の中身。4 つの表示を持つ（欄の上の段階の帯は steps.js、下の行動ドックは build.js と main.js）。
-//   ipt  … 部品（.ipt・STEP の部品・組立の中の部品）: 寸法・形状要素・位相・材質と質量・ファイル構造
-//   asm  … 組立（.iam・STEP）: 外形寸法・見つからない部品・部品表・構成
+//   ipt  … 部品（.ipt・STEP の部品・組立の中の部品）: 寸法・材質と質量・形状要素・位相・ファイル構造
+//   asm  … 組立（.iam・STEP）: 外形寸法・部品表・構成・見つからない部品（次にすることのボタンは行動ドック）
 //   html … three.js の HTML: 照合の結果・単位・作る部品・除外したもの
 //   spec … 変換データ（.inventor.json）: ファイルの情報・照合の結果・作る部品
 
@@ -40,7 +40,8 @@ function featureRow({ kind, dim, count, sub, note, tone, title }, onEnter, onLea
   button.type = "button";
   if (tone) button.dataset.tone = tone;
   if (title) button.title = title;
-  button.append(el("span", "kind", kind), el("span", "dim", dim), el("span", "count", `×${count}`), el("span", "sub", sub));
+  button.append(el("span", "kind", kind), el("span", "dim", dim), el("span", "count", `×${count}`));
+  if (sub) button.append(el("span", "sub", sub));
   if (note) button.append(el("span", "note", note));
   for (const type of ["pointerenter", "focus"]) button.addEventListener(type, onEnter);
   for (const type of ["pointerleave", "blur"]) button.addEventListener(type, onLeave);
@@ -117,8 +118,10 @@ export function renderIptPanel({ report, scene, describe, properties = {}, volum
   ];
   if (describe.unsupported) topology.push(["表示未対応の面", `${describe.unsupported}（稜線のみ表示）`]);
   if (scene.bodies.length > 1) topology.push(["ボディ", `${scene.bodies.length}（寸法は 1 つ目）`]);
-  topology.push(...massRows(properties, volume));
   definitionList("topology", topology);
+  const mass = massRows(properties, volume); // 寸法のすぐ下に出す（部品を見る人が最初に知りたいこと）
+  definitionList("mass", mass);
+  $("mass-card").hidden = !mass.length;
 
   document.querySelector("details.structure[data-mode~='ipt']").hidden = !report;
   if (!report) return rows;
@@ -159,8 +162,15 @@ export function renderAsmPanel({ describe, scene }, handlers) {
     title: g.missing ? g.path ?? g.file : "押すと、この部品を開きます",
   });
   const rows = renderRows("bom", describe.groups, row, handlers, "部品がありません");
+  // 見つからない部品（部品表の下）。Content Center の標準部品は、この PC には .ipt が無いことが多いので、用意の仕方を添える
   $("missing-section").hidden = !describe.missing.length;
-  renderRows("missing", describe.missing, (g) => ({ kind: "?", dim: g.file ?? g.name, count: g.count, sub: g.path ?? "", tone: "missing" }),
+  const standard = describe.missing.filter((g) => g.standard).length;
+  $("missing-hint").textContent = standard === describe.missing.length
+    ? "Content Center の標準部品です。Inventor で .ipt に書き出し、画面にドロップすると組立に加わります。"
+    : "組立が参照する部品ファイル（.ipt）を画面にドロップすると、組立に加わります。行を押すとファイルを選べます。";
+  renderRows("missing", describe.missing,
+    (g) => ({ kind: "?", dim: g.file ?? g.name, count: g.count, sub: g.standard && standard < describe.missing.length ? "Content Center の標準部品" : "",
+      tone: "missing", title: g.path ?? g.file }),
     { onEnter: handlers.onEnter, onLeave: handlers.onLeave, onClick: handlers.onMissing }, "");
   const info = [
     ["部品", `${describe.groups.length} 種類（形状あり ${found.length}）`],

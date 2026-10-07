@@ -11,6 +11,7 @@
     POST /__dev/step?n=3        3 段進める（STEP → 接続 → 部品 1 つずつ → 組立 → 完了）
     POST /__dev/launch          受け取ったファイルを預け直し、画面へ届いたことにする（引数のファイル）
     POST /__dev/env?ready=0&inventor=0&python=0   ライブラリ・Inventor・Python があるかを変える
+    POST /__dev/mix?mismatch=4,11&failed=19       次に作る仕事で、その番目（1 から）の部品を不一致・失敗にする（無しで全て一致）
 """
 from __future__ import annotations
 
@@ -41,6 +42,7 @@ class Build:
         self.job = {"state": "idle"}
         self.frozen = False
         self.steps: list[dict] = []
+        self.mix: dict[int, str] = {}  # 部品の番目（1 から） → "mismatch" か "failed"（無ければ一致）
 
     def start(self, spec: dict, target: str) -> dict:
         parts = spec.get("parts") or []
@@ -58,10 +60,10 @@ class Build:
         steps = [{"state": "step"}, {"step": step_done, **({"state": "connecting"} if inventor else {})}]
         if inventor:
             steps.append({"state": "building"})
+            results = [self.result(j + 1, r) for j, r in enumerate(rows)]
             for i in range(len(rows)):
-                made = [dict(r, verdict="ok", volume_diff=1e-11, area_diff=-2e-11, extent="外形の差 0.0000 mm", file=f"{r['key']}.ipt") if j <= i else r
-                        for j, r in enumerate(rows)]
-                steps.append({"parts": made, "good": i + 1})
+                made = [results[j] if j <= i else r for j, r in enumerate(rows)]
+                steps.append({"parts": made, "good": sum(r["verdict"] == "ok" for r in made[: i + 1])})
             if assembly:
                 steps.append({"state": "assembly"})
         steps.append({"state": "done"})
@@ -71,6 +73,15 @@ class Build:
             self.job = {**base, **steps[0]}
             self.steps = steps[1:]
         return self.status()
+
+    def result(self, number: int, row: dict) -> dict:
+        """部品 1 つの照合の結果（mix で決めた番目は不一致・失敗）"""
+        kind = self.mix.get(number)
+        if kind == "failed":
+            return dict(row, verdict="failed", error="Inventor でこの形を作れませんでした（回転の断面が閉じていません）")
+        if kind == "mismatch":
+            return dict(row, verdict="mismatch", volume_diff=0.0342, area_diff=0.0127, extent="外形の差 1.20 mm", file=f"{row['key']}.ipt")
+        return dict(row, verdict="ok", volume_diff=1e-11, area_diff=-2e-11, extent="外形の差 0.0000 mm", file=f"{row['key']}.ipt")
 
     def step(self, n: int = 1) -> None:
         with self.lock:
@@ -173,6 +184,8 @@ class Handler(BaseHTTPRequestHandler):
                 BUILD.step(int(query.get("n", ["1"])[0]))
             elif path == "/__dev/launch":
                 PENDING[:] = list(LAUNCH)
+            elif path == "/__dev/mix":
+                BUILD.mix = {int(n): kind for kind in ("mismatch", "failed") for n in (query.get(kind, [""])[0].split(",")) if n}
             elif path == "/__dev/env":
                 for k in ENV:
                     if k in query:

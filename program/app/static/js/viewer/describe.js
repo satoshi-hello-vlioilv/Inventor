@@ -127,6 +127,7 @@ export function describeAssembly(scene, volumes = []) {
     return {
       key, index, number: n + 1, name: part.name, ids: instances.map((i) => i.id), count: instances.length,
       size, material: part.material, volume, mass, missing: Boolean(part.missing), file: part.file ?? null, path: part.path ?? null,
+      standard: Boolean(part.display), // Content Center の標準部品（.iam の参照に表示名がある）
       text: `${part.name} × ${instances.length}`,
     };
   });

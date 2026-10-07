@@ -46,7 +46,7 @@
     ok("起動で受け取った組立が開く", first && opened, `${first} → ${$("file-name").textContent} · ${((performance.now() - t0) / 1000).toFixed(1)} 秒`);
     // サンプルの組立のボルトは Content Center の部品で .ipt が無い（samples/iam/README.md）。それ以外は全て見つかること
     const bom = $("bom")?.children.length ?? 0;
-    const missing = [...($("missing")?.children ?? [])].map((li) => li.textContent);
+    const missing = [...($("missing")?.querySelectorAll(".feature") ?? [])].map((row) => row.title); // 行の題は参照先のパス
     ok("組立の部品表が組み上がり、見つからないのは Content Center の部品だけ", bom > 0 && missing.every((t) => /Content Center/.test(t)),
        `部品表 ${bom} 行 · 見つからない ${missing.length} 種類`);
     const webgl = !document.querySelector("#stage .message") && !!document.createElement("canvas").getContext("webgl2");
