@@ -4,6 +4,7 @@
    2 つめの exe に変換データ（.inventor.json）を渡して起こす（1 つめの窓が受け取って開く）。
    調べること: 合言葉・画面の部品の種類・起動で受け取ったファイルが開く（組立と同じフォルダの部品も届く）・サンプル・合言葉の無い依頼を断る・
    2 つめの起動のファイルが届く・「STEP を作る」ボタンから STEP ができる・作成中（409）と作れない変換データ（400）の理由・
+   2D の図面（DXF）を開くと Canvas に描かれ、レイアウトを切り替えられる・
    HTML のモデル（隔離した iframe の three.js）を取り込める・同時の問い合わせ・速さ。 */
 (async () => {
   const res = [];
@@ -55,7 +56,7 @@
     // 3) サンプル
     const samples = (await api("/api/samples")).json?.samples ?? [];
     const kinds = [...new Set(samples.map((s) => s.kind))];
-    ok("サンプルの一覧（ipt・iam・stp・html の順）", kinds.join() === "ipt,iam,stp,html", `${kinds.join()} · ${samples.length} 件`);
+    ok("サンプルの一覧（ipt・iam・stp・dwg・html の順）", kinds.join() === "ipt,iam,stp,dwg,html", `${kinds.join()} · ${samples.length} 件`);
     const sizes = await Promise.all(kinds.map(async (k) => {
       const s = samples.find((x) => x.kind === k);
       const b = await (await fetch(s.url)).arrayBuffer();
@@ -109,6 +110,26 @@
     // 7) 理由の答え
     const bad = await post("/api/build", { spec: { format: "other" }, target: "step" });
     ok("作れない変換データは理由を返す（400）", bad.r.status === 400 && /この変換データからは作れません/.test(bad.json?.message || ""), bad.text);
+
+    // 7.5) 2D の図面（サンプルの DXF）: 開くと 2D の Canvas に線が描かれ（色の付いた点を数える）、画層が並び、A3 のレイアウトに切り替えられる
+    const drawingName = samples.find((x) => x.kind === "dwg")?.name;
+    $("show-start")?.click();
+    [...document.querySelectorAll("button.sample-row")].find((b) => b.title === drawingName)?.click();
+    const inked = () => {
+      const c = $("view2d");
+      if (c.hidden || !c.width) return 0;
+      const data = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+      let n = 0;
+      for (let i = 3; i < data.length; i += 4) if (data[i]) n++;
+      return n;
+    };
+    const drawn = await until(() => $("file-name").textContent === drawingName && inked() > 2000, 30000);
+    const layers = $("layers")?.querySelectorAll(".feature").length ?? 0;
+    ok("2D の図面を開くと Canvas に描かれ、画層が並ぶ", drawingName && drawn && layers > 0, `${drawingName} · 描いた点 ${inked()} · 画層 ${layers}`);
+    const tab = $("layout-tabs")?.children[1];
+    tab?.click();
+    const switched = await until(() => tab?.getAttribute("aria-current") === "true" && inked() > 2000 && /A3/.test($("drawing-info").textContent), 10000);
+    ok("図面のレイアウト（紙）に切り替えられる", switched, `${tab?.textContent ?? "タブが無い"} · ${$("drawing-info").textContent}`);
 
     // 8) HTML のモデル（隔離した iframe の three.js を取り込み、変換データを作る）。サンプルは three.js を CDN から読む
     //    CDN に届かない PC（ネットワークの制限）では測れないので、測っていないと書く（届くかは状態コードで見る。no-cors の答えは中身が見えない）

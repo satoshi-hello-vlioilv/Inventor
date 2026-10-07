@@ -1,4 +1,4 @@
-// 4×4 の同次変換行列（行優先の 16 要素の配列）。組立の配置に使う。
+// 4×4 の同次変換行列（行優先の 16 要素の配列）。組立の配置・図面のブロック参照に使う。
 
 export const IDENTITY = Object.freeze([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 
@@ -28,3 +28,11 @@ export function placementMatrix({ origin, x, y, z }, scale = 1) {
 
 /** 点 p を変換する */
 export const apply = (m, p) => [0, 1, 2].map((r) => m[r * 4] * p[0] + m[r * 4 + 1] * p[1] + m[r * 4 + 2] * p[2] + m[r * 4 + 3]);
+
+/** 移動・Z 軸回りの回転（ラジアン）・拡大の行列（2D の図面のブロック参照など） */
+export const translation = ([x, y, z = 0]) => [1, 0, 0, x, 0, 1, 0, y, 0, 0, 1, z, 0, 0, 0, 1];
+export function rotationZ(angle) {
+  const c = Math.cos(angle), s = Math.sin(angle);
+  return [c, -s, 0, 0, s, c, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+}
+export const scaling = ([x, y, z = 1]) => [x, 0, 0, 0, 0, y, 0, 0, 0, 0, z, 0, 0, 0, 0, 1];

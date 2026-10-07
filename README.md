@@ -1,7 +1,7 @@
 # Inventor 3Dツール
 
-Autodesk Inventor の部品（.ipt）・組立（.iam）、STEP（.stp）と、three.js で作った 3D モデル（.html）をブラウザで表示・解析し、
-three.js のモデルを STEP（.stp。Inventor 不要）と Inventor の部品（.ipt）・組立（.iam）に変換する 1 つのアプリ。
+Autodesk Inventor の部品（.ipt）・組立（.iam）、STEP（.stp）、2D の図面（.dwg・.dxf）と、three.js で作った 3D モデル（.html）を
+ブラウザで表示・解析し、three.js のモデルを STEP（.stp。Inventor 不要）と Inventor の部品（.ipt）・組立（.iam）に変換する 1 つのアプリ。
 
 Windows のデスクトップアプリ（`Inventor3DTool.exe`。Tauri・Rust の窓が画面（HTML・JavaScript・CSS）を出す）。WaveLog と同じ作りと配り方
 （最上位の exe ＋ `program` フォルダ。exe は GitHub Actions が作り、本物の WebView2 で自己診断して main へ置く）。
@@ -9,7 +9,8 @@ Windows のデスクトップアプリ（`Inventor3DTool.exe`。Tauri・Rust の
 
 - デスクトップ版の構成・判断・評価: [docs/desktop.md](docs/desktop.md)
 - アプリの構成・設計の判断・段階計画: [docs/app-architecture.md](docs/app-architecture.md)
-- 形式の調査結果: [docs/ipt-format.md](docs/ipt-format.md)（部品）・[docs/iam-format.md](docs/iam-format.md)（組立・STEP との照合）
+- 形式の調査結果: [docs/ipt-format.md](docs/ipt-format.md)（部品）・[docs/iam-format.md](docs/iam-format.md)（組立・STEP との照合）・
+  [docs/drawing-format.md](docs/drawing-format.md)（2D の図面: DWG・DXF の読み取りと表示・確かめた結果）
 - Inventor で部品を作る手順（「Inventor で作る」・変換データ・コマンド）: [docs/inventor-builder.md](docs/inventor-builder.md)
 - .stp・.ipt・.iam を Inventor なしで作れるか（技術的な検討と、いまの制約）: [docs/cad-output.md](docs/cad-output.md)
 
@@ -24,7 +25,7 @@ Windows のデスクトップアプリ（`Inventor3DTool.exe`。Tauri・Rust の
 | 操作 | 動き |
 |---|---|
 | `Inventor3DTool.exe` をダブルクリック | アプリを開く（2 つめは開かず、開いている窓を前に出す） |
-| .ipt・.iam・.stp・.html・.inventor.json を `Inventor3DTool.exe` にドロップ（「プログラムから開く」でもよい） | そのファイルをアプリで開く（複数なら 1 つの窓にまとめ、見出しバーの「受け取った n 件」から切り替える）。開いている間にドロップしても、同じ窓で開く。.iam は同じフォルダの .ipt も部品として使い、組み立てて表示する |
+| .ipt・.iam・.stp・.dwg・.dxf・.html・.inventor.json を `Inventor3DTool.exe` にドロップ（「プログラムから開く」でもよい） | そのファイルをアプリで開く（複数なら 1 つの窓にまとめ、見出しバーの「受け取った n 件」から切り替える）。開いている間にドロップしても、同じ窓で開く。.iam は同じフォルダの .ipt も部品として使い、組み立てて表示する |
 | 行動ドック（右下）の **STEP を作る** | 取り込んだ形（または開いた変換データ）から、STEP（.stp）を作る。Inventor もライブラリも使わない（下の「CAD ファイルを作る」） |
 | 行動ドック（右下）の **Inventor で作る** | STEP に加えて、Inventor で部品（.ipt）と組立（.iam）を作り、部品ごとに体積・表面積を照合する |
 
@@ -39,7 +40,7 @@ Windows のデスクトップアプリ（`Inventor3DTool.exe`。Tauri・Rust の
 | 場所 | 中身 |
 |---|---|
 | 見出しバー（上端） | いま開いているもの（種類と名前）・**サンプル・受け取ったファイル**・**ファイルを開く** |
-| 3D（主役） | 何も開いていなければ、ここが始め方（ドロップの受け口・**ファイルを選ぶ**・**サンプルで試す**）になる。HTML のときは左に元のページが並ぶ |
+| 3D（主役） | 何も開いていなければ、ここが始め方（ドロップの受け口・**ファイルを選ぶ**・**サンプルで試す**）になる。HTML のときは左に元のページが並ぶ。図面（.dwg・.dxf）のときは 2D の図面になり、左上でレイアウト（モデル・紙）を切り替える |
 | 右の欄 | 上から **段階の帯**（HTML・変換データのとき）→ 中身（寸法・部品表・単位・照合の結果など）→ **行動ドック**（右下） |
 
 - **塗りの青いボタンは、いつも 1 つだけ**。それがその画面で次にすること（何も開いていない → ファイルを選ぶ、組立の部品が足りない →
@@ -141,7 +142,7 @@ flowchart LR
 | `program/ipt_build/` | CAD ファイルを作るビルダー（Python。窓が作るときだけ別のプロセスで動かす。コマンドでも使える）。STEP は標準ライブラリだけで書き（`p21.py`・`brep.py`・`step.py`）、.ipt・.iam は Inventor で作る（操作に使うライブラリは中の `requirements.txt`） |
 | `program/samples/` | サンプルの置き場（「サンプル・受け取ったファイル」の一覧兼、評価の題材） |
 | `program/tests/` | 評価。Python（`test_*.py`: 配る形・ビルダー・STEP）と JavaScript（`js/`）。窓の評価は `desktop/` の `cargo test` |
-| `program/tools/` | 開発用の道具（ファイルの中身の調査・テスト用データの作成・書き出した STEP の形状カーネルでの確かめ・アイコンの絵・画面の撮影と測定 `ui-check.mjs`・改良案を画像にする `ui-variants.mjs`（案の定義は `ui-proposals/`。共通部分は `ui-harness.mjs`）・窓の代わり `ui_server.py`・改良案の評価関数 `ui_score.py`） |
+| `program/tools/` | 開発用の道具（ファイルの中身の調査・テスト用データの作成・書き出した STEP の形状カーネルでの確かめ・アイコンの絵・画面の撮影と測定 `ui-check.mjs`・改良案を画像にする `ui-variants.mjs`（案の定義は `ui-proposals/`。共通部分は `ui-harness.mjs`）・窓の代わり `ui_server.py`・改良案の評価関数 `ui_score.py`・図面の読み取りの評価 `dwg-check.mjs`（AutoCAD の値と比べる）・`cad2d-check.mjs`（DWG と DXF を突き合わせる。比べ方は `cad2d-compare.mjs`）・図面のサンプルを作る `make_drawing_sample.py`） |
 | `.github/workflows/desktop.yml` | Windows で exe を作り、自己診断し、main へ置く |
 | `docs/`・`package.json`・`CLAUDE.md` | 設計と調査の記録、JavaScript の評価の実行（開発用）、作業の決まり |
 
@@ -150,11 +151,12 @@ flowchart LR
 | フォルダ | 役割 | 画面（DOM）に依存 |
 |---|---|:-:|
 | `core/` | ベクトル・行列・数値の道具、表示名（`labels.json`） | — |
-| `formats/` | ファイルの読み取り。`ipt/`（OLE2 → Zstandard → SAB → B-rep）・`iam/`（参照・出現・配置）・`step/`（ISO 10303-21）。入口は `open.js`（形式の判定と、表示・変換で共通に使う「モデル」への読み込み） | — |
+| `formats/` | ファイルの読み取り。`ipt/`（OLE2 → Zstandard → SAB → B-rep）・`iam/`（参照・出現・配置）・`step/`（ISO 10303-21）・`dwg/`（DWG のビット列・節・圧縮・オブジェクト）・`cad2d/`（DWG と DXF で共通の図面のモデル、DXF の読み取り）。入口は `open.js`（形式の判定と、表示・変換で共通に使う「モデル」への読み込み） | — |
 | `model/` | 形式によらない形（面・稜線）: 曲線の計算、寸法の要約（穴・外径・R・ねじ・円錐）、表示用の面のデータ | — |
 | `html/` | three.js の HTML を隔離した枠で動かし、表示中の形状を取り出す（フック・受け渡し・表示用データ） | ✓ |
 | `convert/` | 実寸の単位（`units.js`）。三角形メッシュを立体に閉じ（`recognize/shells.js`）、回転体・押し出し（面取りを含む）を認識して元の形と照らし合わせ（`recognize/`）、変換データを作る（`inventor.js`）。変換データを開いたときの 3D と説明（`preview.js`） | — |
 | `viewer/` | 三角形分割・3D 表示・面と部品の説明 | ✓ |
+| `viewer2d/` | 2D の図面の表示: 描くもの（ブロック・画層・線種・ハッチング・ビューポート。`scene.js`）・Canvas への描画（`viewer2d.js`）・指した図形の索引と説明・文字の書式・色番号 | `viewer2d.js` だけ |
 | `ui/` | 画面の部品: 次にすることの決め方（`flow.js`）・段階の帯（`steps.js`）・右の欄・サンプルの一覧・ファイルの受け付け・変換の節（`convert.js`）・シーンの単位（`units.js`）・「CAD ファイルを作る」（`build.js`）・exe の名前 | ✓ |
 | `desktop.js` | 窓とのやりとり: サンプル・exe へドロップされたファイル（開いたままのドロップを含む）・「CAD ファイルを作る」 | ✓ |
 | `main.js` | 入口。ファイルを読み、表示し、3D ⇄ パネルを連動させる | ✓ |
@@ -169,6 +171,10 @@ three.js・fzstd（Zstandard の展開）・Delaunator と Constrainautor（面�
   行にカーソルを合わせると 3D の部品を強調し、押すとその部品を開く。見つからない部品は部品表の下に出し、その .ipt をドロップすると組立に加わる
   （Content Center の標準部品なら、Inventor で .ipt に書き出す用意の仕方を示す）
 - **STEP（.stp・.step）**: 部品の形状と組立の配置を全て含むので、単独で表示できる（部品が 1 つなら部品として、2 つ以上なら組立として）
+- **2D の図面（.dwg・.dxf）**: AutoCAD・Inventor などが書いた図面を、AutoCAD なしで表示する。DWG は R13〜R2018（R2007 を除く）、
+  DXF は全ての版（ASCII・バイナリ）。モデルと紙のレイアウト（ビューポートの中のモデル）を切り替え、画層ごとに表示・非表示にでき、
+  線・円・文字・寸法などにカーソルを合わせると、種類と寸法（長さ・半径・文字・寸法の値）と画層を示す。白地で読みにくい色（シアン・黄）は、
+  色相を保って濃くする。読み方と確かめた結果・まだできないことは [docs/drawing-format.md](docs/drawing-format.md)
 - **.html（three.js）**: 元のページを隔離した枠の中で動かし、表示中の 3D モデルを取り出す（インスタンス描画を含む）。シーンの単位を
   実寸（mm）に直し、開いた面は縫い合わせ・縁を塞いで立体にし、部品ごとに「回転体」「押し出し（端面の縁の等距離面取りを含む）」
   「近似（三角形のまま）」に分類して寸法を復元する
@@ -185,6 +191,7 @@ three.js・fzstd（Zstandard の展開）・Delaunator と Constrainautor（面�
 | [`program/samples/ipt/`](program/samples/ipt) | .ipt（部品）。アプリのサンプルと解析の評価に使う（詳しくは中の README） |
 | [`program/samples/iam/`](program/samples/iam) | .iam（組立）。参照する部品は samples/ipt のものを使って組み立てる |
 | [`program/samples/stp/`](program/samples/stp) | STEP（.stp・.step）。同じ部品の .ipt・同じ組立の .iam との照合にも使う |
+| [`program/samples/dwg/`](program/samples/dwg) | 2D の図面（.dwg・.dxf）。サンプルの部品 A1 の部品図など |
 | [`program/samples/html/`](program/samples/html) | 形状認識の検証に使う three.js の HTML（アプリのサンプルにもなる） |
 
 ## 開発

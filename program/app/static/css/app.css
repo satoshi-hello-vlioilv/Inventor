@@ -29,6 +29,10 @@
   --axis-x: #cc4136;
   --axis-y: #2b8f45;
   --axis-z: #2a6ad2;
+  --sheet: #ffffff; /* 図面の地（viewer2d が読む） */
+  --sheet-ink: #1b2430; /* 図面の色番号 7（前景色） */
+  --sheet-contrast: 3; /* 図面の色の、地に対するコントラスト比の下限（届かない色を前景の側へ寄せる。白地のシアン・黄など） */
+  --font-drawing: "IBM Plex Sans JP", "Yu Gothic UI", "Meiryo", sans-serif; /* 図面の文字（SHX・TrueType の代わり） */
   --shadow-1: 0 1px 2px rgba(16, 24, 40, 0.06), 0 2px 10px rgba(16, 24, 40, 0.06);
   --shadow-2: 0 -6px 18px rgba(16, 24, 40, 0.07);
   --shadow-3: 0 24px 64px rgba(10, 20, 30, 0.28);
@@ -46,6 +50,7 @@
     --critical: #ff8a80; --critical-soft: rgba(255, 138, 128, 0.1); --ok: #6fcf8a; --ok-soft: rgba(111, 207, 138, 0.12);
     --warn: #e0a84e; --warn-soft: rgba(224, 168, 78, 0.14); --caution-ink: #e8bd75; --on-warn: #1a2129;
     --steel: #a9b1ba; --approx: #c89b58; --edge: #0f141a; --axis-x: #ff6a5c; --axis-y: #4cc46c; --axis-z: #5e9dff;
+    --sheet: #1b222b; --sheet-ink: #e8edf2;
     --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4); --shadow-2: 0 -6px 18px rgba(0, 0, 0, 0.35); --shadow-3: 0 24px 64px rgba(0, 0, 0, 0.6);
     color-scheme: dark;
   }
@@ -57,6 +62,7 @@
   --critical: #ff8a80; --critical-soft: rgba(255, 138, 128, 0.1); --ok: #6fcf8a; --ok-soft: rgba(111, 207, 138, 0.12);
   --warn: #e0a84e; --warn-soft: rgba(224, 168, 78, 0.14); --caution-ink: #e8bd75; --on-warn: #1a2129;
   --steel: #a9b1ba; --approx: #c89b58; --edge: #0f141a; --axis-x: #ff6a5c; --axis-y: #4cc46c; --axis-z: #5e9dff;
+    --sheet: #1b222b; --sheet-ink: #e8edf2;
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4); --shadow-2: 0 -6px 18px rgba(0, 0, 0, 0.35); --shadow-3: 0 24px 64px rgba(0, 0, 0, 0.6);
   color-scheme: dark;
 }
@@ -167,6 +173,18 @@ kbd { font: 500 var(--fs-xs)/1.35 var(--font-num); padding: 0 5px; border: 1px s
 .readout.is-live { color: var(--ink); }
 .readout.is-live .chip { border-color: var(--accent); }
 .app.is-empty .toolbar, .app.is-empty .readout, .app.is-empty .gizmo { visibility: hidden; }
+/* 図面（.dwg・.dxf）: 3D の代わりに 2D の Canvas。地は図面の色（--sheet）。3D の向きの印は出さない */
+.app.is-drawing .stage { background: var(--sheet); }
+.app.is-drawing .gizmo { display: none; }
+.app.is-drawing .readout { left: 12px; }
+.view2d { cursor: crosshair; }
+.view2d.is-panning { cursor: grabbing; }
+.tool-group button[aria-current="true"] { color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+/* 入・切のボタン（is-check）は塗らずに印で: 選んでいるタブ（塗り）と見分ける */
+.tool-group button.is-check[aria-pressed] { color: var(--ink); background: transparent; }
+.tool-group button.is-check:hover { background: var(--accent-soft); }
+.tool-group button.is-check::before { content: "☐"; margin-inline-end: 5px; color: var(--muted); }
+.tool-group button.is-check[aria-pressed="true"]::before { content: "☑"; color: var(--accent); }
 /* 3D に塗った結果の凡例（右下） */
 .stage-legend {
   position: absolute; right: 12px; bottom: 14px; margin: 0; display: flex; gap: 12px; padding: 6px 12px; pointer-events: none;
@@ -229,6 +247,7 @@ details.more > summary:hover { color: var(--accent); }
 details.more[open] > summary { margin-bottom: 8px; color: var(--ink); }
 details.card.more { gap: 0; }
 details.card.more[open] { gap: 8px; }
+details.card.more summary .h-note { margin-inline-start: 8px; }
 
 /* 知らせ（誤りは赤、知らせは青）。欄のいちばん上に出す */
 .alert, .notice { margin: 12px 0 0; padding: 9px 12px; font-size: var(--fs-s); border-radius: 8px; border: 1px solid; }
@@ -387,6 +406,17 @@ details.card.more[open] { gap: 8px; }
 .features.is-bom .feature .kind { font: 500 var(--fs-xs) var(--font-num); }
 .features.is-bom .feature .dim { font: 500 var(--fs-s)/1.45 var(--font-ui); }
 .features.is-bom .feature:focus-visible { outline-offset: -2px; }
+/* 画層: 色の見本・名前・図形の数。1 行ずつ低く並べ、押すと表示・非表示（消した画層は薄く、名前に取り消し線） */
+.features.layers { gap: 0; }
+.layers .feature { cursor: pointer; grid-template-columns: 14px 1fr auto; padding: 5px 10px; border-color: transparent; background: transparent; border-radius: 8px; }
+.layers .feature:hover, .layers .feature.is-active { border-color: var(--accent); background: var(--accent-soft); }
+.layers .feature .kind { width: 12px; height: 12px; border-radius: 3px; background: var(--swatch); border: 1px solid var(--rule); align-self: center; }
+.layers .feature .dim { font: 500 var(--fs-s)/1.45 var(--font-ui); }
+.layers .feature[aria-pressed="false"] { opacity: 0.55; }
+.layers .feature[aria-pressed="false"] .kind { background: transparent; }
+.layers .feature[aria-pressed="false"] .dim { text-decoration: line-through; }
+.layers .feature:focus-visible { outline-offset: -2px; }
+.hint-text.is-warn { color: var(--caution-ink); }
 .empty { color: var(--muted); font-size: var(--fs-s); }
 .tally { display: flex; flex-wrap: wrap; gap: 6px; }
 .tally:empty { display: none; }

@@ -21,6 +21,7 @@ const FIXTURE = (n) => path.join(PROGRAM, "tests/fixtures/builder", `${n}.invent
 const IPT = "A1_円筒_両切欠き＋片ネジ_Φ54.5.ipt";
 const IAM = "Assembly_全体_Φ54.5.iam";
 const HTML = "LS4_parts_viewer.html";
+const DRAWING = "A1_円筒_部品図.dxf";
 
 export const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 
@@ -87,6 +88,19 @@ async function openFile(page, file) {
   await sleep(800);
 }
 
+/** 図面の上でカーソルを動かし、図形の読み出しが出たら止める（出なければ最後の位置のまま） */
+async function hoverDrawing(page) {
+  const box = await page.locator("#view2d").boundingBox();
+  if (!box) return;
+  for (let fy = 0.35; fy <= 0.65; fy += 0.05) {
+    for (let fx = 0.3; fx <= 0.7; fx += 0.02) {
+      await page.mouse.move(box.x + box.width * fx, box.y + box.height * fy);
+      await sleep(40);
+      if (await page.locator("#readout.is-live").count()) return;
+    }
+  }
+}
+
 /** 「Inventor で作る」を押し、仕事が始まる（中止のボタンが出る）まで待つ（その前に段階を進めると、進める先が無い） */
 async function startJob(page) {
   await page.click("#build");
@@ -100,6 +114,9 @@ export const STATES = [
   ["library", openLibrary, "#start-open"],
   ["ipt", async (p) => { await openSample(p, IPT); }, "[data-next]"],
   ["asm", async (p) => { await openSample(p, IAM); }, "[data-next]"],
+  // 図面（2D）。図形にカーソルを合わせた様子（読み出し・強調）も撮る: 図面の上を格子状に動かし、読み出しが出た所で止める
+  ["drawing", async (p) => { await openSample(p, DRAWING); await hoverDrawing(p); }, "[data-next], #open"],
+  ["layout", async (p) => { await p.click("#layout-tabs button:nth-child(2)"); await sleep(600); await hoverDrawing(p); }, "[data-next], #open"],
   ["html", async (p) => {
     await openSample(p, HTML);
     await p.waitForFunction(() => /取り込み/.test(document.querySelector("#source-status")?.textContent ?? "") && /r\d+/.test(document.querySelector("#source-status").textContent), null, { timeout: 30000 });
@@ -152,7 +169,11 @@ export function measure(nextSelector) {
     return r.width > 0 && r.height > 0 && !el.closest("[hidden]");
   };
   const inView = (r) => r.top >= 0 && r.left >= 0 && r.bottom <= innerHeight && r.right <= innerWidth;
-  const rgb = (c) => (c.match(/[\d.]+/g) ?? []).map(Number);
+  // 色 → [r, g, b, a]（0〜255）。color-mix() の結果は color(srgb r g b / a)（0〜1）で返るので、255 倍する
+  const rgb = (c) => {
+    const n = (c.match(/[\d.]+/g) ?? []).map(Number);
+    return c.startsWith("color(srgb") ? [n[0] * 255, n[1] * 255, n[2] * 255, n[3] ?? 1] : n;
+  };
   const lum = ([r, g, b]) => {
     const f = (v) => ((v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
     return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);

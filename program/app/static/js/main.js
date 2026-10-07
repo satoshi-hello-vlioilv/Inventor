@@ -1,6 +1,7 @@
 // アプリの入口: 受け取ったファイルを読み（formats/open.js）、3D（viewer/）と右の欄（ui/panel.js）に表示し、両者を連動させる。
 // 次にすること（主のボタン 1 つ）は ui/flow.js が決め、段階の帯（ui/steps.js）と行動ドックに出す（docs/ui.md）。
 //   .ipt・.iam・.stp … モデル（部品・組立）として読み、表示する
+//   .dwg・.dxf       … 2D の図面として読み（formats/cad2d）、Canvas に描く（viewer2d/）。レイアウトの切り替え・画層の表示・図形の読み出し
 //   .html            … 隔離した iframe で動かし、three.js の形状を取り出して認識し（convert/recognize）、変換データを作る
 //   .json            … 変換データ（.inventor.json）。作る形を 3D で示し（convert/preview.js）、「Inventor で作る」で作る
 // ファイルの受け付けは ui/files.js、窓（Inventor3DTool.exe）とのやりとり（サンプル・起動で受け取ったファイル）は desktop.js、
@@ -20,10 +21,13 @@ import { claimLaunch, listSamples, onLaunch } from "./desktop.js";
 import { PartLibrary, acceptFiles } from "./ui/files.js";
 import { initBuild } from "./ui/build.js";
 import { setupUnit } from "./ui/units.js";
-import { renderAsmPanel, renderHeader, renderHtmlPanel, renderIptPanel, renderSpecPanel, setPanelMode } from "./ui/panel.js";
+import { renderAsmPanel, renderDrawingPanel, renderHeader, renderHtmlPanel, renderIptPanel, renderSpecPanel, setPanelMode } from "./ui/panel.js";
 import { startDialog } from "./ui/start.js";
 import { describeAssembly, describeBody } from "./viewer/describe.js";
 import { VIEWS, Viewer } from "./viewer/viewer.js";
+import { describeDrawing, describeItem } from "./viewer2d/describe.js";
+import { buildScene } from "./viewer2d/scene.js";
+import { DrawingViewer } from "./viewer2d/viewer2d.js";
 
 const $ = (id) => document.getElementById(id);
 const readout = $("readout");
@@ -31,10 +35,12 @@ const readoutChip = readout.querySelector(".chip");
 // 何も指していないときの案内。指す単位（部品は面、組立・HTML は部品）に合わせる
 const IDLE_TEXT = { ipt: readoutChip.textContent, asm: "部品にカーソルを合わせると、名前と寸法を表示します" };
 IDLE_TEXT.html = IDLE_TEXT.spec = IDLE_TEXT.asm;
+IDLE_TEXT.drawing = "線・文字・寸法にカーソルを合わせると、種類と寸法を表示します";
 const SETTLE_MS = 1200; // 元のページの最初の描画から取り込みまで待つ時間（初期化の完了待ち）
 const READY_TIMEOUT_MS = 15000;
 // 見出しバーの種類の札（いま何を見ているか）
-const EYEBROW = { "part:ipt": "部品 .ipt", "part:step": "STEP 部品", "assembly:step": "STEP 組立", "assembly:iam": "組立 .iam" };
+const EYEBROW = { "part:ipt": "部品 .ipt", "part:step": "STEP 部品", "assembly:step": "STEP 組立", "assembly:iam": "組立 .iam",
+  "drawing:dwg": "図面 .dwg", "drawing:dxf": "図面 .dxf" };
 
 let idleText = IDLE_TEXT.ipt;
 let current = null; // 表示中の強調の対応 { info: Map<id, {group, text}>, rows: Map<groupKey, element> }
@@ -44,6 +50,7 @@ let assembly = null; // 表示中（または部品を開く前）の組立 { mo
 let source = null; // 表示中の元のページ（SourceFrame）
 let sourceName = ""; // 表示中の HTML のファイル名
 let captured = null; // 最後に取り込んだシーン { snapshot, at, unit }（単位を変えたら認識し直す）
+let sheet = null; // 表示中の図面 { model, layout（番号）, layers: Map<画層, 表示するか>（利用者が切り替えたもの）, scene, rows }
 
 // ---- 強調表示（3D ⇄ パネルの双方向） -----------------------------------------
 function highlight(ids, text, groupKey) {
@@ -74,6 +81,9 @@ try {
   $("stage").append(note);
 }
 
+// 2D の図面（Canvas 2D なので WebGL が無くても動く）
+const drawingViewer = new DrawingViewer({ stage: $("stage"), canvas: $("view2d") }, { onHover: onDrawingHover });
+
 function showMessage(id, message) {
   $(id).textContent = message;
   $(id).hidden = !message;
@@ -86,6 +96,15 @@ const showNotice = (message) => showMessage("notice", message);
 function setMode(mode) {
   $("app").classList.toggle("is-html", mode === "html");
   $("app").classList.toggle("is-empty", mode === "empty");
+  $("app").classList.toggle("is-drawing", mode === "drawing");
+  $("view").hidden = mode === "drawing";
+  $("view2d").hidden = mode !== "drawing";
+  $("stage").setAttribute("aria-label", mode === "drawing" ? "図面" : "3D ビュー");
+  if (mode !== "drawing") {
+    sheet = null;
+    drawingViewer.clear();
+    delete $("app").dataset.layout;
+  }
   $("stage-empty").hidden = mode !== "empty";
   $("source").hidden = mode !== "html";
   $("back-to-assembly").hidden = $("add-missing").hidden = true;
@@ -185,7 +204,10 @@ async function loadModel(bytes, name, isSample) {
   }
   showAlert(model.warning ? `${name}: ${model.warning}` : "");
   const header = { eyebrow: EYEBROW[`${model.kind}:${model.format}`], name, meta: model.meta, isSample, thumbnailUrl: setThumbnail(model.thumbnail) };
-  if (model.kind === "part") {
+  if (model.kind === "drawing") {
+    assembly = null;
+    showDrawing(model, header);
+  } else if (model.kind === "part") {
     assembly = null;
     showPart(model, header);
   } else {
@@ -193,6 +215,83 @@ async function loadModel(bytes, name, isSample) {
     showAssembly(model, header);
   }
 }
+
+// ---- 図面（.dwg・.dxf）-----------------------------------------------------------
+/** 図面を表示する（最初のレイアウト = モデル） */
+function showDrawing(model, header) {
+  setMode("drawing");
+  renderHeader(header);
+  current = null;
+  sheet = { model, layout: 0, layers: new Map(), scene: null, rows: new Map() };
+  renderLayoutTabs();
+  renderSheet(true);
+}
+
+/** いまのレイアウト・画層の表示で描き直す（fit: 全体が収まるように） */
+function renderSheet(fit) {
+  const { drawing } = sheet.model;
+  const layout = drawing.layouts[sheet.layout];
+  const pick = (on) => new Set([...sheet.layers].filter(([, v]) => v === on).map(([k]) => k));
+  sheet.scene = buildScene(drawing, layout, { hidden: pick(false), shown: pick(true) });
+  drawingViewer.show(sheet.scene, { fit });
+  const visible = (name) => {
+    if (sheet.layers.has(name)) return sheet.layers.get(name);
+    const l = drawing.layers.get(name);
+    return !(l?.off || l?.frozen);
+  };
+  $("app").dataset.layout = layout.model ? "model" : "paper"; // 地の色をモデルと紙で変えられるように（CSS）
+  sheet.rows = renderDrawingPanel({ drawing, describe: describeDrawing(drawing, sheet.scene), layout, visible,
+    display: (color) => drawingViewer.displayColor(color) }, {
+    onToggle: (name) => {
+      sheet.layers.set(name, !visible(name));
+      renderSheet(false);
+      sheet.rows.get(name)?.focus();
+    },
+    onEnter: (name) => highlightItems(sheet.scene.items.flatMap((item, i) => (item.layer === name ? [i] : [])), `画層 ${name}`, name),
+    onLeave: () => highlightItems([]),
+  });
+  highlightItems([]);
+}
+
+/** レイアウトの切り替え（モデルと紙のレイアウト。1 つだけなら出さない） */
+function renderLayoutTabs() {
+  const { layouts } = sheet.model.drawing;
+  const group = $("layout-tabs");
+  group.hidden = layouts.length < 2;
+  group.replaceChildren(...layouts.map((l, i) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = l.model ? "モデル" : l.name;
+    button.setAttribute("aria-current", String(i === sheet.layout));
+    button.addEventListener("click", () => {
+      if (sheet.layout === i) return;
+      sheet.layout = i;
+      for (const b of group.children) b.setAttribute("aria-current", String(b === button));
+      renderSheet(true);
+    });
+    return button;
+  }));
+}
+
+/** 図面の図形の強調（読み出しの文と、画層の行の印） */
+function highlightItems(items, text, layer) {
+  drawingViewer.highlight(items);
+  readoutChip.textContent = text ?? idleText;
+  readout.classList.toggle("is-live", Boolean(text));
+  for (const [name, row] of sheet?.rows ?? []) row.classList.toggle("is-active", name === layer);
+}
+
+function onDrawingHover(index) {
+  const item = index === null ? null : sheet?.scene?.items[index];
+  if (item) highlightItems([index], describeItem(item, sheet.model.drawing.units.name), item.layer);
+  else highlightItems([]);
+}
+
+$("toggle-lineweight").addEventListener("click", (event) => {
+  const on = event.currentTarget.getAttribute("aria-pressed") !== "true";
+  event.currentTarget.setAttribute("aria-pressed", String(on));
+  drawingViewer.setLineweights(on);
+});
 
 // ---- HTML ----------------------------------------------------------------------
 const setSourceStatus = (text) => ($("source-status").textContent = text);
@@ -370,7 +469,7 @@ async function receive(items) {
   const others = items.filter((i) => !opens(i));
   if (!usable.length) usable.push(others.shift()); // 拡張子が違っても、中身で判断して開いてみる
   const notes = [];
-  if (others.length) notes.push(`${nameList(others)} は開けません（対応しているのは .ipt・.iam・.stp・.html・.inventor.json）。`);
+  if (others.length) notes.push(`${nameList(others)} は開けません（対応しているのは .ipt・.iam・.stp・.dwg・.dxf・.html・.inventor.json）。`);
   if (!usable.length) {
     startDialog.close();
     showAlert(notes.join(" "));
@@ -389,7 +488,7 @@ acceptFiles({ input: $("file-input"), openers: [$("open"), $("welcome-open"), $(
 for (const button of document.querySelectorAll("[data-view]")) {
   button.addEventListener("click", () => viewer?.setView(VIEWS[button.dataset.view]));
 }
-$("fit").addEventListener("click", () => viewer?.fit());
+$("fit").addEventListener("click", () => (sheet ? drawingViewer.fit() : viewer?.fit()));
 $("toggle-edges").addEventListener("click", (event) => {
   const on = event.currentTarget.getAttribute("aria-pressed") !== "true";
   event.currentTarget.setAttribute("aria-pressed", String(on));

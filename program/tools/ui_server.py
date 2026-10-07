@@ -28,7 +28,7 @@ PROGRAM = Path(__file__).resolve().parents[1]
 APP = PROGRAM / "app"
 SAMPLES = PROGRAM / "samples"
 TOKEN = "dev-" + "0" * 44  # 画面が添える合言葉（48 字。窓と同じ長さ）
-KINDS = {"ipt": (".ipt",), "iam": (".iam",), "stp": (".stp", ".step"), "html": (".html", ".htm")}
+KINDS = {"ipt": (".ipt",), "iam": (".iam",), "stp": (".stp", ".step"), "dwg": (".dwg", ".dxf"), "html": (".html", ".htm")}
 TYPES = {".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
          ".html": "text/html; charset=utf-8", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png"}
 TICK = 0.45  # 秒。自動で 1 段進む間隔

@@ -3,8 +3,11 @@
 //   asm  … 組立（.iam・STEP）: 外形寸法・部品表・構成・見つからない部品（次にすることのボタンは行動ドック）
 //   html … three.js の HTML: 照合の結果・単位・作る部品・除外したもの
 //   spec … 変換データ（.inventor.json）: ファイルの情報・照合の結果・作る部品
+//   drawing … 2D の図面（.dwg・.dxf）: ファイルの情報・図面（形式・大きさ・レイアウト）・画層（押すと表示・非表示）・図形の内訳
 
 import { AXES, fmt, fmtMass, fmtSize } from "../viewer/describe.js";
+import { ACI, rgbHex } from "../viewer2d/colors.js";
+import { length } from "../viewer2d/describe.js";
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, className, text) => {
@@ -223,4 +226,57 @@ export function renderSpecPanel({ describe }, handlers) {
   return renderRows("parts", describe.groups,
     (g) => ({ kind: g.label, dim: g.main, count: g.ids.length, sub: g.sub, note: g.note, tone: g.tone, title: g.name }), handlers,
     "作れる部品がありません");
+}
+
+/** 画層の色（"#rrggbb"。色番号 7 = 前景色は null） */
+const layerColor = (color) => (color?.rgb !== undefined ? rgbHex(color.rgb) : ACI[Math.abs(color?.index ?? 7)] ?? null);
+
+/**
+ * 図面（.dwg・.dxf）。画層は、このレイアウトに図形があるものを数の多い順に。図形の無い画層は数だけ添える。
+ * @param {{ drawing, describe, layout, visible: (name) => boolean, display: (color) => string }} data
+ *   display … 図面の色 → 描く色（地に合わせた補正。見本を図面と同じ色にする）
+ * @param {{ onToggle: (name) => void, onEnter: (name) => void, onLeave: () => void }} handlers
+ * @returns {Map<string, HTMLElement>} 画層の名前 → 行（図形を指したとき、その画層の行に印を付ける）
+ */
+export function renderDrawingPanel({ drawing, describe, layout, visible, display }, { onToggle, onEnter, onLeave }) {
+  const units = drawing.units.name;
+  $("drawing-note").textContent = units ? `単位 ${units}` : "単位の指定なし";
+  const [w, h] = describe.extents ?? [];
+  definitionList("drawing-info", [
+    ["形式", `${drawing.format.toUpperCase()} ${drawing.version}`],
+    ["大きさ", describe.extents ? `${length(w)} × ${length(h)}${units ? ` ${units}` : ""}` : "—"],
+    ["レイアウト", `${layout.model ? "モデル" : layout.name}${drawing.layouts.length > 1 ? `（全 ${drawing.layouts.length}）` : ""}`],
+  ]);
+
+  const used = describe.layers.filter((l) => l.count > 0).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, "ja"));
+  const unused = describe.layers.length - used.length;
+  const rows = new Map();
+  const items = used.map((l) => {
+    const button = el("button", "feature");
+    button.type = "button";
+    button.setAttribute("aria-pressed", String(visible(l.name)));
+    button.title = `${l.name}（押すと${visible(l.name) ? "隠す" : "表示する"}）`;
+    const swatch = el("span", "kind");
+    swatch.style.setProperty("--swatch", display(layerColor(l.color)));
+    swatch.dataset.dash = l.dash;
+    const note = l.off || l.frozen ? `（ファイルでは${l.frozen ? "凍結" : "非表示"}）` : "";
+    button.append(swatch, el("span", "dim", `${l.name}${note}`), el("span", "count", `×${l.count}`));
+    button.addEventListener("click", () => onToggle(l.name));
+    for (const type of ["pointerenter", "focus"]) button.addEventListener(type, () => onEnter(l.name));
+    for (const type of ["pointerleave", "blur"]) button.addEventListener(type, onLeave);
+    rows.set(l.name, button);
+    const li = el("li");
+    li.append(button);
+    return li;
+  });
+  if (unused) items.push(el("li", "empty", `ほかに、このレイアウトに図形の無い画層が ${unused} 個`));
+  $("layers").replaceChildren(...(items.length ? items : [el("li", "empty", "画層がありません")]));
+
+  renderTally("drawing-types", describe.types.map((t) => ["", t.label, t.count, t.type]));
+  const skipped = describe.unsupported;
+  $("drawing-unsupported").hidden = !skipped.length;
+  $("drawing-unsupported").textContent = skipped.length
+    ? `まだ描かない図形: ${skipped.map((t) => `${t.label} ${t.count}`).join("・")}（ほかの図形は表示しています）`
+    : "";
+  return rows;
 }

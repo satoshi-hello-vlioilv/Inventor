@@ -51,6 +51,63 @@ export function basis(knots, degree, n, t) {
   return { span: k, N, dN };
 }
 
+/**
+ * 基底関数と、order 階までの導関数（Piegl & Tiller の A2.3）。ders[k][j] = N_{span−p+j} の k 階微分。
+ * basis（1 階まで）では足りない所で使う: 通過点の補間の端の条件（2 階微分 = 0）など。n … 制御点の数
+ * @returns {{ span: number, ders: number[][] }}
+ */
+export function basisDerivatives(knots, degree, n, t, order) {
+  const p = degree, span = spanOf(knots, degree, n, t);
+  const ndu = Array.from({ length: p + 1 }, () => new Array(p + 1).fill(0));
+  const left = [], right = [];
+  ndu[0][0] = 1;
+  for (let j = 1; j <= p; j++) {
+    left[j] = t - knots[span + 1 - j];
+    right[j] = knots[span + j] - t;
+    let saved = 0;
+    for (let r = 0; r < j; r++) {
+      ndu[j][r] = right[r + 1] + left[j - r]; // 下の三角: ノットの差
+      const temp = ndu[j][r] === 0 ? 0 : ndu[r][j - 1] / ndu[j][r];
+      ndu[r][j] = saved + right[r + 1] * temp; // 上の三角: 基底関数
+      saved = left[j - r] * temp;
+    }
+    ndu[j][j] = saved;
+  }
+  const ders = Array.from({ length: order + 1 }, () => new Array(p + 1).fill(0));
+  for (let j = 0; j <= p; j++) ders[0][j] = ndu[j][p];
+  for (let r = 0; r <= p; r++) {
+    // 係数の表を 2 行で使い回す
+    const a = [new Array(p + 1).fill(0), new Array(p + 1).fill(0)];
+    let s1 = 0, s2 = 1;
+    a[0][0] = 1;
+    for (let k = 1; k <= Math.min(order, p); k++) {
+      let d = 0;
+      const rk = r - k, pk = p - k;
+      if (r >= k) {
+        a[s2][0] = a[s1][0] / ndu[pk + 1][rk];
+        d = a[s2][0] * ndu[rk][pk];
+      }
+      const j1 = rk >= -1 ? 1 : -rk, j2 = r - 1 <= pk ? k - 1 : p - r;
+      for (let j = j1; j <= j2; j++) {
+        a[s2][j] = (a[s1][j] - a[s1][j - 1]) / ndu[pk + 1][rk + j];
+        d += a[s2][j] * ndu[rk + j][pk];
+      }
+      if (r <= pk) {
+        a[s2][k] = -a[s1][k - 1] / ndu[pk + 1][r];
+        d += a[s2][k] * ndu[r][pk];
+      }
+      ders[k][r] = d;
+      [s1, s2] = [s2, s1];
+    }
+  }
+  let f = p;
+  for (let k = 1; k <= Math.min(order, p); k++) {
+    for (let j = 0; j <= p; j++) ders[k][j] *= f;
+    f *= p - k;
+  }
+  return { span, ders };
+}
+
 /** 曲面のパラメータの範囲 [[u0, u1], [v0, v1]] */
 export function surfaceDomain(s) {
   const [p, q] = s.degree, [U, V] = s.knots;
