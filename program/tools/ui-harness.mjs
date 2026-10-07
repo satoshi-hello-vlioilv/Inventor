@@ -121,6 +121,8 @@ export const STATES = [
     await openSample(p, HTML);
     await p.waitForFunction(() => /取り込み/.test(document.querySelector("#source-status")?.textContent ?? "") && /r\d+/.test(document.querySelector("#source-status").textContent), null, { timeout: 30000 });
   }, "[data-next], #build-step"],
+  // 主役の場所のタブで「元のページ」に切り替えた様子（取り込みのボタンが見えるか）
+  ["source", async (p) => { await p.click('#view-tab-list [data-view="source"]'); await sleep(400); }, "[data-next], #capture"],
   ["spec", async (p) => { await openFile(p, FIXTURE("reel")); }, "[data-next], #build"],
   ["ask", async (p, dev) => { await dev("env?ready=0"); await p.click("#build"); await p.waitForSelector("#build-ask:not([hidden])"); }, "[data-next], #build-install"],
   ["building", async (p, dev) => {

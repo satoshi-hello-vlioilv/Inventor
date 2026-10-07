@@ -80,10 +80,15 @@ export function drawingFromDwg(bytes) {
   const childrenOf = (o, ownedList, first, last) =>
     ownedList?.length ? ownedList.map((h) => objects.get(h)).filter(Boolean) : between(first, last) ?? children.get(o.handle) ?? [];
 
+  // 色見本帳の色: RGB は DBCOLOR から（色番号は図形が持つ近い色の番号のまま）
+  const bookColor = (o) => {
+    const rgb = o.colorBook && objects.get(o.colorBook)?.color?.rgb;
+    return rgb === undefined ? o.color : { ...o.color, rgb };
+  };
   const common = (o) => ({
     handle: o.handle.toString(16).toUpperCase(),
     layer: name(o.layer) ?? "0",
-    color: o.color,
+    color: bookColor(o),
     linetype: ["BYLAYER", "BYBLOCK", "CONTINUOUS"][o.ltypeFlags] ?? name(o.ltype) ?? "BYLAYER",
     lineweight: o.lineweight,
     ltscale: o.ltscale,

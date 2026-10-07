@@ -23,7 +23,8 @@ export function fitParameters(fit, method = 0) {
 
 /**
  * 通過点を通る 3 次の B スプライン（AutoCAD の「通過点で定義したスプライン」の制御点とノット）。
- * 端の条件: 接線があれば 1 階微分 = 単位接線（媒介変数が弦の長さのとき速さ 1）。無ければ 2 階微分 = 0（自然な端）。
+ * 端の条件: 接線があれば 1 階微分 = 接線（長さもそのまま。AutoCAD はふつう単位ベクトルで持ち、媒介変数が弦の長さのとき速さ 1。
+ * 長さのある接線は R2013 の等間隔のノットの例で、AutoCAD の制御点 = 端 ± 接線 / 3 を確かめた）。無ければ 2 階微分 = 0（自然な端）。
  * 閉じたもの: 最初の点に戻り、つなぎ目で 1 階・2 階微分をそろえる。
  * AutoCAD の DXF の制御点・ノットと相対 1e-15 で一致する（許容差 0 のとき。cad2d-check.mjs）。許容差 > 0 のものは
  * AutoCAD が近似して通過点を外れるが、ここでは厳密に通す（差は許容差の内）。
@@ -56,7 +57,7 @@ export function interpolateFit({ fit, startTangent, endTangent, closed = false, 
     for (const [tangent, t] of [[startTangent, u[0]], [endTangent, u[n]]]) {
       const given = hasVector(tangent);
       A.push(row(t, given ? 1 : 2));
-      B.push(given ? unit(xyz(tangent)) : [0, 0, 0]);
+      B.push(given ? xyz(tangent) : [0, 0, 0]);
     }
   }
   const controls = solveLinear(A, B);

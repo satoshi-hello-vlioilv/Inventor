@@ -8,6 +8,7 @@
 //     items:   [{ handle, type, layer, entity }]（指せる図形。レイアウトに直に置かれた図形の単位。ブロック参照は中身ごと 1 つ）
 //     extents: { min: [x, y], max: [x, y] } | null（放射線・構築線を除く）
 //     layers:  Map<画層, 図形の数>（このレイアウトに出る画層）
+//     broken:  値が壊れていて描けなかった図形の数（飛ばして、残りを描く）
 //   }
 // 色は "#rrggbb"、null は「前景色」（色番号 7: 背景が暗ければ白、明るければ黒。描く側が決める）。
 // 線の太さは 1/100 mm（既定 25）、破線は図面の長さの単位の並び（正 = 線・負 = すき間・0 = 点）。
@@ -37,7 +38,9 @@ export function buildScene(drawing, layout, { hidden = new Set(), shown = new Se
   const usedLayers = new Map();
   const box = { min: [Infinity, Infinity], max: [-Infinity, -Infinity] };
   let measuring = true; // 外形に入れるか（紙のレイアウトのビューポートの中身は、枠の外へはみ出しても入れない）
+  // 描くものの点は全てここを通る。数でない座標（壊れた値の図形）は、その図形を飛ばす印に例外を投げる（draw が数える）
   const grow = (x, y) => {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) throw new RangeError("座標が数ではありません");
     if (!measuring) return;
     if (x < box.min[0]) box.min[0] = x;
     if (y < box.min[1]) box.min[1] = y;
@@ -99,6 +102,7 @@ export function buildScene(drawing, layout, { hidden = new Set(), shown = new Se
       flat[i * 2] = p[0];
       flat[i * 2 + 1] = p[1];
       if (item.extents !== false) grow(p[0], p[1]);
+      else if (!Number.isFinite(p[0]) || !Number.isFinite(p[1])) throw new RangeError("座標が数ではありません");
     });
     strokes.get(key).lines.push(width > 0 ? { item: item.index, points: flat, width } : { item: item.index, points: flat });
   }
@@ -410,8 +414,17 @@ export function buildScene(drawing, layout, { hidden = new Set(), shown = new Se
     }
   }
 
-  /** 図形 1 つを描く。inBlock: ブロックの中（ATTDEF は描かない） */
+  /** 図形 1 つを描く。値が壊れていて描けない図形（大きさが数でない円など）は飛ばして数え、図面の残りは描く */
   function draw(e, ctx, item, depth = 0, inBlock = false) {
+    try {
+      drawEntity(e, ctx, item, depth, inBlock);
+    } catch {
+      broken++;
+    }
+  }
+
+  /** 図形 1 つを描く。inBlock: ブロックの中（ATTDEF は描かない） */
+  function drawEntity(e, ctx, item, depth, inBlock) {
     const layer = effectiveLayer(e, ctx);
     if (e.invisible) return;
     // ブロック参照は、画層が凍結（または利用者が隠した）なら中身ごと消す。画層が off なら、中身のうち画層 0 の図形だけ消える（AutoCAD と同じ）
@@ -509,6 +522,7 @@ export function buildScene(drawing, layout, { hidden = new Set(), shown = new Se
     return { index };
   };
   const viewports = [];
+  let broken = 0;
   for (const e of top?.entities ?? []) {
     if (e.type === "VIEWPORT") viewports.push(e);
     else draw(e, root, newItem(e));
@@ -545,7 +559,7 @@ export function buildScene(drawing, layout, { hidden = new Set(), shown = new Se
   }
 
   const extents = box.min[0] <= box.max[0] ? box : null;
-  return { strokes: [...strokes.values()], fills, texts, points, regions, items, extents, layers: usedLayers };
+  return { strokes: [...strokes.values()], fills, texts, points, regions, items, extents, layers: usedLayers, broken };
 }
 
 /** 寸法の値の表示（小数 4 桁まで、末尾の 0 を省く） */

@@ -35,6 +35,11 @@ const TYPES = new Map();
 for (const [type, from, to] of RANGES) for (let c = from; c <= to; c++) TYPES.set(c, type);
 const valueType = (code) => TYPES.get(code) ?? "s";
 
+// DXF の文字列のキャレット表記: 制御文字は ^ ＋ 文字（^J = 改行・^I = タブ・^M = 復帰）、^ そのものは「^ 」。
+// ほかの ^ ＋ 文字は、^ を逃がさない書き手の文字列（"A^B" など）をこわさないよう、そのまま残す
+const CARET = { " ": "^", J: "\n", I: "\t", M: "\r" };
+const dxfString = (raw) => cadText(raw.includes("^") ? raw.replace(/\^([ JIM])/g, (_, c) => CARET[c]) : raw);
+
 /** ASCII の DXF → [[コード, 値]] */
 function asciiTags(text) {
   const lines = text.split(/\r\n|\n|\r/);
@@ -44,7 +49,7 @@ function asciiTags(text) {
     if (Number.isNaN(code)) throw new DxfError(`DXF の ${i + 1} 行目のグループコードが数ではありません。`);
     const raw = lines[i + 1];
     const type = valueType(code);
-    tags.push([code, type === "s" ? cadText(raw) : type === "d" ? parseFloat(raw) : type === "bin" ? raw.trim() : parseInt(raw, 10)]);
+    tags.push([code, type === "s" ? dxfString(raw) : type === "d" ? parseFloat(raw) : type === "bin" ? raw.trim() : parseInt(raw, 10)]);
   }
   return tags;
 }
@@ -76,7 +81,7 @@ function binaryTags(bytes, decode) {
     }
     const type = valueType(code);
     let value;
-    if (type === "s") value = cadText(readString());
+    if (type === "s") value = dxfString(readString());
     else if (type === "d") {
       value = view.getFloat64(p, true);
       p += 8;
@@ -218,12 +223,15 @@ function lwpolyline(tags) {
   return { points, bulges, widths };
 }
 
+/** 文字の値（属性は、文字の値の後ろの属性のサブクラスに同じコードの別の値を持つ: 71 = 複数行の印 など。文字の値はその前から読む） */
 function text(tags) {
+  const end = tags.findIndex(([code, value]) => code === 100 && /^AcDbAttribute/.test(value));
+  const own = end < 0 ? tags : tags.slice(0, end);
   return {
-    p: point(tags, 10), align: tags.some((t) => t[0] === 11) ? point(tags, 11) : null, height: get(tags, 40, 0),
-    rotation: get(tags, 50, 0) * RAD, widthFactor: get(tags, 41, 1), oblique: get(tags, 51, 0) * RAD,
-    halign: get(tags, 72, 0), valign: get(tags, 73, 0) || get(tags, 74, 0), generation: get(tags, 71, 0) & 6, // 2 左右・4 上下の反転だけが意味を持つ
-    text: String(get(tags, 1, "")), style: String(get(tags, 7, "Standard")), extrusion: extrusion(tags),
+    p: point(own, 10), align: own.some((t) => t[0] === 11) ? point(own, 11) : null, height: get(own, 40, 0),
+    rotation: get(own, 50, 0) * RAD, widthFactor: get(own, 41, 1), oblique: get(own, 51, 0) * RAD,
+    halign: get(own, 72, 0), valign: get(own, 73, 0) || get(tags, 74, 0), generation: get(own, 71, 0) & 6, // 2 左右・4 上下の反転だけが意味を持つ
+    text: String(get(own, 1, "")), style: String(get(own, 7, "Standard")), extrusion: extrusion(tags),
   };
 }
 
@@ -336,8 +344,15 @@ function hatch(tags) {
 const DIMENSION_KIND = ["linear", "aligned", "angular", "diameter", "radius", "angular3", "ordinate"];
 
 /** DXF の図形 1 つ（と、続く子: POLYLINE の VERTEX・INSERT の ATTRIB）→ モデルの図形。描かない種類は null */
+/** 図形そのものの値（R2018 の複数行の属性は、後ろに「101 Embedded Object」と埋め込みの MTEXT の値が続く。同じコードを持つので切り離す） */
+const ownTags = (tags) => {
+  const at = tags.findIndex(([code]) => code === 101);
+  return at < 0 ? tags : tags.slice(0, at);
+};
+
 function entity(record, children, unsupported) {
-  const { type, tags } = record;
+  const { type } = record;
+  const tags = ownTags(record.tags);
   const e = (t) => common(t, tags);
   switch (type) {
     case "LINE": return { ...e("LINE"), a: point(tags, 10), b: point(tags, 11), extrusion: extrusion(tags) };
@@ -373,8 +388,8 @@ function entity(record, children, unsupported) {
     case "ATTDEF": return { ...e("ATTDEF"), ...text(tags), tag: String(get(tags, 2, "")), prompt: String(get(tags, 3, "")), flags: get(tags, 70, 0) };
     case "MTEXT": return { ...e("MTEXT"), ...mtext(tags) };
     case "INSERT": {
-      const attribs = children.filter((c) => c.type === "ATTRIB").map((c) => ({ ...common("ATTRIB", c.tags), ...text(c.tags),
-        tag: String(get(c.tags, 2, "")), flags: get(c.tags, 70, 0) }));
+      const attribs = children.filter((c) => c.type === "ATTRIB").map((c) => ownTags(c.tags)).map((t) => ({ ...common("ATTRIB", t), ...text(t),
+        tag: String(get(t, 2, "")), flags: get(t, 70, 0) }));
       return { ...e("INSERT"), block: String(get(tags, 2, "")), p: point(tags, 10), scale: [get(tags, 41, 1), get(tags, 42, 1), get(tags, 43, 1)],
         rotation: get(tags, 50, 0) * RAD, extrusion: extrusion(tags), columns: get(tags, 70, 1), rows: get(tags, 71, 1),
         columnSpacing: get(tags, 44, 0), rowSpacing: get(tags, 45, 0), attribs };

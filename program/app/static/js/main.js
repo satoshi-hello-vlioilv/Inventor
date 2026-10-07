@@ -21,6 +21,7 @@ import { claimLaunch, listSamples, onLaunch } from "./desktop.js";
 import { PartLibrary, acceptFiles } from "./ui/files.js";
 import { initBuild } from "./ui/build.js";
 import { setupUnit } from "./ui/units.js";
+import { selectViewTab, setViewTabs } from "./ui/viewtabs.js";
 import { renderAsmPanel, renderDrawingPanel, renderHeader, renderHtmlPanel, renderIptPanel, renderSpecPanel, setPanelMode } from "./ui/panel.js";
 import { startDialog } from "./ui/start.js";
 import { describeAssembly, describeBody } from "./viewer/describe.js";
@@ -109,6 +110,8 @@ function setMode(mode) {
   $("source").hidden = mode !== "html";
   $("back-to-assembly").hidden = $("add-missing").hidden = true;
   setPanelMode(mode);
+  // HTML は 元のページ ⇄ 取り込んだ形 を主役の場所のタブで切り替える（読み込みの間は元のページ）
+  setViewTabs(mode === "html" ? HTML_VIEWS : null, "source");
   idleText = IDLE_TEXT[mode] ?? IDLE_TEXT.ipt;
   if (mode !== "html" && source) {
     source.dispose();
@@ -296,8 +299,13 @@ $("toggle-lineweight").addEventListener("click", (event) => {
 // ---- HTML ----------------------------------------------------------------------
 const setSourceStatus = (text) => ($("source-status").textContent = text);
 
-/** 取り込みの状態（none・run・ok・bad）を流れに知らせる。取り込めていなければ「この状態を取り込む」が次にすること */
+const HTML_VIEWS = [{ key: "model", label: "取り込んだ形（3D）" }, { key: "source", label: "元のページ" }];
+
+/** 取り込みの状態（none・run・ok・bad）を流れに知らせる。取り込めていなければ「この状態を取り込む」が次にすること。
+ *  取り込めたら取り込んだ形を、取り込めなかったら元のページ（取り込みのボタンがある）を主役の場所に出す */
 function setCapture(state, revision = null) {
+  if (state === "ok") selectViewTab("model");
+  else if (state === "bad") selectViewTab("source");
   updateFlow({ capture: state, revision });
   $("capture").className = state === "ok" || state === "run" ? "secondary" : "primary";
   setNext("view", state === "ok" || state === "run" ? null : $("capture"));

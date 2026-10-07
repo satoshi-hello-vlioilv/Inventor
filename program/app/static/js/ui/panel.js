@@ -273,10 +273,12 @@ export function renderDrawingPanel({ drawing, describe, layout, visible, display
   $("layers").replaceChildren(...(items.length ? items : [el("li", "empty", "画層がありません")]));
 
   renderTally("drawing-types", describe.types.map((t) => ["", t.label, t.count, t.type]));
-  const skipped = describe.unsupported;
-  $("drawing-unsupported").hidden = !skipped.length;
-  $("drawing-unsupported").textContent = skipped.length
-    ? `まだ描かない図形: ${skipped.map((t) => `${t.label} ${t.count}`).join("・")}（ほかの図形は表示しています）`
-    : "";
+  const { unsupported: skipped, broken } = describe;
+  const notes = [
+    skipped.length ? `まだ描かない図形: ${skipped.map((t) => `${t.label} ${t.count}`).join("・")}` : "",
+    broken ? `値が壊れていて描けない図形: ${broken}` : "",
+  ].filter(Boolean);
+  $("drawing-unsupported").hidden = !notes.length;
+  $("drawing-unsupported").textContent = notes.length ? `${notes.join("。")}（ほかの図形は表示しています）` : "";
   return rows;
 }

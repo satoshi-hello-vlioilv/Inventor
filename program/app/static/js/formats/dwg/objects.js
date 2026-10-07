@@ -123,7 +123,7 @@ function readEntityCommon(o) {
   }
   const { color, book } = r.enc();
   object.color = color;
-  if (book) hs.handle();
+  if (book) object.colorBook = hs.handle(); // DBCOLOR（色見本帳の色。RGB はそちらにある）
   object.ltscale = r.bd();
   if (version >= R2000) {
     object.layer = hs.handle();
@@ -877,6 +877,11 @@ function readLayout(o) {
   for (let i = 0; i < viewports; i++) object.viewports.push(hs.handle());
 }
 
+/** DBCOLOR: 色見本帳の色（名前つきの色。図形の ENC が指す） */
+function readDbColor(o) {
+  o.object.color = o.r.cmc();
+}
+
 function readDictionary(o) {
   const { r, version, object, hs } = o;
   const n = r.bl();
@@ -899,6 +904,7 @@ const READERS = {
   ELLIPSE: readEllipse, SPLINE: readSpline, RAY: readRay, XLINE: readRay, MTEXT: readMtext, LEADER: readLeader,
   LWPOLYLINE: readLwpolyline, HATCH: readHatch, VIEWPORT: readViewport,
   BLOCK_HEADER: readBlockHeader, LAYER: readLayer, STYLE: readStyle, LTYPE: readLtype, LAYOUT: readLayout, DICTIONARY: readDictionary,
+  DBCOLOR: readDbColor,
   ENDBLK: () => {}, SEQEND: () => {},
 };
 for (const kind of Object.keys(DIMENSION_POINTS)) READERS[kind] = readDimension;

@@ -101,7 +101,10 @@ kbd { font: 500 var(--fs-xs)/1.35 var(--font-num); padding: 0 5px; border: 1px s
   display: grid; grid-template-rows: auto minmax(0, 1fr); grid-template-columns: minmax(0, 1fr) var(--side-w);
   grid-template-areas: "bar bar" "stage side"; gap: 12px 16px; padding: 0 16px 16px;
 }
-.app.is-html { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) var(--side-w); grid-template-areas: "bar bar bar" "source stage side"; }
+/* HTML: 元のページは 3D の下に重ねる（隠すと元のページの three.js が描かず、取り込めない）。上に出す方は主役の場所のタブで選ぶ */
+.app.is-html .source { grid-area: stage; z-index: 0; }
+.app.is-html .stage { z-index: 1; }
+.app.is-html[data-view="source"] .source { z-index: 2; }
 .app.is-empty { grid-template-columns: minmax(0, 1fr); grid-template-areas: "bar" "stage"; }
 .app.is-empty .side { display: none; }
 
@@ -128,6 +131,21 @@ kbd { font: 500 var(--fs-xs)/1.35 var(--font-num); padding: 0 5px; border: 1px s
 }
 .pill:hover { border-color: var(--accent); color: var(--accent); }
 .appbar-actions { display: flex; align-items: center; gap: 8px; }
+
+/* ---- 主役の場所のタブ（上の中央。ui/viewtabs.js）---- */
+.view-tabs {
+  grid-area: stage; align-self: start; justify-self: center; z-index: 3; margin-top: 12px; max-width: calc(100% - 24px);
+  display: flex; align-items: center; gap: 10px; padding: 4px; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; box-shadow: var(--shadow-1);
+}
+.view-tab-list { display: flex; gap: 2px; }
+.view-tab-list button { font: 600 var(--fs-s)/1 var(--font-ui); padding: 9px 14px; border: 0; border-radius: 7px; background: none; color: var(--muted); cursor: pointer; white-space: nowrap; }
+.view-tab-list button:hover { color: var(--ink); background: var(--surface-2); }
+.view-tab-list button[aria-selected="true"] { background: var(--accent-soft); color: var(--accent); }
+.view-tabs .meta { padding-inline: 4px 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.view-tabs .meta:empty { display: none; }
+/* タブの帯の下に、3D の操作と元のページの見出しを出す */
+.app.has-view-tabs .toolbar { top: 64px; }
+.app.has-view-tabs .source { padding-top: 58px; }
 
 /* ---- 元のページ（HTML を開いているとき）---- */
 .source {
@@ -408,12 +426,16 @@ details.card.more summary .h-note { margin-inline-start: 8px; }
 .features.is-bom .feature:focus-visible { outline-offset: -2px; }
 /* 画層: 色の見本・名前・図形の数。1 行ずつ低く並べ、押すと表示・非表示（消した画層は薄く、名前に取り消し線） */
 .features.layers { gap: 0; }
-.layers .feature { cursor: pointer; grid-template-columns: 14px 1fr auto; padding: 5px 10px; border-color: transparent; background: transparent; border-radius: 8px; }
+.layers .feature { cursor: pointer; grid-template-columns: 26px 1fr auto; padding: 5px 10px; border-color: transparent; background: transparent; border-radius: 8px; }
 .layers .feature:hover, .layers .feature.is-active { border-color: var(--accent); background: var(--accent-soft); }
-.layers .feature .kind { width: 12px; height: 12px; border-radius: 3px; background: var(--swatch); border: 1px solid var(--rule); align-self: center; }
+/* 見本は線（画層の色と線種）: 実線・破線（dash）・鎖線（chain: 長い線と短い線の組み合わせ）。図面の中の線と目で結び付ける */
+.layers .feature .kind { width: 24px; height: 0; align-self: center; border-top: 2.5px solid var(--swatch); }
+.layers .feature .kind[data-dash="dash"] { border-top-style: dashed; }
+.layers .feature .kind[data-dash="chain"] { height: 2.5px; border-top: 0;
+  background: linear-gradient(90deg, var(--swatch) 0 45%, transparent 45% 58%, var(--swatch) 58% 66%, transparent 66% 79%, var(--swatch) 79%); }
 .layers .feature .dim { font: 500 var(--fs-s)/1.45 var(--font-ui); }
 .layers .feature[aria-pressed="false"] { opacity: 0.55; }
-.layers .feature[aria-pressed="false"] .kind { background: transparent; }
+.layers .feature[aria-pressed="false"] .kind { opacity: 0.4; }
 .layers .feature[aria-pressed="false"] .dim { text-decoration: line-through; }
 .layers .feature:focus-visible { outline-offset: -2px; }
 .hint-text.is-warn { color: var(--caution-ink); }
@@ -472,12 +494,12 @@ details.card.more summary .h-note { margin-inline-start: 8px; }
 
 @media (max-width: 1280px) { :root { --side-w: 340px; } .mouse-help { display: none; } }
 @media (max-width: 1100px) {
-  .app.is-html { height: auto; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-areas: "bar bar" "source stage" "side side"; }
+  .app.is-html { height: auto; grid-template-columns: minmax(0, 1fr); grid-template-areas: "bar" "stage" "side"; }
   .app.is-html .stage, .app.is-html .source { height: 70vh; }
   .appbar #show-start { display: none; }
 }
 @media (max-width: 760px) {
-  .app, .app.is-html { height: auto; grid-template-columns: minmax(0, 1fr); grid-template-areas: "bar" "source" "stage" "side"; }
+  .app, .app.is-html { height: auto; grid-template-columns: minmax(0, 1fr); grid-template-areas: "bar" "stage" "side"; }
   .stage, .app.is-html .stage, .app.is-html .source { height: 62vh; }
   .paths { grid-template-columns: minmax(0, 1fr); }
   .brand span, .appbar kbd { display: none; }

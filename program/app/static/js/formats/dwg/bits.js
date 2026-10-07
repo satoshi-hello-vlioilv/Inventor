@@ -310,19 +310,18 @@ export class BitReader {
     return colorFromRgb(index, rgb);
   }
 
-  /** ENC: 図形の色（R2004+ は大きさの上位ビットで RGB・透明度・色本を表す） */
+  /** ENC: 図形の色（R2004+ は大きさの上位ビットで RGB・透明度・色見本帳を表す）。
+   *  色見本帳の色（0x4000。0x8000 も立つ）は、RGB を図形に持たず、ハンドルの先の DBCOLOR に持つ（book = true。色番号は近い色の番号） */
   enc() {
     if (this.version < R2004) return { color: { index: this.bs() }, book: false };
     const size = this.bs();
     if (!size) return { color: { index: 0 }, book: false };
     const flags = size & 0xff00;
-    let color;
-    if (flags & 0x8000) {
-      const rgb = this.bl() >>> 0;
-      color = { index: size & 0xfff, rgb: rgb & 0xffffff };
-    } else color = { index: size & 0xfff };
+    const book = Boolean(flags & 0x4000);
+    const color = { index: size & 0xfff };
+    if (flags & 0x8000 && !book) color.rgb = (this.bl() >>> 0) & 0xffffff;
     if (flags & 0x2000) this.bl(); // 透明度
-    return { color, book: Boolean(flags & 0x4000) };
+    return { color, book };
   }
 }
 

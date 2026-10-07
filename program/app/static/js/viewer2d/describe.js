@@ -120,7 +120,8 @@ export function scaleText(k) {
 
 /**
  * 右の欄の要約。scene はいま表示しているレイアウトのもの。
- * @returns {{ types: [{ type, label, count }], layers: [{ name, color, count, off, frozen }], unsupported: [{ type, label, count }], extents }}
+ * @returns {{ types: [{ type, label, count }], layers: [{ name, color, count, off, frozen }], unsupported: [{ type, label, count }], broken, extents }}
+ *   broken … 値が壊れていて描けなかった図形の数
  */
 export function describeDrawing(drawing, scene) {
   const types = new Map();
@@ -134,6 +135,7 @@ export function describeDrawing(drawing, scene) {
     types: [...types].map(([type, count]) => ({ type, label: typeLabel(type), count })).sort((a, b) => b.count - a.count),
     layers,
     unsupported: [...drawing.unsupported].map(([type, count]) => ({ type, label: typeLabel(type), count })).sort((a, b) => b.count - a.count),
+    broken: scene.broken ?? 0,
     extents: scene.extents && [scene.extents.max[0] - scene.extents.min[0], scene.extents.max[1] - scene.extents.min[1]],
   };
 }

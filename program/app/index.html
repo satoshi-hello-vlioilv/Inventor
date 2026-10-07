@@ -53,11 +53,16 @@
     </div>
   </header>
 
+  <!-- 主役の場所のタブ（ui/viewtabs.js）: HTML は 取り込んだ形（3D）⇄ 元のページ、3D の PDF は 図面 ⇄ 3D。同じ場所に重ねた表示を切り替える -->
+  <div class="view-tabs" id="view-tabs" hidden>
+    <div class="view-tab-list" id="view-tab-list" role="tablist" aria-label="表示の切り替え"></div>
+    <p class="meta" id="source-status" data-mode="html"></p>
+  </div>
+
   <section class="source" id="source" aria-label="元のページ" hidden>
     <header class="source-bar">
       <div class="source-text">
         <p class="eyebrow">元のページ（操作できます。表示を選んでから取り込みます）</p>
-        <p class="meta" id="source-status"></p>
       </div>
       <button type="button" class="secondary" id="capture">この状態を取り込む</button>
     </header>

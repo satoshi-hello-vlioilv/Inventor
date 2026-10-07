@@ -135,6 +135,51 @@ test("通過点のスプライン: AutoCAD の制御点・ノットを再現す�
   }
 });
 
+test("通過点のスプライン: 接線の長さも微分の値にする（ACadSharp の R2013 の DWG の SPLINE 434。AutoCAD が書いた DXF の制御点）", () => {
+  // 等間隔のノット・通過点 2 つ・長さのある接線 → 制御点 = 端 ± 接線 / 3
+  const s = interpolateFit({ fit: [[250.45879078322412, 17.42602418484477, 0], [259.2245511100041, 27.28750455247221, 0]], knotParam: 2,
+    startTangent: [12.76494097890588, 32.4868715404406, 0], endTangent: [-0.49023893081926, 29.35314911115819, 0] });
+  const expected = [[250.4587907832241, 17.42602418484477], [254.7137711095261, 28.25498136499163], [259.3879640869438, 17.50312151541948],
+    [259.2245511100041, 27.28750455247221]];
+  assert.deepEqual(s.knots, [0, 0, 0, 0, 1, 1, 1, 1]);
+  s.controls.forEach((p, i) => assert.ok(close(p[0], expected[i][0], 1e-12) && close(p[1], expected[i][1], 1e-12), `制御点 ${i}`));
+});
+
+test("ネットのサンプルの DWG（ACadSharp・R2004）: 色見本帳の色（DBCOLOR）を RGB で読み、続く値がずれない", () => {
+  const name = "ACadSharp_sample_R2004.dwg";
+  const drawing = readDrawing(read(SAMPLES, name), name);
+  assert.deepEqual(drawing.failures, []);
+  // AutoCAD が書いた同じ図面の DXF: CIRCLE 99F の 62 = 42・420 = 14848000（RAL 1006）・中心 (30.20357…, -119.96686…)・半径 2.38284…
+  const circle = drawing.blocks.get("*Model_Space").entities.find((e) => e.handle === "99F");
+  assert.deepEqual(circle.color, { index: 42, rgb: 14848000 });
+  assert.ok(close(circle.center[0], 30.20357222512345) && close(circle.center[1], -119.9668664522385) && close(circle.radius, 2.382841759818496));
+  for (const layout of drawing.layouts) assert.equal(buildScene(drawing, layout).broken, 0, layout.name);
+});
+
+test("DXF: 文字列のキャレット表記（^J = 改行・「^ 」= ^）と、R2018 の複数行の属性の埋め込みのデータを属性の値と取り違えない", () => {
+  const dxf = (rows) => new TextEncoder().encode(["0", "SECTION", "2", "ENTITIES", ...rows, "0", "ENDSEC", "0", "EOF", ""].join("\n"));
+  const [text, attdef] = readDrawing(dxf([
+    "0", "TEXT", "5", "A1", "100", "AcDbEntity", "8", "0", "100", "AcDbText", "10", "0", "20", "0", "40", "2.5", "1", "x^ 2^Jy", "100", "AcDbText",
+    "0", "ATTDEF", "5", "A2", "100", "AcDbEntity", "8", "0", "100", "AcDbText", "10", "1", "20", "2", "40", "0.5", "1", "",
+    "100", "AcDbAttributeDefinition", "280", "0", "3", "prompt", "2", "TAG", "70", "0", "74", "3", "280", "1", "71", "4", "72", "0",
+    "101", "Embedded Object", "10", "1", "20", "2", "40", "0.5", "41", "0", "71", "1", "72", "5", "1", "multi", "73", "1",
+  ]), "t.dxf").blocks.get("*Model_Space").entities;
+  assert.equal(text.text, "x^2\ny");
+  assert.deepEqual([attdef.tag, attdef.widthFactor, attdef.valign, attdef.generation, attdef.halign, attdef.text], ["TAG", 1, 3, 0, 0, ""]);
+});
+
+test("描くもの: 値が壊れていて描けない図形は飛ばして数え、残りを描く", () => {
+  const drawing = readDrawing(read(SAMPLES, SAMPLE), SAMPLE);
+  const model = drawing.blocks.get("*Model_Space").entities;
+  const before = buildScene(drawing, drawing.layouts[0]);
+  model.push({ type: "CIRCLE", handle: "FFFF", layer: "0", color: { index: 1 }, linetype: "BYLAYER", lineweight: -1, ltscale: 1,
+    center: [0, 0, 0], radius: NaN, extrusion: [0, 0, 1] });
+  const after = buildScene(drawing, drawing.layouts[0]);
+  assert.equal(after.broken, 1);
+  assert.equal(before.broken, 0);
+  assert.equal(after.texts.length, before.texts.length);
+});
+
 test("膨らみ（bulge）と OCS: 半円の向き・押し出しが -Z の鏡映", () => {
   const ccw = bulgePoints([0, 0], [2, 0], 1, Math.PI / 4);
   assert.ok(ccw.some((p) => close(p[0], 1, 1e-12) && close(p[1], -1, 1e-12)), "正の膨らみ（反時計回り）は弦の右下を回る");
