@@ -187,13 +187,18 @@
         <p class="hint-text" id="save-note" role="status" hidden></p>
       </details>
 
-      <section class="card" data-mode="ipt asm">
+      <!-- 要点（淡い地の囲み。欄の上へ: docs/ui.md §14）: 外形寸法と、部品なら材質・質量 -->
+      <section class="card key-card" data-mode="ipt asm">
         <h2>外形寸法<span class="h-note">mm</span></h2>
         <dl class="dims" id="dims"></dl>
+        <div class="key-sub" data-mode="ipt" id="mass-card">
+          <h2>材質・質量</h2>
+          <dl class="topology" id="mass"></dl>
+        </div>
       </section>
 
       <!-- 図面（.dwg・.dxf・.pdf・.jww）: 図面の情報（形式・大きさ・レイアウト。まだ描かない図形があれば知らせる）→ 画層 → 図形の内訳（畳む） -->
-      <section class="card" data-mode="drawing">
+      <section class="card key-card" data-mode="drawing">
         <h2>図面<span class="h-note" id="drawing-note"></span></h2>
         <dl class="topology" id="drawing-info"></dl>
         <p class="hint-text is-warn" id="drawing-unsupported" hidden></p>
@@ -210,7 +215,7 @@
       </details>
 
       <!-- 3D の PDF の 3D（主役の場所のタブで図面と切り替える）: 3D の情報（形式・部品・面・大きさ）→ 部品の一覧 -->
-      <section class="card" data-mode="model3d">
+      <section class="card key-card" data-mode="model3d">
         <h2>3D<span class="h-note">大きさはファイルの単位</span></h2>
         <dl class="topology" id="model3d-info"></dl>
         <p class="hint-text is-warn" id="model3d-warn" hidden></p>
@@ -219,11 +224,6 @@
       <section class="card" data-mode="model3d">
         <h2>部品<span class="h-note">カーソルを合わせると強調</span></h2>
         <ul class="features is-bom" id="model3d-parts"></ul>
-      </section>
-
-      <section class="card" data-mode="ipt" id="mass-card">
-        <h2>材質・質量</h2>
-        <dl class="topology" id="mass"></dl>
       </section>
 
       <section class="card" data-mode="asm">

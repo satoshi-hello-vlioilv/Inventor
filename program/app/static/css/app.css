@@ -1,6 +1,6 @@
 /* 画面: 製図台。3D（作業面）を主役に、上端に見出しバー、右に「段階の帯 → 中身 → 行動ドック」の欄を置く（docs/ui.md）。
    色の約束: 塗りの青は「いま次にすること」1 つだけ。状態の色（一致の緑・注意の琥珀・失敗の赤・進行中の青）は形（帯・札・印）でも示す。
-   3D の表示（viewer.js）は --accent・--steel・--approx・--edge・--axis-*・--font-num を読むので、名前を変えない。 */
+   3D の表示（viewer.js）は --accent・--steel・--approx・--mark-ok・--edge・--axis-*・--light-*・--font-num を読むので、名前を変えない。 */
 :root {
   --bg: #e9edf2;
   --surface: #ffffff;
@@ -26,6 +26,8 @@
   --steel: #97a2ae;
   --approx: #d3a867;
   --edge: #1b2530;
+  --light-ambient: 0.8; --light-key: 2.2; --light-fill: 1.2; /* 3D の光の強さ（空と地・主・左の補い。補いで面の向きの差を出す。docs/ui.md §14） */
+  --mark-ok: #3f9d5f; /* 3D の形を塗る一致の色（文字の --ok より明るく: 形の陰影を残す。ダークは --ok のまま） */
   --axis-x: #cc4136;
   --axis-y: #2b8f45;
   --axis-z: #2a6ad2;
@@ -49,7 +51,7 @@
     --accent: #6aa5ff; --accent-strong: #93bdff; --accent-ink: #0d1520; --accent-soft: rgba(106, 165, 255, 0.14);
     --critical: #ff8a80; --critical-soft: rgba(255, 138, 128, 0.1); --ok: #6fcf8a; --ok-soft: rgba(111, 207, 138, 0.12);
     --warn: #e0a84e; --warn-soft: rgba(224, 168, 78, 0.14); --caution-ink: #e8bd75; --on-warn: #1a2129;
-    --steel: #b8c1cb; --approx: #c89b58; --edge: #0f141a; --axis-x: #ff6a5c; --axis-y: #4cc46c; --axis-z: #5e9dff;
+    --steel: #b8c1cb; --mark-ok: #6fcf8a; --approx: #c89b58; --edge: #0f141a; --axis-x: #ff6a5c; --axis-y: #4cc46c; --axis-z: #5e9dff;
     --sheet: #1b222b; --sheet-ink: #e8edf2;
     --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4); --shadow-2: 0 -6px 18px rgba(0, 0, 0, 0.35); --shadow-3: 0 24px 64px rgba(0, 0, 0, 0.6);
     color-scheme: dark;
@@ -61,7 +63,7 @@
   --accent: #6aa5ff; --accent-strong: #93bdff; --accent-ink: #0d1520; --accent-soft: rgba(106, 165, 255, 0.14);
   --critical: #ff8a80; --critical-soft: rgba(255, 138, 128, 0.1); --ok: #6fcf8a; --ok-soft: rgba(111, 207, 138, 0.12);
   --warn: #e0a84e; --warn-soft: rgba(224, 168, 78, 0.14); --caution-ink: #e8bd75; --on-warn: #1a2129;
-  --steel: #b8c1cb; --approx: #c89b58; --edge: #0f141a; --axis-x: #ff6a5c; --axis-y: #4cc46c; --axis-z: #5e9dff;
+  --steel: #b8c1cb; --mark-ok: #6fcf8a; --approx: #c89b58; --edge: #0f141a; --axis-x: #ff6a5c; --axis-y: #4cc46c; --axis-z: #5e9dff;
     --sheet: #1b222b; --sheet-ink: #e8edf2;
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4); --shadow-2: 0 -6px 18px rgba(0, 0, 0, 0.35); --shadow-3: 0 24px 64px rgba(0, 0, 0, 0.6);
   color-scheme: dark;
@@ -278,9 +280,19 @@ kbd { font: 500 var(--fs-xs)/1.35 var(--font-num); padding: 0 5px; border: 1px s
 .card h2.is-warn { color: var(--caution-ink); }
 .h-note { font-size: var(--fs-xs); font-weight: 400; color: var(--muted); }
 .hint-text { margin: 0; font-size: var(--fs-xs); color: var(--muted); }
+/* 欄の階層（docs/ui.md §14）: 知らせ → 目を向けるもの（見つからない部品）→ 要点の囲み（寸法・材質・図面の情報）→ 一覧 →
+   畳んだ詳しいこと → ファイルの情報（技術的な情報は一番下に小さく）。並びは order で決め、作る順（DOM）は変えない */
+.side-scroll > .alert, .side-scroll > .notice { order: -10; }
+.side-scroll > #missing-section { order: -3; margin-top: 12px; padding: 12px 14px; border-radius: 10px; background: var(--warn-soft); box-shadow: none; }
+#missing-section .feature { border-bottom-color: color-mix(in srgb, var(--warn) 30%, transparent); }
+.side-scroll > .key-card { order: -2; margin: 12px -4px 6px; padding: 12px 14px; border-radius: 10px; background: var(--surface-2); box-shadow: none; }
+.key-card .dims div { background: var(--surface); }
+.key-sub { display: flex; flex-direction: column; gap: 10px; }
+.side-scroll > details.more { order: 98; }
+.side-scroll > .file-card { order: 99; padding-block: 10px; }
 .file-card { flex-direction: row; align-items: center; gap: 12px; }
 .file-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.thumb { width: 56px; height: 56px; flex: none; border-radius: 8px; border: 1px solid var(--rule); background: var(--stage-bottom); object-fit: cover; }
+.thumb { width: 40px; height: 40px; flex: none; border-radius: 8px; border: 1px solid var(--rule); background: var(--stage-bottom); object-fit: cover; }
 details.more > summary { cursor: pointer; font-size: var(--fs-s); font-weight: 600; color: var(--muted); list-style-position: inside; }
 details.more > summary:hover { color: var(--accent); }
 details.more[open] > summary { margin-bottom: 8px; color: var(--ink); }
@@ -388,7 +400,8 @@ details.card.more summary .h-note { margin-inline-start: 8px; }
   background: color-mix(in srgb, var(--tone) 16%, var(--surface)); color: color-mix(in srgb, var(--tone) 80%, var(--ink));
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 45%, transparent);
 }
-.verdict-grid li[data-tone="warn"], .verdict-grid li[data-tone="run"] { color: color-mix(in srgb, var(--tone) 70%, var(--ink)); }
+.verdict-grid li[data-tone="run"] { color: color-mix(in srgb, var(--tone) 70%, var(--ink)); }
+.verdict-grid li[data-tone="warn"] { color: var(--caution-ink); } /* 琥珀の上の琥珀の文字は 4.5 を割るので、注意の文字の色 */
 .verdict-grid li:hover { outline: 2px solid var(--ink); outline-offset: 1px; }
 .build-results { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 46vh; overflow-y: auto; }
 .build-results li { display: grid; grid-template-columns: 4.4em minmax(0, 1fr) auto; column-gap: 8px; align-items: baseline; font-size: var(--fs-s); padding: 2px 0; }

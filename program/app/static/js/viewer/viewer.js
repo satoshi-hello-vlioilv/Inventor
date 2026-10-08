@@ -16,7 +16,7 @@ const EDGE_ANGLE_DEG = 25; // 取り込んだメッシュで稜線として描�
 const FOCUS_TONES = new Set(["warn", "bad", "run"]); // 目を向ける印（不一致・失敗・作成中）。あれば、ほかの部品を透かす
 const GHOST_OPACITY = 0.12;
 // 面・部品の色の種類 → 色の名前（CSS の変数）。ok〜run は作った結果の印（mark）
-const TONE_TOKEN = { exact: "--steel", approx: "--approx", ok: "--ok", warn: "--warn", bad: "--critical", run: "--accent" };
+const TONE_TOKEN = { exact: "--steel", approx: "--approx", ok: "--mark-ok", warn: "--warn", bad: "--critical", run: "--accent" }; // --mark-ok は 3D の形の一致の色（画面の文字の --ok と分ける）
 
 export class Viewer {
   /**
@@ -34,10 +34,14 @@ export class Viewer {
 
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(28, 1, 0.1, 1e6);
-    this.scene.add(this.camera, new THREE.HemisphereLight(0xffffff, 0x8a939e, 1.6));
-    const key = new THREE.DirectionalLight(0xffffff, 1.8);
-    key.position.set(1.5, 2.5, 3);
-    this.camera.add(key); // 光源をカメラに固定し、どの向きから見ても陰影が読めるようにする
+    // 光: 空と地の光（全体）・主の光（右上の前）・補いの光（左の前。面の向きの差を出す）。強さは CSS のトークン（--light-*）
+    this.ambient = new THREE.HemisphereLight(0xffffff, 0x8a939e, 1.6);
+    this.scene.add(this.camera, this.ambient);
+    this.key = new THREE.DirectionalLight(0xffffff, 1.8);
+    this.key.position.set(1.5, 2.5, 3);
+    this.fill = new THREE.DirectionalLight(0xffffff, 0);
+    this.fill.position.set(-2.5, 0.5, 1.5);
+    this.camera.add(this.key, this.fill); // 光源をカメラに固定し、どの向きから見ても陰影が読めるようにする
 
     this.controls = new OrbitControls(this.camera, canvas);
     this.controls.addEventListener("change", () => this.requestRender());
@@ -269,6 +273,10 @@ export class Viewer {
       child.visible = this.edgesVisible && !(id !== undefined && this.#ghosted(id));
     }
     this.edgeMaterial.color.set(token("--edge"));
+    const light = (name, fallback) => Number.parseFloat(token(name)) || fallback;
+    this.ambient.intensity = light("--light-ambient", 1.6);
+    this.key.intensity = light("--light-key", 1.8);
+    this.fill.intensity = Number.parseFloat(token("--light-fill")) || 0;
     this.requestRender();
   }
 
