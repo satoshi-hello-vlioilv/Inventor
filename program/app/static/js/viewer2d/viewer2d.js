@@ -17,17 +17,27 @@ const HIT_PX = 6; // 指した点からこの距離（画面の px）までの�
 const FIT_MARGIN = 0.06;
 const CAP_HEIGHT = 0.72; // フォントの大きさ（em）に対する大文字の高さ（図面の文字の高さ = 大文字の高さ）
 const DESCENT = 0.25; // TEXT の「下」揃え: 基線から下の部分（大文字の高さに対する比）
+const PAPER = "#ffffff"; // PDF の紙（テーマに依らず白。PDF の色は白い紙の上の色）
+const PAPER_EDGE = "#b8bec6";
+const BOX_EDGE = "#9aa3ad"; // 解けない画像の枠
+const CAPS = ["butt", "round", "square"]; // PDF の線端
+// 書体の手がかり（PDF の文字）→ 画面の書体。ゴシック体は図面の書体（--font-drawing）を使う
+const SERIF = '"Yu Mincho", "YuMincho", "MS Mincho", "Hiragino Mincho ProN", "Noto Serif JP", serif';
+const MONO = '"MS Gothic", "Osaka-Mono", "Noto Sans Mono CJK JP", monospace';
+const PREPARED = new WeakMap(); // 画像 → 描ける形（Canvas・ImageBitmap）
 
 export class DrawingViewer {
   /**
    * @param {{ stage: HTMLElement, canvas: HTMLCanvasElement }} elements
-   * @param {{ onHover?: (item: number | null) => void }} [callbacks]
+   * @param {{ onHover?: (item: number | null) => void, insets?: () => { top, right, bottom, left } }} [callbacks]
+   *   insets … 図面の上に重ねた帯（ツールバー・読み出し）が覆う幅（px）。全体表示はその内側に収める
    */
-  constructor({ stage, canvas }, { onHover } = {}) {
+  constructor({ stage, canvas }, { onHover, insets } = {}) {
     this.stage = stage;
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
     this.onHover = onHover ?? (() => {});
+    this.insets = insets ?? (() => ({ top: 0, right: 0, bottom: 0, left: 0 }));
     this.scene = null;
     this.view = { scale: 1, x: 0, y: 0 }; // 画面の px = (world - origin) × scale + (x, y)。y は上向き
     this.origin = [0, 0];
@@ -54,7 +64,7 @@ export class DrawingViewer {
 
   clear() {
     this.scene = null;
-    this.batches = [];
+    this.ops = [];
     this.requestRender();
   }
 
@@ -64,8 +74,12 @@ export class DrawingViewer {
     const { width, height } = this.#size();
     if (!ext || !width || !height) return this.requestRender();
     const w = Math.max(ext.max[0] - ext.min[0], 1e-9), h = Math.max(ext.max[1] - ext.min[1], 1e-9);
-    const scale = Math.min(width / w, height / h) * (1 - 2 * FIT_MARGIN);
-    this.view = { scale, x: width / 2, y: height / 2 };
+    // 重ねた帯の内側（帯が場所の半分を越えるなら、場所の半分は使う）
+    const { top = 0, right = 0, bottom = 0, left = 0 } = this.insets();
+    const aw = Math.max(width - left - right, width / 2), ah = Math.max(height - top - bottom, height / 2);
+    const x0 = Math.min(left, width - aw), y0 = Math.min(top, height - ah);
+    const scale = Math.min(aw / w, ah / h) * (1 - 2 * FIT_MARGIN);
+    this.view = { scale, x: x0 + aw / 2, y: y0 + ah / 2 };
     this.requestRender();
   }
 
@@ -118,6 +132,9 @@ export class DrawingViewer {
   }
 
   // ---- 組み立て（表示するものが変わったときだけ） -------------------------------------------------------------------
+  // 描く並び（this.ops）を作る。順序に意味が無い図面（DWG・DXF）は「画像 → 塗り → 幅のある線 → 線 → 文字 → 点」の種類の順にし、
+  // 同じ線（色・太さ・破線・線端・切り取り）を 1 つの Path2D にまとめる。順序に意味がある図面（PDF）は足した順（z）にし、
+  // 続く同じ線だけをまとめる（後の図形が前の図形を隠す順を守る）。
   #build() {
     const [ox, oy] = this.origin;
     const clipKey = (c) => (c ? `${c.min.join(",")},${c.max.join(",")}` : "");
@@ -127,36 +144,104 @@ export class DrawingViewer {
       for (let i = 2; i < points.length; i += 2) p.lineTo(points[i] - ox, points[i + 1] - oy);
       return p;
     };
-    // 線: 色・太さ・破線・切り取りの枠ごとに 1 つの Path2D。幅のあるポリラインは 1 本ずつ
-    const batches = new Map();
-    this.wide = [];
     this.byItem = new Map(); // 図形の番号 → その線・塗り（強調に使う）
     const remember = (item, entry) => {
       if (!this.byItem.has(item)) this.byItem.set(item, []);
       this.byItem.get(item).push(entry);
     };
+    const ops = [];
     for (const s of this.scene.strokes) {
       for (const line of s.lines) {
         const path = pathOf(line.points);
         remember(line.item, { kind: "stroke", path, clip: line.clip, width: line.width });
-        if (line.width > 0) {
-          this.wide.push({ color: s.color, width: line.width, path, clip: line.clip });
-          continue;
-        }
-        const key = `${s.color}|${s.lineweight}|${s.dashes?.join(",") ?? ""}|${clipKey(line.clip)}`;
-        if (!batches.has(key)) batches.set(key, { color: s.color, lineweight: s.lineweight, dashes: s.dashes, clip: line.clip, path: new Path2D() });
-        batches.get(key).path.addPath(path);
+        const wide = line.width > 0;
+        const key = wide
+          ? `w|${s.color}|${line.width}|${line.weight ? 1 : 0}|${line.cap ?? 1}|${line.alpha ?? 1}|${s.dashes?.join(",") ?? ""}|${clipKey(line.clip)}`
+          : `s|${s.color}|${s.lineweight}|${s.dashes?.join(",") ?? ""}|${clipKey(line.clip)}`;
+        ops.push({ z: line.z ?? 0, kind: wide ? "wide" : "stroke", key, color: s.color, lineweight: s.lineweight, dashes: s.dashes, clip: line.clip,
+          path, width: line.width, weight: Boolean(line.weight), cap: line.cap ?? 1, alpha: line.alpha ?? 1 });
       }
     }
-    this.batches = [...batches.values()];
-    this.fills = this.scene.fills.map((f) => {
+    for (const f of this.scene.fills) {
       const path = new Path2D();
       for (const r of f.rings) path.addPath(pathOf(r)), path.closePath?.();
       remember(f.item, { kind: "fill", path, clip: f.clip });
-      return { color: f.color, alpha: f.alpha ?? 1, path, clip: f.clip };
-    });
-    for (const t of this.scene.texts) remember(t.item, { kind: "text", text: t });
-    for (const p of this.scene.points) remember(p.item, { kind: "point", point: p });
+      ops.push({ z: f.z ?? 0, kind: "fill", color: f.color, alpha: f.alpha ?? 1, rule: f.rule ?? "evenodd", path, clip: f.clip });
+    }
+    for (const im of this.scene.images ?? []) {
+      const [a, b, c, d, e, f] = im.matrix;
+      const quad = new Path2D();
+      quad.moveTo(e - ox, f - oy);
+      quad.lineTo(a + e - ox, b + f - oy);
+      quad.lineTo(a + c + e - ox, b + d + f - oy);
+      quad.lineTo(c + e - ox, d + f - oy);
+      quad.closePath();
+      remember(im.item, { kind: "fill", path: quad, clip: im.clip });
+      ops.push({ z: im.z ?? 0, kind: "image", image: im, quad, clip: im.clip });
+      this.#prepareImage(im.image);
+    }
+    for (const t of this.scene.texts) {
+      remember(t.item, { kind: "text", text: t });
+      ops.push({ z: t.z ?? 0, kind: "text", text: t, clip: t.clip });
+    }
+    for (const p of this.scene.points) {
+      remember(p.item, { kind: "point", point: p });
+      ops.push({ z: p.z ?? 0, kind: "point", point: p, clip: p.clip });
+    }
+    const RANK = { image: 0, fill: 1, wide: 2, stroke: 3, text: 4, point: 5 };
+    ops.sort(this.scene.ordered ? (a, b) => a.z - b.z : (a, b) => RANK[a.kind] - RANK[b.kind] || a.z - b.z);
+    // 線をまとめる: 順序に意味があれば続くものだけ、無ければ同じ鍵のもの全て
+    const out = [], byKey = new Map();
+    for (const op of ops) {
+      if (op.key) {
+        const last = out.at(-1);
+        const into = this.scene.ordered ? (last?.key === op.key ? last : null) : byKey.get(op.key);
+        if (into) {
+          into.path.addPath(op.path);
+          continue;
+        }
+        const batch = { ...op, path: new Path2D() };
+        batch.path.addPath(op.path);
+        byKey.set(op.key, batch);
+        out.push(batch);
+      } else out.push(op);
+    }
+    this.ops = out;
+  }
+
+  /** 画像を描ける形に（標本は Canvas に、JPEG は画像として解く。解けたら描き直す） */
+  #prepareImage(image) {
+    if (PREPARED.has(image) || image.kind === "box") return;
+    PREPARED.set(image, null);
+    const canvas = document.createElement("canvas");
+    if (image.kind === "rgba") {
+      canvas.width = image.width;
+      canvas.height = image.height;
+      canvas.getContext("2d").putImageData(new ImageData(image.data, image.width, image.height), 0, 0);
+      PREPARED.set(image, canvas);
+      return;
+    }
+    if (image.kind !== "jpeg" || typeof createImageBitmap !== "function") return;
+    createImageBitmap(new Blob([image.bytes], { type: "image/jpeg" })).then((bitmap) => {
+      if (!image.alpha) {
+        PREPARED.set(image, bitmap);
+        return this.requestRender();
+      }
+      // 透明（/SMask）: 濃さの画像を不透明度にして重ねる
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      const c = canvas.getContext("2d");
+      c.drawImage(bitmap, 0, 0);
+      const pixels = c.getImageData(0, 0, bitmap.width, bitmap.height);
+      const { width: aw, height: ah, data: alpha } = image.alpha;
+      for (let y = 0; y < bitmap.height; y++) {
+        const ay = Math.min(ah - 1, Math.floor((y * ah) / bitmap.height));
+        for (let x = 0; x < bitmap.width; x++) pixels.data[(y * bitmap.width + x) * 4 + 3] = alpha[ay * aw + Math.min(aw - 1, Math.floor((x * aw) / bitmap.width))];
+      }
+      c.putImageData(pixels, 0, 0);
+      PREPARED.set(image, canvas);
+      this.requestRender();
+    }).catch(() => {});
   }
 
   // ---- 描く -------------------------------------------------------------------------------------------------------
@@ -185,12 +270,15 @@ export class DrawingViewer {
     const minimum = Number(this.#token("--sheet-contrast")) || 0;
     this.font = this.#token("--font-drawing") || "sans-serif"; // 文字ごとに読み直さない
     this.palette.clear();
+    const exact = this.scene.exact; // PDF: 色はそのまま（紙は白）
     const colorOf = (c) => {
+      if (exact) return c ?? "#000000";
       if (!c) return ink;
       if (!this.palette.has(c)) this.palette.set(c, readable(c, sheet, ink, minimum));
       return this.palette.get(c);
     };
     const { scale, x, y } = this.view;
+    const [ox, oy] = this.origin;
     const world = () => ctx.setTransform(dpr * scale, 0, 0, -dpr * scale, dpr * x, dpr * y);
     const px = 1 / scale; // 図面の単位での 1 px
     const withClip = (clip, draw) => {
@@ -198,50 +286,88 @@ export class DrawingViewer {
       ctx.save();
       world(); // 枠は図面の座標で作る（文字を描いた後は、文字の座標系になっているため）
       ctx.beginPath();
-      ctx.rect(clip.min[0] - this.origin[0], clip.min[1] - this.origin[1], clip.max[0] - clip.min[0], clip.max[1] - clip.min[1]);
+      ctx.rect(clip.min[0] - ox, clip.min[1] - oy, clip.max[0] - clip.min[0], clip.max[1] - clip.min[1]);
       ctx.clip();
       draw();
       ctx.restore();
     };
     world();
+    // 紙（PDF のページ）: 白い紙と細い縁
+    const paper = this.scene.paper;
+    if (paper) {
+      ctx.fillStyle = PAPER;
+      ctx.fillRect(paper.min[0] - ox, paper.min[1] - oy, paper.max[0] - paper.min[0], paper.max[1] - paper.min[1]);
+      ctx.strokeStyle = PAPER_EDGE;
+      ctx.lineWidth = px;
+      ctx.strokeRect(paper.min[0] - ox, paper.min[1] - oy, paper.max[0] - paper.min[0], paper.max[1] - paper.min[1]);
+    }
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    // 塗り（下）→ 線 → 文字・点（上）
-    for (const f of this.fills) {
-      withClip(f.clip, () => {
-        ctx.globalAlpha = f.alpha;
-        ctx.fillStyle = colorOf(f.color);
-        ctx.fill(f.path, "evenodd");
-        ctx.globalAlpha = 1;
-      });
-    }
-    for (const w of this.wide) {
-      withClip(w.clip, () => {
-        ctx.strokeStyle = colorOf(w.color);
-        ctx.lineWidth = Math.max(w.width, px);
-        ctx.setLineDash([]);
-        ctx.stroke(w.path);
-      });
-    }
-    for (const b of this.batches) {
-      withClip(b.clip, () => {
-        ctx.strokeStyle = colorOf(b.color);
-        ctx.lineWidth = this.#lineWidthPx(b.lineweight) * px;
-        ctx.setLineDash(this.#dash(b.dashes, scale));
-        ctx.stroke(b.path);
+    for (const op of this.ops) {
+      withClip(op.clip, () => {
+        switch (op.kind) {
+          case "fill":
+            ctx.globalAlpha = op.alpha;
+            ctx.fillStyle = colorOf(op.color);
+            ctx.fill(op.path, op.rule);
+            ctx.globalAlpha = 1;
+            return;
+          case "wide":
+            ctx.globalAlpha = op.alpha;
+            ctx.strokeStyle = colorOf(op.color);
+            // PDF の線（weight）は太さの表示を切ると細線。ポリラインの幅（DWG）は形の一部なので、いつも幅で描く
+            ctx.lineWidth = op.weight && !this.lineweights ? px : Math.max(op.width, px);
+            ctx.setLineDash(op.dashes ? this.#dash(op.dashes, scale) : []);
+            if (op.weight) ctx.lineCap = CAPS[op.cap] ?? "butt";
+            ctx.stroke(op.path);
+            ctx.lineCap = "round";
+            ctx.globalAlpha = 1;
+            return;
+          case "stroke":
+            ctx.strokeStyle = colorOf(op.color);
+            ctx.lineWidth = this.#lineWidthPx(op.lineweight) * px;
+            ctx.setLineDash(this.#dash(op.dashes, scale));
+            ctx.stroke(op.path);
+            return;
+          case "image": return this.#image(op, px);
+          case "text":
+            ctx.setLineDash([]);
+            this.#text(op.text, colorOf(op.text.color), dpr);
+            world();
+            return;
+          case "point":
+            // 点: AutoCAD の既定（PDMODE 0）と同じく、1 px 四方の点
+            ctx.fillStyle = colorOf(op.point.color);
+            ctx.fillRect(op.point.x - ox - 0.75 * px, op.point.y - oy - 0.75 * px, 1.5 * px, 1.5 * px);
+            return;
+        }
       });
     }
     ctx.setLineDash([]);
-    for (const t of this.scene.texts) withClip(t.clip, () => this.#text(t, colorOf(t.color), dpr));
-    world();
-    // 点: AutoCAD の既定（PDMODE 0）と同じく、1 px 四方の点
-    for (const p of this.scene.points) {
-      withClip(p.clip, () => {
-        ctx.fillStyle = colorOf(p.color);
-        ctx.fillRect(p.x - this.origin[0] - 0.75 * px, p.y - this.origin[1] - 0.75 * px, 1.5 * px, 1.5 * px);
-      });
-    }
     if (this.highlighted !== null) this.#drawHighlight(dpr, px);
+  }
+
+  /** 画像: 単位の正方形 → 図面 の行列で、画素の行 0（上）が正方形の上辺に来るように描く */
+  #image(op, px) {
+    const { ctx } = this;
+    const prepared = PREPARED.get(op.image.image);
+    if (!prepared) {
+      // まだ解けていない・解けない画像は、枠と対角線
+      ctx.strokeStyle = BOX_EDGE;
+      ctx.lineWidth = px;
+      ctx.setLineDash([]);
+      ctx.stroke(op.quad);
+      return;
+    }
+    const [a, b, c, d, e, f] = op.image.matrix;
+    const w = prepared.width, h = prepared.height;
+    ctx.save();
+    ctx.transform(a / w, b / w, -c / h, -d / h, c + e - this.origin[0], d + f - this.origin[1]);
+    // 引き伸ばすときは、補間の指定（/Interpolate）が無ければ画素のまま（PDF の読み手と同じ）。縮めるときはぼかして荒れを防ぐ
+    const magnified = Math.hypot(a, b) * this.view.scale > w;
+    ctx.imageSmoothingEnabled = !magnified || Boolean(op.image.image.interpolate);
+    ctx.drawImage(prepared, 0, 0);
+    ctx.restore();
   }
 
   #lineWidthPx(lineweight) {
@@ -280,7 +406,9 @@ export class DrawingViewer {
     if (t.mirror) ctx.scale(-1, 1);
     if (t.flip) ctx.scale(1, -1);
     if (t.oblique) ctx.transform(1, 0, -Math.tan(t.oblique), 1, 0, 0);
-    ctx.font = `${h / CAP_HEIGHT}px ${this.font}`;
+    const f = t.font;
+    const family = f?.family === "serif" ? SERIF : f?.family === "monospace" ? MONO : this.font;
+    ctx.font = `${f?.italic ? "italic " : ""}${f?.weight === 700 ? "bold " : ""}${h / CAP_HEIGHT}px ${family}`;
     ctx.fillStyle = color;
     ctx.textAlign = t.align === "center" ? "center" : t.align === "right" ? "right" : "left";
     ctx.textBaseline = "alphabetic";

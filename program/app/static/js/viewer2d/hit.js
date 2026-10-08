@@ -55,10 +55,18 @@ export class HitIndex {
 
   /** 塗り・文字の外形。inside: 内側のときの近さ（許容に対する比） */
   #addArea(item, order, rings, clip, inside) {
-    const xs = [], ys = [];
-    for (const r of rings) for (let i = 0; i < r.length; i += 2) xs.push(r[i]), ys.push(r[i + 1]);
-    if (!xs.length) return;
-    this.areas.push({ item, order, rings, clip, inside, box: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)] });
+    // 外形（点が多い塗りでも、引数の並べ過ぎにならないように数えて求める）
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const r of rings) {
+      for (let i = 0; i < r.length; i += 2) {
+        if (r[i] < x0) x0 = r[i];
+        if (r[i] > x1) x1 = r[i];
+        if (r[i + 1] < y0) y0 = r[i + 1];
+        if (r[i + 1] > y1) y1 = r[i + 1];
+      }
+    }
+    if (!(x0 <= x1)) return;
+    this.areas.push({ item, order, rings, clip, inside, box: [x0, y0, x1, y1] });
   }
 
   #cellOf(x, y) {

@@ -3,7 +3,8 @@
 //   asm  … 組立（.iam・STEP）: 外形寸法・部品表・構成・見つからない部品（次にすることのボタンは行動ドック）
 //   html … three.js の HTML: 照合の結果・単位・作る部品・除外したもの
 //   spec … 変換データ（.inventor.json）: ファイルの情報・照合の結果・作る部品
-//   drawing … 2D の図面（.dwg・.dxf）: ファイルの情報・図面（形式・大きさ・レイアウト）・画層（押すと表示・非表示）・図形の内訳
+//   drawing … 2D の図面（.dwg・.dxf・.pdf）: ファイルの情報・図面（形式・大きさ・レイアウト）・画層（押すと表示・非表示）・図形の内訳
+//   model3d … 3D の PDF の 3D（主役の場所のタブで図面と切り替える）: 3D の情報（形式・部品・面・大きさ）・部品の一覧
 
 import { AXES, fmt, fmtMass, fmtSize } from "../viewer/describe.js";
 import { ACI, rgbHex } from "../viewer2d/colors.js";
@@ -43,7 +44,7 @@ function featureRow({ kind, dim, count, sub, note, tone, title }, onEnter, onLea
   button.type = "button";
   if (tone) button.dataset.tone = tone;
   if (title) button.title = title;
-  button.append(el("span", "kind", kind), el("span", "dim", dim), el("span", "count", `×${count}`));
+  button.append(el("span", "kind", kind), el("span", "dim", dim), el("span", "count", count === null ? "" : `×${count}`)); // null: 数を出さない
   if (sub) button.append(el("span", "sub", sub));
   if (note) button.append(el("span", "note", note));
   for (const type of ["pointerenter", "focus"]) button.addEventListener(type, onEnter);
@@ -232,7 +233,7 @@ export function renderSpecPanel({ describe }, handlers) {
 const layerColor = (color) => (color?.rgb !== undefined ? rgbHex(color.rgb) : ACI[Math.abs(color?.index ?? 7)] ?? null);
 
 /**
- * 図面（.dwg・.dxf）。画層は、このレイアウトに図形があるものを数の多い順に。図形の無い画層は数だけ添える。
+ * 図面（.dwg・.dxf・.pdf）。画層は、このレイアウトに図形があるものを数の多い順に。図形の無い画層は数だけ添える。
  * @param {{ drawing, describe, layout, visible: (name) => boolean, display: (color) => string }} data
  *   display … 図面の色 → 描く色（地に合わせた補正。見本を図面と同じ色にする）
  * @param {{ onToggle: (name) => void, onEnter: (name) => void, onLeave: () => void }} handlers
@@ -245,7 +246,7 @@ export function renderDrawingPanel({ drawing, describe, layout, visible, display
   definitionList("drawing-info", [
     ["形式", `${drawing.format.toUpperCase()} ${drawing.version}`],
     ["大きさ", describe.extents ? `${length(w)} × ${length(h)}${units ? ` ${units}` : ""}` : "—"],
-    ["レイアウト", `${layout.model ? "モデル" : layout.name}${drawing.layouts.length > 1 ? `（全 ${drawing.layouts.length}）` : ""}`],
+    [drawing.format === "pdf" ? "ページ" : "レイアウト", `${layout.model ? "モデル" : layout.name}${drawing.layouts.length > 1 ? `（全 ${drawing.layouts.length}）` : ""}`],
   ]);
 
   const used = describe.layers.filter((l) => l.count > 0).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, "ja"));
@@ -281,4 +282,25 @@ export function renderDrawingPanel({ drawing, describe, layout, visible, display
   $("drawing-unsupported").hidden = !notes.length;
   $("drawing-unsupported").textContent = notes.length ? `${notes.join("。")}（ほかの図形は表示しています）` : "";
   return rows;
+}
+
+/**
+ * 3D の PDF の 3D（U3D・PRC）。部品は、ファイルに置かれた順。
+ * @param {{ format: string, describe: object | null, error?: string, warnings?: string[] }} data
+ *   describe … viewer/describe.js の describeMeshes の結果（読めなかったときは null と error）
+ * @returns {Map<string, HTMLElement>} 部品のキー → 行
+ */
+export function renderModel3dPanel({ format, describe, error = "", warnings = [] }, handlers) {
+  definitionList("model3d-info", [
+    ["形式", format],
+    ["部品", describe ? `${describe.groups.length}` : "—"],
+    ["面", describe ? `${describe.faces}` : "—"],
+    ["大きさ", describe?.size ? fmtSize(describe.size) : "—"],
+  ]);
+  const notes = [error, warnings.length ? `表示していないもの: ${warnings.join("・")}` : ""].filter(Boolean);
+  $("model3d-warn").hidden = !notes.length;
+  $("model3d-warn").textContent = notes.join("。");
+  return renderRows("model3d-parts", describe?.groups ?? [],
+    (g) => ({ kind: String(g.number).padStart(2, "0"), dim: g.name || "（名前なし）", count: null, sub: `面 ${g.faces}` }), handlers,
+    error ? "読めなかったので、部品はありません" : "表示できる形がありません");
 }

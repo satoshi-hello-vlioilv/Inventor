@@ -6,6 +6,7 @@
 // 状態（STATES）は、起動 → … → 作り終えた の順に 1 つの頁で進める（作る仕事は前の状態の続き）。
 
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { spawn, execSync } from "node:child_process";
 import { createRequire } from "node:module";
@@ -22,6 +23,15 @@ const IPT = "A1_円筒_両切欠き＋片ネジ_Φ54.5.ipt";
 const IAM = "Assembly_全体_Φ54.5.iam";
 const HTML = "LS4_parts_viewer.html";
 const DRAWING = "A1_円筒_部品図.dxf";
+const PDF3D = "U3D_SimpleShapes_3D.pdf";
+
+/** ページの多い PDF（試験用に作る 40 ページの図面。ページ送りの見え方を撮る） */
+async function manyPages() {
+  const { drawingSet } = await import("../tests/js/pdf-fixture.mjs");
+  const file = path.join(os.tmpdir(), "図面セット_40ページ.pdf");
+  fs.writeFileSync(file, drawingSet(40));
+  return file;
+}
 
 export const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 
@@ -83,7 +93,8 @@ async function openSample(page, name) {
 }
 
 async function openFile(page, file) {
-  await page.setInputFiles("#file-input", file);
+  // 中身で渡す（Playwright は、日本語の入ったパスを渡すと選んだことにならない）
+  await page.setInputFiles("#file-input", { name: path.basename(file), mimeType: "application/octet-stream", buffer: fs.readFileSync(file) });
   await page.waitForFunction((n) => document.querySelector("#file-name")?.textContent === n, path.basename(file), { timeout: 30000 });
   await sleep(800);
 }
@@ -117,6 +128,10 @@ export const STATES = [
   // 図面（2D）。図形にカーソルを合わせた様子（読み出し・強調）も撮る: 図面の上を格子状に動かし、読み出しが出た所で止める
   ["drawing", async (p) => { await openSample(p, DRAWING); await hoverDrawing(p); }, "[data-next], #open"],
   ["layout", async (p) => { await p.click("#layout-tabs button:nth-child(2)"); await sleep(600); await hoverDrawing(p); }, "[data-next], #open"],
+  // PDF: ページの多い図面（ページ送り）・3D を含む PDF（主役の場所のタブ: 3D → 図面）
+  ["pages", async (p) => { await openFile(p, await manyPages()); }, "[data-next], #open"],
+  ["pdf3d", async (p) => { await openSample(p, PDF3D); }, "[data-next], #open"],
+  ["pdf3d-sheet", async (p) => { await p.click('#view-tab-list [data-view="sheet"]'); await sleep(600); }, "[data-next], #open"],
   ["html", async (p) => {
     await openSample(p, HTML);
     await p.waitForFunction(() => /取り込み/.test(document.querySelector("#source-status")?.textContent ?? "") && /r\d+/.test(document.querySelector("#source-status").textContent), null, { timeout: 30000 });

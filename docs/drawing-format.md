@@ -1,8 +1,10 @@
-# 2D の図面（DWG・DXF）の読み取りと表示
+# 2D の図面（DWG・DXF・PDF）と PDF の 3D の読み取りと表示
 
-AutoCAD・Inventor などが書いた 2 次元の図面（.dwg・.dxf）を、Inventor・AutoCAD が無くても、このアプリの中だけ（JavaScript）で読み、
-Canvas に描く。読み取りは仕様書（Open Design Alliance の *Open Design Specification for .dwg files*・Autodesk の *DXF Reference*）から
-自前で書いた（GPL のライブラリは使わず、コードも写していない）。
+AutoCAD・Inventor などが書いた 2 次元の図面（.dwg・.dxf）と、図面の PDF（3D を含む PDF も）を、Inventor・AutoCAD・Acrobat が無くても、
+このアプリの中だけ（JavaScript）で読み、Canvas に描く（PDF の 3D は 3D の表示に出す）。読み取りは仕様書（Open Design Alliance の
+*Open Design Specification for .dwg files*・Autodesk の *DXF Reference*・ISO 32000-1（PDF 1.7）・ECMA-363（U3D））から自前で書いた
+（GPL のライブラリは使わず、コードも写していない）。PDF の圧縮（Flate）だけは、同梱の fflate（MIT）で解く。
+PDF は 6 章、PDF の 3D は 7 章。
 
 ## 1. 構成
 
@@ -11,8 +13,10 @@ Canvas に描く。読み取りは仕様書（Open Design Alliance の *Open Des
 | `formats/dwg/` | DWG のビット列（`bits.js`）・ファイルの節（`file.js`: R13〜R2000 の節の地図、R2004 以降の暗号化した見出し・ページの地図・LZ77 の圧縮）・クラスとオブジェクトの地図（`sections.js`）・オブジェクト（`objects.js`: 図形 30 種類ほどと、画層・線種・文字スタイル・ブロック・レイアウト）。R2007 は `rs2007.js`（まだ） |
 | `formats/cad2d/` | DWG と DXF で共通の **図面のモデル**（`model.js`）。DXF の読み取り（`from-dxf.js`: ASCII・バイナリ）、DWG のオブジェクトの組み立て（`from-dwg.js`）、図面に固有の曲線（`curves.js`: 通過点のスプライン・膨らみ・OCS）、入口（`index.js`） |
 | `viewer2d/` | 描くもの（`scene.js`: ブロックの入れ子・画層ごと／ブロックごとの色・線種・線の太さ・ハッチングの模様・ビューポート）、Canvas への描画（`viewer2d.js`）、指した図形の索引（`hit.js`）、説明（`describe.js`）、文字の書式（`text.js`）、色番号（`colors.js`） |
+| `formats/pdf/` | PDF の字句と値（`objects.js`）・ストリームの符号化（`filters.js`）・ファイルの構造（`file.js`: 相互参照・オブジェクトのストリーム・壊れた相互参照の読み直し・ページの木・画層）・書体と文字の対応（`fonts.js`）・色（`colorspace.js`）・ページの中身の実行（`content.js`）・画像（`images.js`）・注記の見た目（`annotations.js`）・3D の取り出し（`three-d.js`）。図面のモデルにするのは `cad2d/from-pdf.js` |
+| `formats/u3d/`・`formats/model3d.js` | U3D（ECMA-363）のビット列と算術符号（`bitstream.js`）・段階的なメッシュ（`clod.js`）・場面の組み立て（`index.js`）。3D の表示のメッシュと部品の一覧にするのは `model3d.js` |
 
-形式の判定は中身で行う（DWG は先頭の版の印 `AC10xx`、DXF は `0 / SECTION` かバイナリの印）。拡張子が違っても開ける。
+形式の判定は中身で行う（DWG は先頭の版の印 `AC10xx`、DXF は `0 / SECTION` かバイナリの印、PDF は先頭 1 KB の `%PDF-`）。拡張子が違っても開ける。
 
 ## 2. 読める版
 
@@ -110,3 +114,87 @@ python program/tools/make_drawing_sample.py                                     
 - SHX・TrueType の字形そのもの（文字の幅は書体によって違う）
 - Inventor の図面（.idw）。.idw は Inventor の独自形式で、図面のビューは Inventor が 3D から計算して持つ。Inventor から DWG に
   書き出せば開ける
+
+## 6. PDF の図面
+
+PDF には円も寸法も無く、線と曲線の「パス」・文字・画像だけがある。ページを紙のレイアウト（`*Page1` …）にし、画層（Optional Content。
+CAD が PDF に書き出すときの画層）を画層にして、DWG・DXF と同じ図面のモデル・同じ表示で見せる。座標はページの左下を原点にした mm
+（1 pt = 25.4 / 72 mm。ページの回転 `/Rotate` も入れる）。
+
+### 6.1 読めるもの
+
+- ファイル: 相互参照の表・ストリーム（PDF 1.5〜）・両方の混ざったもの・更新を重ねたもの（`/Prev`）・オブジェクトのストリーム。
+  相互参照が壊れていれば、ファイルを走査して `n 0 obj` を拾い直す（見出しバーで知らせる）。暗号化した PDF は読めないと知らせる
+- 符号化: Flate・LZW・ASCIIHex・ASCII85・RunLength と予測子（TIFF・PNG）。Flate の終わりが壊れていても、そこまでに解けた分を使う
+- 描くもの: パス（直線・3 次ベジェ・長方形）・塗り（nonzero・evenodd）・線の太さ・破線・端の形・透明度・切り取り（外形で近似）、
+  文字（Type1・TrueType・Type3・CID の書体、ToUnicode・定義済みの CMap（Shift_JIS・EUC・UCS2・UTF16 の横書き・縦書き）、送り幅）、
+  画像（JPEG はそのまま・それ以外は画素に。インラインの画像・透明度のマスク）、Form XObject、注記の見た目（見た目の無い朱書きの
+  注記やフォームの欄は、種類から作る）、色空間（Gray・RGB・CMYK・Indexed・Separation・DeviceN・Lab・ICCBased・関数 0・2・3・4）
+- ページの名前（`/PageLabels`。i・ii・1・2…）を、ページのタブ・送りの名前にする
+- ページの中身は、そのページを初めて表示するときに読む（117 ページの PDF も、開くのは最初のページを読む時間だけ）。
+  開くときは 3D の注記だけを集める
+
+### 6.2 確かめ方（評価関数）と結果
+
+1. **MuPDF の描いた絵と画素で比べる**（`program/tools/pdf-check.mjs`・`pdf_reference.py`。PyMuPDF は評価にだけ使い、アプリには入れない）:
+   紙を同じ大きさの画像に描き、インクの画素（紙の色との差が 40 を越える画素）が、相手のインクの 2 px の内にあるかを数える。
+   「余計に描かない」= こちらのインクのうち基準の近くにある割合、「描き漏らさない」= 基準のインクのうちこちらの近くにある割合。
+   文字は、MuPDF が取り出した語のうち、こちらの文字に現れる割合。
+   **結果（py-pdf/sample-files などの 38 ファイル・47 ページ）: 余計に描かない 92.1%・描き漏らさない 94.8%・文字の語 95.3%**。
+   読めなかった 2 つは、ページの無い PDF（MuPDF も 0 ページ）と暗号化した PDF
+2. **試験**（`program/tests/js/pdf.test.mjs`）: 字句・符号化・壊れた相互参照・CMap・ページの中身（線・曲線・破線・文字・画層）を、
+   試験の中で組み立てた小さな PDF（`pdf-fixture.mjs`）で確かめる。同梱のサンプルの PDF は、全てのページを壊れた図形なしで描けること
+
+```sh
+git clone --depth 1 https://github.com/py-pdf/sample-files            # 評価の題材（CC BY-SA 4.0）
+node program/tools/pdf-check.mjs --pages 2 --out 比べた画像 sample-files  # pip install pymupdf
+```
+
+### 6.3 表示
+
+- 白い紙の上に、PDF の色そのまま（地に合わせて補正しない）で、描く順序どおりに描く（後の図形が前の図形を隠す）
+- 線の太さ 0 は、いちばん細い線（1 px）。「線の太さ」を切ると全て細線
+- 文字は画面の書体で描く（明朝・ゴシック・等幅を書体の名前から選ぶ）。送り幅が分かれば、その幅に収める
+- ページが 9 つ以上なら、ページのタブの代わりにページ送り（‹ 何ページ目 / 全部 ▾ ›。PageUp・PageDown でも）。docs/ui.md §11
+
+### 6.4 まだできないこと
+
+- 書体に埋め込まれた字形そのもの（記号の字形は画面の書体に無いことがある）。暗号化した PDF
+- 画像の CCITT・JBIG2・JPEG 2000（場所を枠で示す）。グラデーション・模様の塗りは近似（右の欄に数を出す）
+- 任意の形の切り取り（外形の長方形で近似）
+
+## 7. PDF の 3D（U3D）
+
+3D の注記（`/Subtype /3D`。または RichMedia の埋め込みのファイル）から、3D のデータ（U3D・PRC）を取り出す。U3D を読み、
+主役の場所のタブで「図面」と「3D」を切り替えて見せる（3D の欄には形式・部品・面の数・大きさと、部品の一覧）。
+3D を動かす前の絵（注記の見た目）が無い 3D の注記は、ページの上に 3D の場所を枠と案内の文字で示す（専用の画層「3D の場所」）。
+
+### 7.1 読めるもの
+
+- U3D: ブロック・修飾の鎖（入れ子）・ノード（群・モデル・視点。親が複数なら置き方も複数）・段階的なメッシュ（CLOD: 基本のメッシュと、
+  頂点を分けて面を足していく段階の全て）・陰影・材質（拡散色を部品の色にする）。算術符号（静的・出現の数で変わる文脈）は、
+  ECMA-363 と公式の実装（Intel の U3D ライブラリ。Apache 2.0）の手順に従った
+- 最初の視点: PDF の既定の視点（`/3DV`）が U3D の視点の名前を指せばその視点、行列（`/C2W`）ならその向き、無ければ U3D の
+  `DefaultView`。視点の上の向きに最も近い軸を画面の上にして回す（Z が上の CAD のモデルも、床が下に見える）
+
+### 7.2 確かめ方（評価関数）と結果
+
+1. **元の文章（IDTF）と突き合わせる**（`program/tools/u3d-check.mjs`）: U3D のライブラリの試験の場面は、U3D とそれを作った元の文章
+   （IDTF。位置と面の一覧）の組で配られている。読んだメッシュの位置を IDTF の位置に対応させ（量子化の誤差の内）、全ての三角形が
+   同じ位置の組・同じ向きかを数える。**結果: 59 メッシュの全てで面が全て一致**
+2. **試験**（`program/tests/js/pdf.test.mjs`）: サンプルの 3D の PDF の 7 部品の面の数・大きさ（400 × 400 × 200）・材質の色・
+   最初の視点（Z が上）。3D の注記の取り出しと、見た目の無い注記の 3D の場所
+
+```sh
+git clone --depth 1 https://github.com/ningfei/u3d                    # 試験の場面（Apache 2.0）
+node program/tools/u3d-check.mjs u3d/Samples/TestScenes
+```
+
+### 7.3 まだできないこと
+
+- **PRC**（Acrobat・CAD が 3D の PDF に書くもう 1 つの形式。ISO 14739-1）。いまは「PRC 形式の 3D は、まだ表示できません」と知らせる
+- U3D の線・点の集まり（読み飛ばし、右の欄で知らせる）・模様（テクスチャ）・動き（アニメーション）
+- PDF の `/C2W`（行列で書いた視点）の軸の取り方は、行列を書く実装の libharu に合わせた。`/C2W` を持つ実物の 3D の PDF では
+  まだ確かめていない（**分からない**）
+- 大きさの単位: U3D の「単位の尺度」の意味は、手元の資料では確かめられなかった（**分からない**）。大きさはファイルの数のまま出す
+

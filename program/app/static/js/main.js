@@ -1,7 +1,8 @@
 // アプリの入口: 受け取ったファイルを読み（formats/open.js）、3D（viewer/）と右の欄（ui/panel.js）に表示し、両者を連動させる。
 // 次にすること（主のボタン 1 つ）は ui/flow.js が決め、段階の帯（ui/steps.js）と行動ドックに出す（docs/ui.md）。
 //   .ipt・.iam・.stp … モデル（部品・組立）として読み、表示する
-//   .dwg・.dxf       … 2D の図面として読み（formats/cad2d）、Canvas に描く（viewer2d/）。レイアウトの切り替え・画層の表示・図形の読み出し
+//   .dwg・.dxf・.pdf … 2D の図面として読み（formats/cad2d）、Canvas に描く（viewer2d/）。レイアウト（PDF はページ）の切り替え・画層の表示・
+//                      図形の読み出し。3D を含む PDF は、主役の場所のタブで 3D（formats/model3d.js → viewer/）に切り替える
 //   .html            … 隔離した iframe で動かし、three.js の形状を取り出して認識し（convert/recognize）、変換データを作る
 //   .json            … 変換データ（.inventor.json）。作る形を 3D で示し（convert/preview.js）、「Inventor で作る」で作る
 // ファイルの受け付けは ui/files.js、窓（Inventor3DTool.exe）とのやりとり（サンプル・起動で受け取ったファイル）は desktop.js、
@@ -11,6 +12,7 @@
 import { buildInventorSpec, readSpec } from "./convert/inventor.js";
 import { describeSpec, previewScene } from "./convert/preview.js";
 import { recognizeSnapshot } from "./convert/recognize/index.js";
+import { read3d } from "./formats/model3d.js";
 import { OPENABLE, detectFormat, explainError, partOf, readModel } from "./formats/open.js";
 import { buildDisplayMeshes, describeRecognition } from "./html/describe.js";
 import { SourceFrame } from "./html/frame.js";
@@ -22,9 +24,9 @@ import { PartLibrary, acceptFiles } from "./ui/files.js";
 import { initBuild } from "./ui/build.js";
 import { setupUnit } from "./ui/units.js";
 import { selectViewTab, setViewTabs } from "./ui/viewtabs.js";
-import { renderAsmPanel, renderDrawingPanel, renderHeader, renderHtmlPanel, renderIptPanel, renderSpecPanel, setPanelMode } from "./ui/panel.js";
+import { renderAsmPanel, renderDrawingPanel, renderHeader, renderHtmlPanel, renderIptPanel, renderModel3dPanel, renderSpecPanel, setPanelMode } from "./ui/panel.js";
 import { startDialog } from "./ui/start.js";
-import { describeAssembly, describeBody } from "./viewer/describe.js";
+import { describeAssembly, describeBody, describeMeshes } from "./viewer/describe.js";
 import { VIEWS, Viewer } from "./viewer/viewer.js";
 import { describeDrawing, describeItem } from "./viewer2d/describe.js";
 import { buildScene } from "./viewer2d/scene.js";
@@ -35,13 +37,13 @@ const readout = $("readout");
 const readoutChip = readout.querySelector(".chip");
 // 何も指していないときの案内。指す単位（部品は面、組立・HTML は部品）に合わせる
 const IDLE_TEXT = { ipt: readoutChip.textContent, asm: "部品にカーソルを合わせると、名前と寸法を表示します" };
-IDLE_TEXT.html = IDLE_TEXT.spec = IDLE_TEXT.asm;
+IDLE_TEXT.html = IDLE_TEXT.spec = IDLE_TEXT.model3d = IDLE_TEXT.asm;
 IDLE_TEXT.drawing = "線・文字・寸法にカーソルを合わせると、種類と寸法を表示します";
 const SETTLE_MS = 1200; // 元のページの最初の描画から取り込みまで待つ時間（初期化の完了待ち）
 const READY_TIMEOUT_MS = 15000;
 // 見出しバーの種類の札（いま何を見ているか）
 const EYEBROW = { "part:ipt": "部品 .ipt", "part:step": "STEP 部品", "assembly:step": "STEP 組立", "assembly:iam": "組立 .iam",
-  "drawing:dwg": "図面 .dwg", "drawing:dxf": "図面 .dxf" };
+  "drawing:dwg": "図面 .dwg", "drawing:dxf": "図面 .dxf", "drawing:pdf": "図面 .pdf" };
 
 let idleText = IDLE_TEXT.ipt;
 let current = null; // 表示中の強調の対応 { info: Map<id, {group, text}>, rows: Map<groupKey, element> }
@@ -51,7 +53,8 @@ let assembly = null; // 表示中（または部品を開く前）の組立 { mo
 let source = null; // 表示中の元のページ（SourceFrame）
 let sourceName = ""; // 表示中の HTML のファイル名
 let captured = null; // 最後に取り込んだシーン { snapshot, at, unit }（単位を変えたら認識し直す）
-let sheet = null; // 表示中の図面 { model, layout（番号）, layers: Map<画層, 表示するか>（利用者が切り替えたもの）, scene, rows }
+let sheet = null; // 表示中の図面 { model, layout（番号）, layers: Map<画層, 表示するか>（利用者が切り替えたもの）, scene, rows,
+//                  view（主役の場所のタブ: "sheet" か 3D の PDF の "3d:番号"）, shown3d: Map<番号, read3d の結果か { error }> }
 
 // ---- 強調表示（3D ⇄ パネルの双方向） -----------------------------------------
 function highlight(ids, text, groupKey) {
@@ -82,8 +85,15 @@ try {
   $("stage").append(note);
 }
 
-// 2D の図面（Canvas 2D なので WebGL が無くても動く）
-const drawingViewer = new DrawingViewer({ stage: $("stage"), canvas: $("view2d") }, { onHover: onDrawingHover });
+// 2D の図面（Canvas 2D なので WebGL が無くても動く）。全体表示は、上のツールバー（と主役の場所のタブ）・下の読み出しの内側に収める
+const overlayInsets = () => {
+  const stage = $("stage").getBoundingClientRect();
+  const bars = [...document.querySelectorAll("#stage .toolbar > :not([hidden]), #view-tabs:not([hidden])")].map((el) => el.getBoundingClientRect()).filter((r) => r.height);
+  const top = Math.max(0, ...bars.map((r) => r.bottom - stage.top)) + 8;
+  const chip = readoutChip.getBoundingClientRect();
+  return { top, bottom: chip.height ? stage.bottom - chip.top + 8 : 0, left: 0, right: 0 };
+};
+const drawingViewer = new DrawingViewer({ stage: $("stage"), canvas: $("view2d") }, { onHover: onDrawingHover, insets: overlayInsets });
 
 function showMessage(id, message) {
   $(id).textContent = message;
@@ -219,15 +229,58 @@ async function loadModel(bytes, name, isSample) {
   }
 }
 
-// ---- 図面（.dwg・.dxf）-----------------------------------------------------------
-/** 図面を表示する（最初のレイアウト = モデル） */
+// ---- 図面（.dwg・.dxf・.pdf）-------------------------------------------------------
+/** 図面を表示する（最初のレイアウト = モデル）。3D を含む PDF は、主役の場所のタブで 図面 ⇄ 3D を切り替える（最初は 3D） */
 function showDrawing(model, header) {
   setMode("drawing");
   renderHeader(header);
   current = null;
-  sheet = { model, layout: 0, layers: new Map(), scene: null, rows: new Map() };
+  sheet = { model, layout: 0, layers: new Map(), scene: null, rows: new Map(), view: "sheet", shown3d: new Map() };
   renderLayoutTabs();
   renderSheet(true);
+  const models = model.drawing.models3d ?? [];
+  if (!models.length) return;
+  const tabs = [{ key: "sheet", label: "図面" }, ...models.map((m, i) => ({ key: `3d:${i}`, label: models.length > 1 ? `3D ${i + 1}` : "3D" }))];
+  setViewTabs(tabs, "3d:0", showDrawingView);
+  showDrawingView("3d:0");
+}
+
+/** 図面の表示を切り替える（"sheet" = 図面・"3d:番号" = 3D の PDF の 3D）。図面の状態（レイアウト・画層）は残す */
+function showDrawingView(key) {
+  sheet.view = key;
+  const index = key.startsWith("3d:") ? Number(key.slice(3)) : -1;
+  const is3d = index >= 0;
+  $("app").classList.toggle("is-drawing", !is3d);
+  $("view").hidden = !is3d;
+  $("view2d").hidden = is3d;
+  $("stage").setAttribute("aria-label", is3d ? "3D ビュー" : "図面");
+  setPanelMode(is3d ? "model3d" : "drawing");
+  idleText = IDLE_TEXT[is3d ? "model3d" : "drawing"];
+  current = null;
+  if (is3d) show3d(index);
+  else {
+    renderLayoutTabs(); // 欄の切り替え（data-mode）が出したページのタブを、ページの数に合わせ直す
+    highlightItems([]);
+  }
+}
+
+/** 3D の PDF の 3D を表示する（読むのは初めて開いたときの 1 回だけ） */
+function show3d(index) {
+  const entry = sheet.model.drawing.models3d[index];
+  if (!sheet.shown3d.has(index)) {
+    try {
+      sheet.shown3d.set(index, read3d(entry));
+    } catch (error) {
+      console.warn(error);
+      sheet.shown3d.set(index, { error: explainError(error) });
+    }
+  }
+  const shown = sheet.shown3d.get(index);
+  viewer?.show({ meshes: shown.meshes ?? [], view: shown.view });
+  const describe = shown.meshes ? describeMeshes(shown) : null;
+  const rows = renderModel3dPanel({ format: entry.format, describe, error: shown.error, warnings: shown.warnings }, rowHandlers((g) => g.ids));
+  current = describe && { info: describe.info, rows };
+  highlight([]);
 }
 
 /** いまのレイアウト・画層の表示で描き直す（fit: 全体が収まるように） */
@@ -256,25 +309,70 @@ function renderSheet(fit) {
   highlightItems([]);
 }
 
-/** レイアウトの切り替え（モデルと紙のレイアウト。1 つだけなら出さない） */
+/** レイアウト（PDF はページ）の切り替え。1 つだけなら出さない。8 つまではタブ（名前が見え、1 回で移れる）、
+ *  それより多ければページ送り（‹ 何番目 / 全部 ▾ ›。中央を押すと一覧から選ぶ。PageUp・PageDown でも）。docs/ui.md §11 */
+const TABS_UP_TO = 8;
+const layoutName = (l) => (l.model ? "モデル" : l.name);
+
 function renderLayoutTabs() {
   const { layouts } = sheet.model.drawing;
   const group = $("layout-tabs");
   group.hidden = layouts.length < 2;
-  group.replaceChildren(...layouts.map((l, i) => {
+  group.classList.toggle("pager", layouts.length > TABS_UP_TO);
+  if (layouts.length <= TABS_UP_TO) {
+    group.replaceChildren(...layouts.map((l, i) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = layoutName(l);
+      button.setAttribute("aria-current", String(i === sheet.layout));
+      button.addEventListener("click", () => showLayout(i));
+      return button;
+    }));
+    return;
+  }
+  const step = (text, title, delta) => {
     const button = document.createElement("button");
     button.type = "button";
-    button.textContent = l.model ? "モデル" : l.name;
-    button.setAttribute("aria-current", String(i === sheet.layout));
-    button.addEventListener("click", () => {
-      if (sheet.layout === i) return;
-      sheet.layout = i;
-      for (const b of group.children) b.setAttribute("aria-current", String(b === button));
-      renderSheet(true);
-    });
+    button.className = "pager-step";
+    button.textContent = text;
+    button.title = title;
+    button.disabled = !layouts[sheet.layout + delta];
+    button.addEventListener("click", () => showLayout(sheet.layout + delta));
     return button;
-  }));
+  };
+  // 中央: いまの番号と全部の数（見た目）の上に、透明な選択の一覧を重ねる（押すと一覧が開く）
+  const now = document.createElement("label");
+  now.className = "pager-now";
+  now.title = "押すとページを選ぶ（PageUp・PageDown で前・次）";
+  const text = document.createElement("span");
+  text.append(layoutName(layouts[sheet.layout]), Object.assign(document.createElement("small"), { textContent: ` / ${layouts.length}` }));
+  const select = document.createElement("select");
+  select.setAttribute("aria-label", "ページ");
+  select.append(...layouts.map((l, i) => new Option(`${layoutName(l)}（${i + 1} / ${layouts.length}）`, String(i), false, i === sheet.layout)));
+  select.addEventListener("change", () => showLayout(Number(select.value)));
+  now.append(text, select);
+  group.replaceChildren(step("‹", "前のページ（PageUp）", -1), now, step("›", "次のページ（PageDown）", 1));
 }
+
+/** レイアウト（ページ）を切り替える */
+function showLayout(index) {
+  if (!sheet?.model.drawing.layouts[index] || sheet.layout === index) return;
+  sheet.layout = index;
+  // 押したボタン（タブ・送り・一覧）に、作り直した後も焦点を戻す（キーボードで続けて操作できるように）
+  const group = $("layout-tabs");
+  const at = [...group.children].findIndex((child) => child.contains(document.activeElement));
+  renderLayoutTabs();
+  const again = group.children[at];
+  (again?.querySelector("select") ?? again)?.focus();
+  renderSheet(true);
+}
+
+// PageUp・PageDown で前・次のレイアウト（ページ）。図面を見ているときだけ（入力の欄・一覧を操作しているときは除く）
+addEventListener("keydown", (event) => {
+  if (!sheet || sheet.view !== "sheet" || !["PageUp", "PageDown"].includes(event.key) || event.target.closest?.("input, select, textarea")) return;
+  event.preventDefault();
+  showLayout(sheet.layout + (event.key === "PageDown" ? 1 : -1));
+});
 
 /** 図面の図形の強調（読み出しの文と、画層の行の印） */
 function highlightItems(items, text, layer) {
@@ -477,7 +575,7 @@ async function receive(items) {
   const others = items.filter((i) => !opens(i));
   if (!usable.length) usable.push(others.shift()); // 拡張子が違っても、中身で判断して開いてみる
   const notes = [];
-  if (others.length) notes.push(`${nameList(others)} は開けません（対応しているのは .ipt・.iam・.stp・.dwg・.dxf・.html・.inventor.json）。`);
+  if (others.length) notes.push(`${nameList(others)} は開けません（対応しているのは .ipt・.iam・.stp・.dwg・.dxf・.pdf・.html・.inventor.json）。`);
   if (!usable.length) {
     startDialog.close();
     showAlert(notes.join(" "));
@@ -496,7 +594,7 @@ acceptFiles({ input: $("file-input"), openers: [$("open"), $("welcome-open"), $(
 for (const button of document.querySelectorAll("[data-view]")) {
   button.addEventListener("click", () => viewer?.setView(VIEWS[button.dataset.view]));
 }
-$("fit").addEventListener("click", () => (sheet ? drawingViewer.fit() : viewer?.fit()));
+$("fit").addEventListener("click", () => (sheet?.view === "sheet" ? drawingViewer.fit() : viewer?.fit()));
 $("toggle-edges").addEventListener("click", (event) => {
   const on = event.currentTarget.getAttribute("aria-pressed") !== "true";
   event.currentTarget.setAttribute("aria-pressed", String(on));

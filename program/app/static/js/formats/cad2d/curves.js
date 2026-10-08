@@ -78,6 +78,38 @@ export function neutralSpline(e) {
     weights: e.weights?.length === e.controls.length ? e.weights : e.controls.map(() => 1) };
 }
 
+// ---- パス（PDF） -------------------------------------------------------------------------------------------------------
+/**
+ * パスの 1 区切り（{ points: [x, y, …], curves: [[i, c1x, c1y, c2x, c2y]], closed }）→ 点の並び [[x, y]]。
+ * curves の i は「points の i 番目の点から次の点まで」が 3 次ベジェ（制御点 2 つ）であること。曲線は長さに応じて刻む
+ */
+export function flattenSubpath({ points, curves = [], closed = false }, step = 0.25) {
+  const n = points.length / 2;
+  const out = n ? [[points[0], points[1]]] : [];
+  const curveAt = new Map(curves.map((c) => [c[0], c]));
+  for (let i = 0; i + 1 < n; i++) {
+    const [x0, y0, x3, y3] = [points[2 * i], points[2 * i + 1], points[2 * i + 2], points[2 * i + 3]];
+    const c = curveAt.get(i);
+    if (!c) {
+      out.push([x3, y3]);
+      continue;
+    }
+    const [, x1, y1, x2, y2] = c;
+    const len = Math.hypot(x1 - x0, y1 - y0) + Math.hypot(x2 - x1, y2 - y1) + Math.hypot(x3 - x2, y3 - y2);
+    const k = Math.min(64, Math.max(4, Math.ceil(len / step)));
+    for (let j = 1; j <= k; j++) {
+      const t = j / k, u = 1 - t;
+      const a = u * u * u, b = 3 * u * u * t, d = 3 * u * t * t, e = t * t * t;
+      out.push([a * x0 + b * x1 + d * x2 + e * x3, a * y0 + b * y1 + d * y2 + e * y3]);
+    }
+  }
+  if (closed && out.length > 1) {
+    const [first, last] = [out[0], out.at(-1)];
+    if (first[0] !== last[0] || first[1] !== last[1]) out.push([first[0], first[1]]);
+  }
+  return out;
+}
+
 // ---- 膨らみ ---------------------------------------------------------------------------------------------------------
 /** 膨らみ（bulge = tan(中心角 / 4)。正 = 反時計回り）のある線分 a → b を点の列に（a を含めず b を含む）。step は刻みの角度 */
 export function bulgePoints(a, b, bulge, step = Math.PI / 32) {

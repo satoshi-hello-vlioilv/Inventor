@@ -17,6 +17,7 @@
   "three": "/static/vendor/three/three.module.min.js",
   "three/addons/": "/static/vendor/three/addons/",
   "fzstd": "/static/vendor/fzstd/index.mjs",
+  "fflate": "/static/vendor/fflate/index.js",
   "delaunator": "/static/vendor/delaunator/index.js",
   "@kninnug/constrainautor": "/static/vendor/constrainautor/index.mjs",
   "robust-predicates": "/static/vendor/robust-predicates/index.js"
@@ -49,7 +50,7 @@
       <button type="button" class="secondary" id="open" title="ファイルを開く（Ctrl+O）">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 7.5v10.5a1.5 1.5 0 0 0 1.5 1.5h14a1.5 1.5 0 0 0 1.5-1.5v-8a1.5 1.5 0 0 0-1.5-1.5h-7l-2-2.5H5a1.5 1.5 0 0 0-1.5 1.5z"/></svg><span class="label">ファイルを開く</span><kbd>Ctrl+O</kbd>
       </button>
-      <input type="file" id="file-input" accept=".ipt,.iam,.stp,.step,.dwg,.dxf,.html,.htm,.json" multiple hidden>
+      <input type="file" id="file-input" accept=".ipt,.iam,.stp,.step,.dwg,.dxf,.pdf,.html,.htm,.json" multiple hidden>
     </div>
   </header>
 
@@ -76,7 +77,7 @@
       <div class="welcome-drop" id="dropzone">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5v11m-4.5-4.5L12 14.5l4.5-4.5"/><path d="M4 15.5v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
         <h2>ファイルをここにドロップ</h2>
-        <p class="formats"><span>.ipt</span><span>.iam</span><span>.stp</span><span>.dwg</span><span>.dxf</span><span>.html</span><span>.inventor.json</span></p>
+        <p class="formats"><span>.ipt</span><span>.iam</span><span>.stp</span><span>.dwg</span><span>.dxf</span><span>.pdf</span><span>.html</span><span>.inventor.json</span></p>
         <div class="welcome-actions">
           <button type="button" class="primary" id="welcome-open">ファイルを選ぶ</button>
           <button type="button" class="secondary" id="welcome-samples">サンプルで試す</button>
@@ -89,8 +90,8 @@
           <ol class="path-flow">
             <li><b>.ipt</b><b>.iam</b><b>.stp</b></li>
             <li>形・外形寸法・穴やねじ・部品表（材質・質量）</li>
-            <li><b>.dwg</b><b>.dxf</b></li>
-            <li>2D の図面・画層・寸法と文字</li>
+            <li><b>.dwg</b><b>.dxf</b><b>.pdf</b></li>
+            <li>2D の図面・画層・寸法と文字・PDF の 3D</li>
           </ol>
         </section>
         <section class="path">
@@ -107,18 +108,18 @@
     </div>
     <div class="toolbar">
       <div class="tool-group" role="group" aria-label="レイアウト" id="layout-tabs" data-mode="drawing"></div>
-      <div class="tool-group" role="group" aria-label="視点" data-mode="empty ipt asm html spec">
+      <div class="tool-group" role="group" aria-label="視点" data-mode="empty ipt asm html spec model3d">
         <button type="button" data-view="iso" title="等角ビュー（ホーム）">等角</button>
         <button type="button" data-view="top" title="上から見る">上</button>
         <button type="button" data-view="front" title="前から見る">前</button>
         <button type="button" data-view="right" title="右から見る">右</button>
       </div>
       <div class="tool-group" role="group" aria-label="表示">
-        <button type="button" id="toggle-edges" aria-pressed="true" data-mode="empty ipt asm html spec">稜線</button>
+        <button type="button" id="toggle-edges" aria-pressed="true" data-mode="empty ipt asm html spec model3d">稜線</button>
         <button type="button" class="is-check" id="toggle-lineweight" aria-pressed="true" data-mode="drawing" title="線の太さ（画層・図形の設定）で描く">線の太さ</button>
         <button type="button" id="fit" title="全体が収まるように表示（図面はダブルクリックでも）">全体表示</button>
       </div>
-      <p class="mouse-help" data-mode="empty ipt asm html spec">ドラッグで回転・右ドラッグで移動・ホイールで拡大</p>
+      <p class="mouse-help" data-mode="empty ipt asm html spec model3d">ドラッグで回転・右ドラッグで移動・ホイールで拡大</p>
       <p class="mouse-help" data-mode="drawing">ドラッグで移動・ホイールで拡大・ダブルクリックで全体</p>
     </div>
     <canvas class="gizmo" id="gizmo" width="152" height="152" aria-hidden="true"></canvas>
@@ -187,7 +188,7 @@
         <dl class="dims" id="dims"></dl>
       </section>
 
-      <!-- 図面（.dwg・.dxf）: 図面の情報（形式・大きさ・レイアウト。まだ描かない図形があれば知らせる）→ 画層 → 図形の内訳（畳む） -->
+      <!-- 図面（.dwg・.dxf・.pdf）: 図面の情報（形式・大きさ・レイアウト。まだ描かない図形があれば知らせる）→ 画層 → 図形の内訳（畳む） -->
       <section class="card" data-mode="drawing">
         <h2>図面<span class="h-note" id="drawing-note"></span></h2>
         <dl class="topology" id="drawing-info"></dl>
@@ -203,6 +204,18 @@
         <summary>図形の内訳<span class="h-note">このレイアウトに置かれたもの</span></summary>
         <div class="tally" id="drawing-types"></div>
       </details>
+
+      <!-- 3D の PDF の 3D（主役の場所のタブで図面と切り替える）: 3D の情報（形式・部品・面・大きさ）→ 部品の一覧 -->
+      <section class="card" data-mode="model3d">
+        <h2>3D<span class="h-note">大きさはファイルの単位</span></h2>
+        <dl class="topology" id="model3d-info"></dl>
+        <p class="hint-text is-warn" id="model3d-warn" hidden></p>
+      </section>
+
+      <section class="card" data-mode="model3d">
+        <h2>部品<span class="h-note">カーソルを合わせると強調</span></h2>
+        <ul class="features is-bom" id="model3d-parts"></ul>
+      </section>
 
       <section class="card" data-mode="ipt" id="mass-card">
         <h2>材質・質量</h2>
@@ -278,7 +291,7 @@
     </footer>
   </aside>
 </div>
-<div class="drop-overlay" id="drop-overlay" hidden><p>ドロップして開く（.ipt・.iam・.stp・.dwg・.dxf・.html・.inventor.json）</p></div>
+<div class="drop-overlay" id="drop-overlay" hidden><p>ドロップして開く（.ipt・.iam・.stp・.dwg・.dxf・.pdf・.html・.inventor.json）</p></div>
 
 <dialog class="library" id="start" aria-labelledby="start-title">
   <header class="library-head">

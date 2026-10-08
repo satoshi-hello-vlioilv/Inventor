@@ -134,7 +134,7 @@ export function describeDrawing(drawing, scene) {
   return {
     types: [...types].map(([type, count]) => ({ type, label: typeLabel(type), count })).sort((a, b) => b.count - a.count),
     layers,
-    unsupported: [...drawing.unsupported].map(([type, count]) => ({ type, label: typeLabel(type), count })).sort((a, b) => b.count - a.count),
+    unsupported: [...(scene.unsupported ?? drawing.unsupported)].map(([type, count]) => ({ type, label: typeLabel(type), count })).sort((a, b) => b.count - a.count),
     broken: scene.broken ?? 0,
     extents: scene.extents && [scene.extents.max[0] - scene.extents.min[0], scene.extents.max[1] - scene.extents.min[1]],
   };

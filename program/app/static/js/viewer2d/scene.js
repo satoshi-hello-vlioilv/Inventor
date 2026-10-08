@@ -1,20 +1,25 @@
 // 図面のモデル（formats/cad2d/model.js）の 1 つのレイアウトを、描くもの（線・塗り・文字）の並びにする（DOM に依存しない）。
 //   buildScene(drawing, layout, { hidden, shown }) → {（hidden・shown: 利用者が隠した・表示にした画層。shown はファイルの off・凍結より強い）
-//     strokes: [{ color, lineweight, dashes, lines: [{ item, points: Float64Array(x, y, …), width? }] }]（線の種類ごとにまとめる）
-//     fills:   [{ item, color, rings: [Float64Array] }]（偶奇の規則で塗る。SOLID・塗りつぶしのハッチング）
-//     texts:   [{ item, color, x, y, rotation, height, widthFactor, oblique, mirror, lines, align, valign, width, lineSpacing }]
+//     strokes: [{ color, lineweight, dashes, lines: [{ item, points: Float64Array(x, y, …), width?, weight?, cap?, alpha? }] }]（線の種類ごとにまとめる。
+//              weight: PDF の線の太さ = 幅は太さの表示を切ると細線、cap: 線端 0 平ら・1 丸・2 四角）
+//     fills:   [{ item, color, rings: [Float64Array], rule?, alpha? }]（rule が無ければ偶奇の規則。SOLID・ハッチング・PDF の塗り）
+//     texts:   [{ item, color, x, y, rotation, height, widthFactor, oblique, mirror, lines, align, valign, width, lineSpacing, font? }]
 //     points:  [{ item, color, x, y }]
-//     regions: [{ item, rings }]（模様のハッチングの境界。描かないが、内側を指せるように索引に入れる）
+//     images:  [{ item, matrix: [a, b, c, d, e, f]（画像の単位の正方形 → 表示の座標）, image }]（PDF の画像）
+//     regions: [{ item, rings }]（模様のハッチング・画像の外形。描かないが、内側を指せるように索引に入れる）
 //     items:   [{ handle, type, layer, entity }]（指せる図形。レイアウトに直に置かれた図形の単位。ブロック参照は中身ごと 1 つ）
 //     extents: { min: [x, y], max: [x, y] } | null（放射線・構築線を除く）
 //     layers:  Map<画層, 図形の数>（このレイアウトに出る画層）
 //     broken:  値が壊れていて描けなかった図形の数（飛ばして、残りを描く）
+//     unsupported: まだ描かない図形の種類 → 数（PDF はページごと。ほかは図面全体）
+//     ordered: 描く順序に意味がある（PDF。描く側は z の順に描く）・exact: 色を地に合わせて補正しない（PDF）・paper: 紙の外形（PDF のページ）
 //   }
+//   線・塗り・文字・点・画像は、足した順の番号 z と、切り取りの枠 clip（{ min, max }。ビューポート・PDF の切り取り）を持てる。
 // 色は "#rrggbb"、null は「前景色」（色番号 7: 背景が暗ければ白、明るければ黒。描く側が決める）。
 // 線の太さは 1/100 mm（既定 25）、破線は図面の長さの単位の並び（正 = 線・負 = すき間・0 = 点）。
 
 import { IDENTITY, apply, multiply, rotationZ, scaling, translation } from "../core/matrix.js";
-import { bulgePoints, interpolateFit, neutralSpline, ocsAxes, toOcs, toWcs } from "../formats/cad2d/curves.js";
+import { bulgePoints, flattenSubpath, interpolateFit, neutralSpline, ocsAxes, toOcs, toWcs } from "../formats/cad2d/curves.js";
 import { sampleCurve } from "../model/curves.js";
 import { ACI, rgbHex } from "./colors.js";
 import { mtextLines, singleLine } from "./text.js";
@@ -34,7 +39,8 @@ export function buildScene(drawing, layout, { hidden = new Set(), shown = new Se
   const hiddenKeys = new Set([...hidden].map(nameKey));
   const shownKeys = new Set([...shown].map(nameKey));
 
-  const strokes = new Map(), fills = [], texts = [], points = [], regions = [], items = [];
+  const strokes = new Map(), fills = [], texts = [], points = [], regions = [], images = [], items = [];
+  let seq = 0; // 描く順序（PDF のように順序に意味がある図面では、描く側がこの順に描く）
   const usedLayers = new Map();
   const box = { min: [Infinity, Infinity], max: [-Infinity, -Infinity] };
   let measuring = true; // 外形に入れるか（紙のレイアウトのビューポートの中身は、枠の外へはみ出しても入れない）
@@ -93,7 +99,8 @@ export function buildScene(drawing, layout, { hidden = new Set(), shown = new Se
   // ---- 描くもの -----------------------------------------------------------------------------------------------------
   const style = (e, layer, ctx) => ({ color: color(e.color, layer, ctx), lineweight: lineweight(e, layer, ctx), dashes: dashes(e, layer, ctx) });
 
-  function stroke(st, item, pts, width = 0) {
+  /** 線を足す。width > 0 は幅のある線（図面の単位）。extra: { weight（PDF の線の太さ: 太さの表示を切ると細線）, cap（線端） } */
+  function stroke(st, item, pts, width = 0, extra = null) {
     if (pts.length < 2) return;
     const key = `${st.color}|${st.lineweight}|${st.dashes?.map((d) => d.toPrecision(6)).join(",") ?? ""}`;
     if (!strokes.has(key)) strokes.set(key, { color: st.color, lineweight: st.lineweight, dashes: st.dashes, lines: [] });
@@ -104,7 +111,8 @@ export function buildScene(drawing, layout, { hidden = new Set(), shown = new Se
       if (item.extents !== false) grow(p[0], p[1]);
       else if (!Number.isFinite(p[0]) || !Number.isFinite(p[1])) throw new RangeError("座標が数ではありません");
     });
-    strokes.get(key).lines.push(width > 0 ? { item: item.index, points: flat, width } : { item: item.index, points: flat });
+    const line = width > 0 ? { z: seq++, item: item.index, points: flat, width } : { z: seq++, item: item.index, points: flat };
+    strokes.get(key).lines.push(extra ? Object.assign(line, extra) : line);
   }
 
   const ring = (pts) => {
@@ -146,6 +154,32 @@ export function buildScene(drawing, layout, { hidden = new Set(), shown = new Se
     return out;
   }
 
+  /** パス（PDF）: 線分と 3 次ベジェの区間を点の並びにして、塗るか線を引く */
+  function path(e, layer, ctx, item) {
+    const at = place(ctx, null);
+    const runs = e.subpaths.map((sp) => flattenSubpath(sp).map((p) => at([p[0], p[1], 0])));
+    const c = color(e.color, layer, ctx);
+    if (e.fill) {
+      const rings = runs.filter((r) => r.length >= 3);
+      if (rings.length) fills.push({ z: seq++, item: item.index, color: c, rings: rings.map(ring), rule: e.fill, ...(e.alpha < 1 && { alpha: e.alpha }) });
+      return;
+    }
+    const k = ctx.scale;
+    const st = { color: c, lineweight: 0, dashes: e.dashes?.length ? e.dashes.map((d) => d * k) : null };
+    for (const r of runs) stroke(st, item, r, Math.max(e.width * k, 1e-9), { weight: true, cap: e.cap ?? 0, ...(e.alpha < 1 && { alpha: e.alpha }) });
+  }
+
+  /** 画像（PDF）: 単位の正方形 → 図面 の行列に、表示の変換を掛ける */
+  function image(e, ctx, item) {
+    const m = e.matrix;
+    const corner = (u, v) => apply(ctx.m, [m[0] * u + m[2] * v + m[4], m[1] * u + m[3] * v + m[5], 0]);
+    const [o, ux, uy] = [corner(0, 0), corner(1, 0), corner(0, 1)];
+    const quad = [o, ux, corner(1, 1), uy];
+    for (const p of quad) grow(p[0], p[1]);
+    images.push({ z: seq++, item: item.index, matrix: [ux[0] - o[0], ux[1] - o[1], uy[0] - o[0], uy[1] - o[1], o[0], o[1]], image: e.image });
+    regions.push({ item: item.index, rings: [ring(quad)] }); // 内側を指せるように
+  }
+
   function textItem(e, layer, ctx, item, lines, extra) {
     const m = ctx.m;
     const axes = extra.ocs ? ocsAxes(e.extrusion) : null;
@@ -157,11 +191,13 @@ export function buildScene(drawing, layout, { hidden = new Set(), shown = new Se
     const sx = Math.hypot(dir[0], dir[1]) || 1, sy = Math.hypot(up[0], up[1]) || 1;
     const mirror = dir[0] * up[1] - dir[1] * up[0] < 0;
     texts.push({
+      z: seq++,
       item: item.index, color: color(e.color, layer, ctx), x: at[0], y: at[1], rotation: Math.atan2(dir[1], dir[0]),
       height: (e.height || 0) * sy, widthFactor: (e.widthFactor || 1) * (sx / sy), oblique: e.oblique ?? 0,
       mirror: mirror !== Boolean(extra.mirrorX), flip: Boolean(extra.mirrorY), lines, align: extra.align, valign: extra.valign,
       width: (extra.width ?? 0) * sx, lineSpacing: extra.lineSpacing ?? 1, mtext: Boolean(extra.mtext),
       ...(extra.fit && { fit: { mode: extra.fit.mode, length: extra.fit.length * sx } }),
+      ...(e.font && { font: e.font }),
     });
     // 外形の見積もり（文字の高さ × 行数・幅は高さ × 文字数 × 0.8）
     const h = (e.height || 0) * sy, w = Math.max(...lines.map((l) => l.length), 1) * h * 0.8 * (e.widthFactor || 1);
@@ -313,13 +349,13 @@ export function buildScene(drawing, layout, { hidden = new Set(), shown = new Se
     const worldRings = rings.map((r) => r.map((p) => toWorld([p[0], p[1], z])));
     const c = color(e.color, layer, ctx);
     if (e.solid || e.gradient || !e.lines?.length) {
-      fills.push({ item: item.index, color: c, rings: worldRings.map(ring) });
+      fills.push({ z: seq++, item: item.index, color: c, rings: worldRings.map(ring) });
       return;
     }
     regions.push({ item: item.index, rings: worldRings.map(ring) });
     const segments = patternSegments(rings, e.lines);
     if (!segments) {
-      fills.push({ item: item.index, color: c, rings: worldRings.map(ring), alpha: 0.25 }); // 模様が細かすぎる: 薄く塗る
+      fills.push({ z: seq++, item: item.index, color: c, rings: worldRings.map(ring), alpha: 0.25 }); // 模様が細かすぎる: 薄く塗る
       return;
     }
     const st = { color: c, lineweight: lineweight(e, layer, ctx), dashes: null };
@@ -410,17 +446,40 @@ export function buildScene(drawing, layout, { hidden = new Set(), shown = new Se
       const size = Math.min(seg / 4, total / 10), u = [(b[0] - a[0]) / seg, (b[1] - a[1]) / seg];
       const tip = [a[0], a[1], a[2] ?? 0], back = [a[0] + u[0] * size, a[1] + u[1] * size];
       const w = size / 3;
-      fills.push({ item: item.index, color: st.color, rings: [ring([tip, [back[0] - u[1] * w, back[1] + u[0] * w, 0], [back[0] + u[1] * w, back[1] - u[0] * w, 0]].map(toWorld))] });
+      fills.push({ z: seq++, item: item.index, color: st.color, rings: [ring([tip, [back[0] - u[1] * w, back[1] + u[0] * w, 0], [back[0] + u[1] * w, back[1] - u[0] * w, 0]].map(toWorld))] });
     }
   }
 
   /** 図形 1 つを描く。値が壊れていて描けない図形（大きさが数でない円など）は飛ばして数え、図面の残りは描く */
   function draw(e, ctx, item, depth = 0, inBlock = false) {
+    const mark = e.clip ? marks() : null;
     try {
       drawEntity(e, ctx, item, depth, inBlock);
     } catch {
       broken++;
     }
+    if (mark) clipSince(mark, clipBox(e.clip, ctx));
+  }
+
+  // ---- 切り取り（ビューポートの枠・PDF の切り取りの外形）: 印を付けた後に足したものに、枠を付ける -------------------------
+  const marks = () => ({ strokes: new Map([...strokes].map(([key, s]) => [key, s.lines.length])), fills: fills.length, texts: texts.length,
+    points: points.length, regions: regions.length, images: images.length });
+  const meet = (a, b) => (a ? { min: [Math.max(a.min[0], b.min[0]), Math.max(a.min[1], b.min[1])], max: [Math.min(a.max[0], b.max[0]), Math.min(a.max[1], b.max[1])] } : b);
+  function clipSince(mark, clip) {
+    const set = (list, from) => {
+      for (let i = from; i < list.length; i++) list[i].clip = meet(list[i].clip, clip);
+    };
+    for (const [key, s] of strokes) set(s.lines, mark.strokes.get(key) ?? 0);
+    set(fills, mark.fills);
+    set(texts, mark.texts);
+    set(points, mark.points);
+    set(regions, mark.regions);
+    set(images, mark.images);
+  }
+  /** 図形の切り取りの外形（図形の座標）→ 表示の座標の外形 */
+  function clipBox(c, ctx) {
+    const pts = [[c.min[0], c.min[1]], [c.max[0], c.min[1]], [c.max[0], c.max[1]], [c.min[0], c.max[1]]].map((p) => apply(ctx.m, [p[0], p[1], 0]));
+    return { min: [Math.min(...pts.map((p) => p[0])), Math.min(...pts.map((p) => p[1]))], max: [Math.max(...pts.map((p) => p[0])), Math.max(...pts.map((p) => p[1]))] };
   }
 
   /** 図形 1 つを描く。inBlock: ブロックの中（ATTDEF は描かない） */
@@ -432,11 +491,13 @@ export function buildScene(drawing, layout, { hidden = new Set(), shown = new Se
     const st = () => style(e, layer, ctx);
     const axes = () => ocsAxes(e.extrusion);
     switch (e.type) {
+      case "PATH": return path(e, layer, ctx, item);
+      case "IMAGE": return image(e, ctx, item);
       case "LINE": return stroke(st(), item, [e.a, e.b].map(place(ctx, null)));
       case "POINT": {
         const p = place(ctx, null)(e.p);
         grow(p[0], p[1]);
-        return points.push({ item: item.index, color: color(e.color, layer, ctx), x: p[0], y: p[1] });
+        return points.push({ z: seq++, item: item.index, color: color(e.color, layer, ctx), x: p[0], y: p[1] });
       }
       case "CIRCLE": return stroke(st(), item, arcPoints(e.center, e.radius, 0, TAU).map(place(ctx, axes())));
       case "ARC": return stroke(st(), item, arcPoints(e.center, e.radius, e.start, e.end).map(place(ctx, axes())));
@@ -468,7 +529,7 @@ export function buildScene(drawing, layout, { hidden = new Set(), shown = new Se
       case "HATCH": return hatch(e, layer, ctx, item);
       case "SOLID": {
         const [a, b, c, d] = e.points.map(place(ctx, axes()));
-        return fills.push({ item: item.index, color: color(e.color, layer, ctx), rings: [ring([a, b, d ?? c, c])] });
+        return fills.push({ z: seq++, item: item.index, color: color(e.color, layer, ctx), rings: [ring([a, b, d ?? c, c])] });
       }
       case "3DFACE": {
         const p = e.points.map(place(ctx, null));
@@ -523,6 +584,12 @@ export function buildScene(drawing, layout, { hidden = new Set(), shown = new Se
   };
   const viewports = [];
   let broken = 0;
+  // 紙（PDF のページ）: 白い紙として描き、外形に入れる
+  const paper = layout?.paper ?? null;
+  if (paper) {
+    grow(paper.min[0], paper.min[1]);
+    grow(paper.max[0], paper.max[1]);
+  }
   for (const e of top?.entities ?? []) {
     if (e.type === "VIEWPORT") viewports.push(e);
     else draw(e, root, newItem(e));
@@ -545,21 +612,16 @@ export function buildScene(drawing, layout, { hidden = new Set(), shown = new Se
       translation([-(vp.viewCenter?.[0] ?? 0), -(vp.viewCenter?.[1] ?? 0), 0]));
     const ctx = { m, scale: k };
     const clip = { min: [cx - hw, cy - hh], max: [cx + hw, cy + hh] };
-    const start = { strokes: new Map([...strokes].map(([key, s]) => [key, s.lines.length])), fills: fills.length, texts: texts.length, points: points.length,
-      regions: regions.length };
+    const start = marks();
     measuring = false;
     for (const e of model.entities) draw(e, ctx, newItem(e, { viewport: item.index }));
     measuring = true;
-    // この枠の中に描いたものに、切り取りの枠を付ける
-    for (const [key, s] of strokes) for (let i = start.strokes.get(key) ?? 0; i < s.lines.length; i++) s.lines[i].clip = clip;
-    for (let i = start.fills; i < fills.length; i++) fills[i].clip = clip;
-    for (let i = start.texts; i < texts.length; i++) texts[i].clip = clip;
-    for (let i = start.points; i < points.length; i++) points[i].clip = clip;
-    for (let i = start.regions; i < regions.length; i++) regions[i].clip = clip;
+    clipSince(start, clip); // この枠の中に描いたものに、切り取りの枠を付ける
   }
 
   const extents = box.min[0] <= box.max[0] ? box : null;
-  return { strokes: [...strokes.values()], fills, texts, points, regions, items, extents, layers: usedLayers, broken };
+  return { strokes: [...strokes.values()], fills, texts, points, regions, images, items, extents, layers: usedLayers, broken,
+    unsupported: top?.unsupported ?? drawing.unsupported, ordered: Boolean(drawing.ordered), exact: Boolean(drawing.exactColors), paper };
 }
 
 /** 寸法の値の表示（小数 4 桁まで、末尾の 0 を省く） */

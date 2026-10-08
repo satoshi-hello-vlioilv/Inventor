@@ -131,6 +131,18 @@
     const switched = await until(() => tab?.getAttribute("aria-current") === "true" && inked() > 2000 && /A3/.test($("drawing-info").textContent), 10000);
     ok("図面のレイアウト（紙）に切り替えられる", switched, `${tab?.textContent ?? "タブが無い"} · ${$("drawing-info").textContent}`);
 
+    // 7.6) 3D を含む PDF（サンプルの U3D）: 開くと主役の場所のタブ（図面・3D）が出て 3D が選ばれ、部品が並ぶ。図面のタブでページが描かれる
+    const pdf3d = samples.find((x) => x.kind === "dwg" && /_3D\.pdf$/i.test(x.name))?.name;
+    $("show-start")?.click();
+    [...document.querySelectorAll("button.sample-row")].find((b) => b.title === pdf3d)?.click();
+    const parts3d = () => $("model3d-parts")?.querySelectorAll(".feature").length ?? 0;
+    const shown3d = await until(() => $("file-name").textContent === pdf3d && $("app").dataset.view === "3d:0" && parts3d() > 0, 30000);
+    ok("3D を含む PDF を開くと 3D のタブが選ばれ、部品が並ぶ", pdf3d && shown3d,
+       `${pdf3d} · タブ ${[...($("view-tab-list")?.children ?? [])].map((b) => b.textContent).join("・")} · 部品 ${parts3d()}`);
+    $("view-tab-list")?.querySelector('[data-view="sheet"]')?.click();
+    const sheetShown = await until(() => !$("view2d").hidden && inked() > 500, 10000);
+    ok("PDF の図面のタブに切り替えると、ページが描かれる", sheetShown, `描いた点 ${inked()}`);
+
     // 8) HTML のモデル（隔離した iframe の three.js を取り込み、変換データを作る）。サンプルは three.js を CDN から読む
     //    CDN に届かない PC（ネットワークの制限）では測れないので、測っていないと書く（届くかは状態コードで見る。no-cors の答えは中身が見えない）
     const cdn = await fetch("https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js", { cache: "no-store" }).then((r) => r.status, (e) => String(e));
