@@ -10,6 +10,8 @@
 //!   POST /api/build            作り始める（{spec, install, target: inventor | step}。jobs.rs）         … 合言葉
 //!   POST /api/build/cancel     中止する                                                          … 合言葉
 //!   POST /api/build/open       保存先をエクスプローラーで開く                                         … 合言葉
+//!   GET  /api/shortcut         ショートカット（デスクトップ・スタートメニュー）が有るか（shortcut.rs）     … 合言葉
+//!   POST /api/shortcut         ショートカットを作る・作り直す（{place: desktop | start}）              … 合言葉
 //!   /__desktop/…               窓そのもの（自己診断など。main.rs が native として渡す）                 … 合言葉
 //!
 //! 合言葉: 開いた HTML のモデルは隔離した iframe（sandbox・別の生まれ）で動かす。その中のスクリプトも同じ置き場へ問い合わせを
@@ -17,6 +19,7 @@
 
 use crate::jobs::Jobs;
 use crate::received::Received;
+use crate::shortcut::Shortcuts;
 use serde_json::{json, Map, Value};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
@@ -58,6 +61,7 @@ pub struct Router {
     pub received: Arc<Received>,
     /// この PC に Inventor があるか（網では差し替える）
     pub inventor_installed: fn() -> bool,
+    pub shortcuts: Shortcuts,
     pub native: Native,
 }
 
@@ -111,6 +115,15 @@ impl Router {
                 self.build_status(Map::new())
             }
             ("POST", "/api/build/open") => Reply::json(200, &json!({"opened": self.jobs.open_output()})),
+            ("GET", "/api/shortcut") => Reply::json(200, &self.shortcuts.status()),
+            ("POST", "/api/shortcut") => {
+                let place =
+                    serde_json::from_slice::<Value>(body).ok().and_then(|v| v["place"].as_str().map(str::to_string)).unwrap_or_default();
+                match self.shortcuts.create(&place) {
+                    Ok(status) => Reply::json(200, &status),
+                    Err(why) => Reply::error(500, &why),
+                }
+            }
             ("GET", p) if p.starts_with("/api/files/") => match self.received.path(&p["/api/files/".len()..]) {
                 Some(file) if file.is_file() => match std::fs::read(&file) {
                     Ok(bytes) => {
@@ -270,6 +283,12 @@ mod tests {
             jobs,
             received: Arc::default(),
             inventor_installed: || true,
+            shortcuts: crate::shortcut::Shortcuts {
+                target: program.join("Inventor3DTool.exe"),
+                places: vec![],
+                read: |_| None,
+                write: |_, _| Ok(()),
+            },
             native: Box::new(|m, p, _, _| (m == "GET" && p == "/__desktop/info").then(|| Reply::json(200, &json!({"shell": "test"})))),
         };
         (r, opened)
@@ -321,6 +340,31 @@ mod tests {
     }
 
     #[test]
+    fn shortcut_status_and_create() {
+        use crate::shortcut::{Place as Where, Shortcuts};
+        let place = Place::new("shortcut");
+        let (r, _) = router(&place, &program());
+        let desk = place.dir.join("Desktop");
+        let r = Router {
+            shortcuts: Shortcuts {
+                target: place.dir.join("Inventor3DTool.exe"),
+                places: vec![Where { key: "desktop", label: "デスクトップ", dir: Some(desk.clone()) }],
+                read: |f| std::fs::read_to_string(f).ok().map(PathBuf::from),
+                write: |f, l| std::fs::write(f, l.target.display().to_string()).map_err(|e| e.to_string()),
+            },
+            ..r
+        };
+        let (status, v, _) = call(&r, "GET", "inventor://localhost/api/shortcut", Some("t0k3n"), &Value::Null);
+        assert_eq!((status, v["places"][0]["state"].as_str()), (200, Some("missing")));
+        let (status, v, _) = call(&r, "POST", "inventor://localhost/api/shortcut", Some("t0k3n"), &json!({"place": "desktop"}));
+        assert_eq!((status, v["places"][0]["state"].as_str()), (200, Some("ok")));
+        assert!(desk.join(format!("{}.lnk", crate::locate::APP_NAME)).is_file());
+        let (status, v, _) = call(&r, "POST", "inventor://localhost/api/shortcut", Some("t0k3n"), &json!({"place": "x"}));
+        assert_eq!(status, 500);
+        assert!(v["message"].as_str().unwrap().contains("知らない置き場"));
+    }
+
+    #[test]
     fn every_api_call_needs_the_token() {
         let place = Place::new("token");
         let (r, _) = router(&place, &program());
@@ -332,6 +376,8 @@ mod tests {
             ("POST", "/api/build"),
             ("POST", "/api/build/cancel"),
             ("POST", "/api/build/open"),
+            ("GET", "/api/shortcut"),
+            ("POST", "/api/shortcut"),
             ("GET", "/__desktop/info"),
         ] {
             assert_eq!(call(&r, m, &format!("inventor://localhost{p}"), None, &Value::Null).0, 403, "{p}");

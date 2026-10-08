@@ -16,6 +16,7 @@ mod locate;
 mod proc;
 mod received;
 mod router;
+mod shortcut;
 mod system;
 
 use jobs::{Jobs, Tools};
@@ -142,7 +143,8 @@ fn shell(token: String, received: Arc<Received>, launched: Vec<String>, app: Arc
         }
     };
     let jobs = Jobs::new(root, work.join("logs"), Box::new(find), Box::new(opener), jobs::CANCEL_GRACE);
-    Ok(Router { program, token, jobs, received, inventor_installed: system::inventor_installed, native: native(app, info) })
+    let shortcuts = shortcut::Shortcuts::system(std::env::current_exe().unwrap_or_default());
+    Ok(Router { program, token, jobs, received, inventor_installed: system::inventor_installed, shortcuts, native: native(app, info) })
 }
 
 /// 中身が見つからないときの画面（理由と、次にすること）

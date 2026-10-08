@@ -12,6 +12,7 @@
     POST /__dev/launch          受け取ったファイルを預け直し、画面へ届いたことにする（引数のファイル）
     POST /__dev/env?ready=0&inventor=0&python=0   ライブラリ・Inventor・Python があるかを変える
     POST /__dev/mix?mismatch=4,11&failed=19       次に作る仕事で、その番目（1 から）の部品を不一致・失敗にする（無しで全て一致）
+    POST /__dev/shortcut?desktop=missing&start=ok  ショートカットの状態を変える（ok・missing・other。窓の shortcut.rs と同じ形で答える）
 """
 from __future__ import annotations
 
@@ -111,6 +112,14 @@ ENV = {"ready": True, "inventor": True, "python": True}
 LAUNCH: list[Path] = []
 GIVEN: dict[str, Path] = {}
 PENDING: list[Path] = []
+SHORTCUTS = {"desktop": "missing", "start": "missing"}  # ショートカットの状態の模擬（既定は無い: 消した・作っていない）
+SHORTCUT_LABELS = {"desktop": "デスクトップ", "start": "スタートメニュー"}
+
+
+def shortcut_status() -> dict:
+    """窓の shortcut.rs と同じ形"""
+    return {"supported": True, "places": [{"place": k, "label": SHORTCUT_LABELS[k], "state": v,
+                                           "path": f"C:\\Users\\you\\{SHORTCUT_LABELS[k]}\\Inventor 3Dツール.lnk"} for k, v in SHORTCUTS.items()]}
 
 
 def entry(path: Path) -> dict:
@@ -186,6 +195,10 @@ class Handler(BaseHTTPRequestHandler):
                 PENDING[:] = list(LAUNCH)
             elif path == "/__dev/mix":
                 BUILD.mix = {int(n): kind for kind in ("mismatch", "failed") for n in (query.get(kind, [""])[0].split(",")) if n}
+            elif path == "/__dev/shortcut":
+                for k in SHORTCUTS:
+                    if k in query:
+                        SHORTCUTS[k] = query[k][0]
             elif path == "/__dev/env":
                 for k in ENV:
                     if k in query:
@@ -224,6 +237,13 @@ class Handler(BaseHTTPRequestHandler):
             return self.build_status()
         if path == "/api/build/open":
             return self.json({"opened": True})
+        if path == "/api/shortcut":
+            if method == "POST":
+                place = json.loads(body or b"{}").get("place")
+                if place not in SHORTCUTS:
+                    return self.json({"message": f"知らない置き場です: {place}"}, 500)
+                SHORTCUTS[place] = "ok"
+            return self.json(shortcut_status())
         return self.json({"message": "ありません"}, 404)
 
     def do_GET(self):

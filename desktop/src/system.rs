@@ -1,4 +1,4 @@
-//! この PC に聞くこと: 「作る」の保存先（設定とドキュメントの場所）・Inventor が入っているか。
+//! この PC に聞くこと: 「作る」の保存先（設定とドキュメントの場所）・デスクトップとスタートメニューの場所・Inventor が入っているか。
 
 use std::path::{Path, PathBuf};
 
@@ -48,25 +48,53 @@ pub fn expand_vars(text: &str, get: impl Fn(&str) -> Option<String>) -> String {
 }
 
 /// この PC の「ドキュメント」（OneDrive などへ移してあれば、移した先）。
-#[cfg(windows)]
 pub fn documents_dir() -> PathBuf {
-    use windows::Win32::System::Com::CoTaskMemFree;
-    use windows::Win32::UI::Shell::{FOLDERID_Documents, SHGetKnownFolderPath, KF_FLAG_DEFAULT};
-    unsafe {
-        if let Ok(p) = SHGetKnownFolderPath(&FOLDERID_Documents, KF_FLAG_DEFAULT, None) {
-            let path = p.to_string().ok().map(PathBuf::from);
-            CoTaskMemFree(Some(p.0 as *const core::ffi::c_void));
-            if let Some(path) = path {
-                return path;
-            }
-        }
-    }
-    home().join("Documents")
+    known_folder(Folder::Documents).unwrap_or_else(|| home().join("Documents"))
 }
 
+/// この PC の「デスクトップ」（移してあれば、移した先。分からなければ None）
+pub fn desktop_dir() -> Option<PathBuf> {
+    known_folder(Folder::Desktop)
+}
+
+/// この人の「スタートメニュー」のプログラムの場所（分からなければ None）
+pub fn start_menu_dir() -> Option<PathBuf> {
+    known_folder(Folder::StartMenuPrograms)
+}
+
+#[derive(Clone, Copy)]
+enum Folder {
+    Documents,
+    Desktop,
+    StartMenuPrograms,
+}
+
+/// Windows の決まった場所（Known Folder）
+#[cfg(windows)]
+fn known_folder(folder: Folder) -> Option<PathBuf> {
+    use windows::Win32::System::Com::CoTaskMemFree;
+    use windows::Win32::UI::Shell::{FOLDERID_Desktop, FOLDERID_Documents, FOLDERID_Programs, SHGetKnownFolderPath, KF_FLAG_DEFAULT};
+    let id = match folder {
+        Folder::Documents => FOLDERID_Documents,
+        Folder::Desktop => FOLDERID_Desktop,
+        Folder::StartMenuPrograms => FOLDERID_Programs,
+    };
+    unsafe {
+        let p = SHGetKnownFolderPath(&id, KF_FLAG_DEFAULT, None).ok()?;
+        let path = p.to_string().ok().map(PathBuf::from);
+        CoTaskMemFree(Some(p.0 as *const core::ffi::c_void));
+        path
+    }
+}
+
+/// Windows 以外（開発・試験）: ホームの下の同じ名前の場所
 #[cfg(not(windows))]
-pub fn documents_dir() -> PathBuf {
-    home().join("Documents")
+fn known_folder(folder: Folder) -> Option<PathBuf> {
+    Some(match folder {
+        Folder::Documents => home().join("Documents"),
+        Folder::Desktop => home().join("Desktop"),
+        Folder::StartMenuPrograms => home().join(".local").join("share").join("applications"),
+    })
 }
 
 fn home() -> PathBuf {
