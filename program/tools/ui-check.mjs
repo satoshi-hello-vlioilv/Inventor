@@ -3,7 +3,7 @@
 //   node program/tools/ui-check.mjs 出力フォルダ [light|dark|both] [1536x864]
 //
 // 利用者の画面と同じ大きさで、状態ごと（起動・何も開いていない・サンプルの一覧・部品・組立・HTML・変換データ・ライブラリを尋ねる・
-// 作っている途中・作り終えた）に撮り（状態名-テーマ.png）、迷いやすさに関わる量を測る（metrics.json。測る量は ui-harness.mjs の measure）。
+// 作っている途中・作り終えた・不一致と失敗が混じった結果）に撮り（状態名-テーマ.png）、迷いやすさに関わる量を測る（metrics.json。測る量は ui-harness.mjs の measure）。
 // 改良案どうしを画像で比べるときは ui-variants.mjs。
 
 import fs from "node:fs";

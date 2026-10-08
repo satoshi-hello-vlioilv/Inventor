@@ -242,6 +242,7 @@ for (const name of sampleIams()) {
       assert.ok(scene.parts.filter((p) => !p.missing).every((p) => p.material === "鋼、軟鋼" && p.density_g_per_mm3 === 0.00785));
       const d = describeAssembly(scene, scene.parts.map((p) => (p.missing ? null : partGeometry(p.bodies).volume)));
       assert.deepEqual(d.missing.map((g) => g.count), [18, 2]);
+      assert.ok(d.missing.every((g) => g.standard), "Content Center の標準部品と分かる（用意の仕方を示し、加えるボタンを主にしない）");
       assert.equal(d.totals.massComplete, false, "見つからない部品があれば、質量の合計は「除く」と示す");
     });
   });

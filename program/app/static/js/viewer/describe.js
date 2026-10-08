@@ -127,6 +127,7 @@ export function describeAssembly(scene, volumes = []) {
     return {
       key, index, number: n + 1, name: part.name, ids: instances.map((i) => i.id), count: instances.length,
       size, material: part.material, volume, mass, missing: Boolean(part.missing), file: part.file ?? null, path: part.path ?? null,
+      standard: Boolean(part.display), // Content Center の標準部品（.iam の参照に表示名がある）
       text: `${part.name} × ${instances.length}`,
     };
   });
@@ -153,4 +154,31 @@ export function describeAssembly(scene, volumes = []) {
     missing: groups.filter((g) => g.missing),
     totals: { parts: groups.length, instances: scene.instances.length, mass: totalMass, massComplete: massKnown },
   };
+}
+
+// ---- 三角形メッシュの場面（3D の PDF の 3D）-----------------------------------------
+/**
+ * 部品の行（一覧の順）・強調の対応（群の id → 行と説明文）・外形寸法（全ての部品の置いた後の位置を囲む）。
+ * @param {{ meshes: { positions, matrix }[], parts: { name, faces, ids }[] }} scene  formats/model3d.js の read3d の結果
+ */
+export function describeMeshes({ meshes, parts }) {
+  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  for (const { positions: p, matrix: m } of meshes) {
+    for (let i = 0; i < p.length; i += 3) {
+      for (let k = 0; k < 3; k++) {
+        const v = m[k] * p[i] + m[4 + k] * p[i + 1] + m[8 + k] * p[i + 2] + m[12 + k]; // 列優先
+        if (v < lo[k]) lo[k] = v;
+        if (v > hi[k]) hi[k] = v;
+      }
+    }
+  }
+  const info = new Map();
+  const groups = parts.map((part, i) => {
+    const key = `mesh:${i}`;
+    const text = `${part.name} · 面 ${part.faces}`;
+    for (const id of part.ids) info.set(id, { group: key, text });
+    return { key, number: i + 1, name: part.name, ids: part.ids, faces: part.faces, text };
+  });
+  const size = lo.every(Number.isFinite) ? hi.map((v, k) => v - lo[k]) : null;
+  return { groups, info, size, faces: parts.reduce((sum, p) => sum + p.faces, 0) };
 }

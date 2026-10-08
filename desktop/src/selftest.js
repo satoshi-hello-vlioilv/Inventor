@@ -4,6 +4,7 @@
    2 つめの exe に変換データ（.inventor.json）を渡して起こす（1 つめの窓が受け取って開く）。
    調べること: 合言葉・画面の部品の種類・起動で受け取ったファイルが開く（組立と同じフォルダの部品も届く）・サンプル・合言葉の無い依頼を断る・
    2 つめの起動のファイルが届く・「STEP を作る」ボタンから STEP ができる・作成中（409）と作れない変換データ（400）の理由・
+   2D の図面（DXF）を開くと Canvas に描かれ、レイアウトを切り替えられる・
    HTML のモデル（隔離した iframe の three.js）を取り込める・同時の問い合わせ・速さ。 */
 (async () => {
   const res = [];
@@ -46,7 +47,7 @@
     ok("起動で受け取った組立が開く", first && opened, `${first} → ${$("file-name").textContent} · ${((performance.now() - t0) / 1000).toFixed(1)} 秒`);
     // サンプルの組立のボルトは Content Center の部品で .ipt が無い（samples/iam/README.md）。それ以外は全て見つかること
     const bom = $("bom")?.children.length ?? 0;
-    const missing = [...($("missing")?.children ?? [])].map((li) => li.textContent);
+    const missing = [...($("missing")?.querySelectorAll(".feature") ?? [])].map((row) => row.title); // 行の題は参照先のパス
     ok("組立の部品表が組み上がり、見つからないのは Content Center の部品だけ", bom > 0 && missing.every((t) => /Content Center/.test(t)),
        `部品表 ${bom} 行 · 見つからない ${missing.length} 種類`);
     const webgl = !document.querySelector("#stage .message") && !!document.createElement("canvas").getContext("webgl2");
@@ -55,7 +56,7 @@
     // 3) サンプル
     const samples = (await api("/api/samples")).json?.samples ?? [];
     const kinds = [...new Set(samples.map((s) => s.kind))];
-    ok("サンプルの一覧（ipt・iam・stp・html の順）", kinds.join() === "ipt,iam,stp,html", `${kinds.join()} · ${samples.length} 件`);
+    ok("サンプルの一覧（ipt・iam・stp・dwg・html の順）", kinds.join() === "ipt,iam,stp,dwg,html", `${kinds.join()} · ${samples.length} 件`);
     const sizes = await Promise.all(kinds.map(async (k) => {
       const s = samples.find((x) => x.kind === k);
       const b = await (await fetch(s.url)).arrayBuffer();
@@ -109,6 +110,45 @@
     // 7) 理由の答え
     const bad = await post("/api/build", { spec: { format: "other" }, target: "step" });
     ok("作れない変換データは理由を返す（400）", bad.r.status === 400 && /この変換データからは作れません/.test(bad.json?.message || ""), bad.text);
+
+    // 7.5) 2D の図面（サンプルの DXF）: 開くと 2D の Canvas に線が描かれ（色の付いた点を数える）、画層が並び、A3 のレイアウトに切り替えられる
+    const drawingName = samples.find((x) => x.kind === "dwg")?.name;
+    $("show-start")?.click();
+    [...document.querySelectorAll("button.sample-row")].find((b) => b.title === drawingName)?.click();
+    const inked = () => {
+      const c = $("view2d");
+      if (c.hidden || !c.width) return 0;
+      const data = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+      let n = 0;
+      for (let i = 3; i < data.length; i += 4) if (data[i]) n++;
+      return n;
+    };
+    const drawn = await until(() => $("file-name").textContent === drawingName && inked() > 2000, 30000);
+    const layers = $("layers")?.querySelectorAll(".feature").length ?? 0;
+    ok("2D の図面を開くと Canvas に描かれ、画層が並ぶ", drawingName && drawn && layers > 0, `${drawingName} · 描いた点 ${inked()} · 画層 ${layers}`);
+    const tab = $("layout-tabs")?.children[1];
+    tab?.click();
+    const switched = await until(() => $("layout-tabs")?.children[1]?.getAttribute("aria-current") === "true" && inked() > 2000 && /A3/.test($("drawing-info").textContent), 10000);
+    ok("図面のレイアウト（紙）に切り替えられる", switched, `${tab?.textContent ?? "タブが無い"} · ${$("drawing-info").textContent}`);
+
+    // 7.6) 3D を含む PDF（サンプルの U3D）: 開くと主役の場所のタブ（図面・3D）が出て 3D が選ばれ、部品が並ぶ。図面のタブでページが描かれる
+    const pdf3d = samples.find((x) => x.kind === "dwg" && /_3D\.pdf$/i.test(x.name))?.name;
+    $("show-start")?.click();
+    [...document.querySelectorAll("button.sample-row")].find((b) => b.title === pdf3d)?.click();
+    const parts3d = () => $("model3d-parts")?.querySelectorAll(".feature").length ?? 0;
+    const shown3d = await until(() => $("file-name").textContent === pdf3d && $("app").dataset.view === "3d:0" && parts3d() > 0, 30000);
+    ok("3D を含む PDF を開くと 3D のタブが選ばれ、部品が並ぶ", pdf3d && shown3d,
+       `${pdf3d} · タブ ${[...($("view-tab-list")?.children ?? [])].map((b) => b.textContent).join("・")} · 部品 ${parts3d()}`);
+    $("view-tab-list")?.querySelector('[data-view="sheet"]')?.click();
+    const sheetShown = await until(() => !$("view2d").hidden && inked() > 500, 10000);
+    ok("PDF の図面のタブに切り替えると、ページが描かれる", sheetShown, `描いた点 ${inked()}`);
+
+    // 7.7) Jw_cad の図面（サンプルの JWW）: 開くと用紙に描かれ、補助線の画層が並ぶ
+    const jww = samples.find((x) => x.kind === "dwg" && /線種\.jww$/i.test(x.name))?.name;
+    $("show-start")?.click();
+    [...document.querySelectorAll("button.sample-row")].find((b) => b.title === jww)?.click();
+    const jwwShown = await until(() => $("file-name").textContent === jww && !$("view2d").hidden && inked() > 2000 && /補助線/.test($("layers").textContent), 30000);
+    ok("Jw_cad の図面を開くと用紙に描かれ、補助線の画層が並ぶ", jww && jwwShown, `${jww} · 描いた点 ${inked()} · ${$("drawing-info").textContent}`);
 
     // 8) HTML のモデル（隔離した iframe の three.js を取り込み、変換データを作る）。サンプルは three.js を CDN から読む
     //    CDN に届かない PC（ネットワークの制限）では測れないので、測っていないと書く（届くかは状態コードで見る。no-cors の答えは中身が見えない）

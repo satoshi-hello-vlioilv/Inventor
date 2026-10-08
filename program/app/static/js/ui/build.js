@@ -1,7 +1,8 @@
 // 「CAD ファイルを作る」: 押すと窓（Inventor3DTool.exe）が Python の作る係を動かし（desktop/src/jobs.rs）、進み具合と結果を出す。
 //   Inventor で作る … STEP（.stp）と、Inventor で部品（.ipt）・組立（.iam）。部品ごとに体積・表面積を照合する
 //   STEP を作る     … STEP（.stp）だけ。Inventor もライブラリも使わない
-// 出す場所: 行動ドック（右の欄の下端。次にすること・進み具合・中止・保存先を開く）と「照合の結果」の欄（帯と部品ごとの行）。
+// 出す場所: 行動ドック（右の欄の下端。次にすること・進み具合・中止・保存先を開く）と「照合の結果」の欄
+// （帯・部品ごとの升目・例外の行。一致と待ちの部品は升目だけに出し、行は不一致・失敗・作成中だけ）。
 // この PC に Inventor が無ければ STEP を主のボタンにして勧める（Inventor のボタンも押せる）。Python が見つからなければ、押す前に理由を出す。
 // 1 度に 1 つ。作っている間にほかのファイルを開いてもよい（仕事は窓で続き、どの表示でもドックに状態を出す）。
 // 終わった結果は、作り始めたときの形（変換データ）を表示している間だけ出す（ほかの形の結果と取り違えない）。
@@ -83,9 +84,16 @@ function row(tone, label, name, diff = "", error = null, title = "") {
   return li;
 }
 
+/** 部品の結果の詳しいこと（升目と行にカーソルを合わせたとき） */
+function partDetail(p) {
+  const measured = p.verdict && p.verdict !== "failed";
+  return [p.name, measured ? `体積の差 ${pct(p.volume_diff)} · 表面積の差 ${pct(p.area_diff)}` : null, p.error, p.extent || null, `配置 ${p.instances} か所`]
+    .filter(Boolean).join("\n");
+}
+
 /**
- * 結果の行: STEP の行、部品ごとの行（Inventor で作るとき。まだの部品は「待ち」、作っている部品は「作成中」。
- * 失敗・中止のあとは結果の出た部品だけ）、組立の行
+ * 結果の行: STEP の行、目を向ける部品の行（不一致・失敗・作成中。一致と待ちは升目だけ）、組立の行。
+ * 失敗・中止のあとは結果の出た部品だけ
  */
 function resultRows(j) {
   const rows = [];
@@ -102,10 +110,9 @@ function resultRows(j) {
   const current = j.state === "building" ? parts.findIndex((p) => !p.verdict) : -1;
   parts.forEach((p, i) => {
     const [tone, label] = VERDICT[p.verdict] ?? (i === current ? ["run", "作成中"] : ["wait", "待ち"]);
+    if (tone === "ok" || tone === "wait") return;
     const measured = p.verdict && p.verdict !== "failed";
-    rows.push(row(tone, label, p.name.slice(prefix.length) || p.name, measured ? `体積 ${pct(p.volume_diff)}` : "", p.error,
-      [p.name, measured ? `体積の差 ${pct(p.volume_diff)} · 表面積の差 ${pct(p.area_diff)}` : null, p.extent || null, `配置 ${p.instances} か所`]
-        .filter(Boolean).join("\n")));
+    rows.push(row(tone, label, p.name.slice(prefix.length) || p.name, measured ? `体積 ${pct(p.volume_diff)}` : "", p.error, partDetail(p)));
   });
   if (j.assembly) {
     const done = j.state === "done";
@@ -115,13 +122,17 @@ function resultRows(j) {
   return rows;
 }
 
-/** 照合の要約: 帯（一致・不一致・失敗・作成中・待ちの割合）と、それぞれの数 */
+/** 部品ごとの結果の色の種類（変換データの部品の順）: 一致 ok・不一致 warn・失敗 bad・作成中 run・待ち wait */
+function partTones(j) {
+  const current = j.state === "building" ? (j.parts ?? []).findIndex((p) => !p.verdict) : -1;
+  return (j.parts ?? []).map((p, i) => VERDICT[p.verdict]?.[0] ?? (i === current ? "run" : "wait"));
+}
+
+/** 照合の要約: 帯（一致・不一致・失敗・作成中・待ちの割合）とそれぞれの数、部品ごとの升目（番号は変換データの部品の順） */
 function renderSummary(j) {
   const counts = { ok: 0, warn: 0, bad: 0, run: 0, wait: 0 };
-  if (j.inventor) {
-    const current = j.state === "building" ? (j.parts ?? []).findIndex((p) => !p.verdict) : -1;
-    (j.parts ?? []).forEach((p, i) => counts[VERDICT[p.verdict]?.[0] ?? (i === current ? "run" : "wait")]++);
-  }
+  const tones = j.inventor ? partTones(j) : [];
+  for (const tone of tones) counts[tone]++;
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
   const box = $("build-summary");
   box.hidden = !total;
@@ -141,7 +152,16 @@ function renderSummary(j) {
     legend.append(item);
   }
   bar.setAttribute("aria-label", [...legend.children].map((c) => c.textContent).join("・"));
-  box.replaceChildren(bar, legend);
+  const grid = node("ol", "verdict-grid");
+  grid.setAttribute("aria-label", "部品ごとの結果");
+  tones.forEach((tone, i) => {
+    const cell = node("li", "", String(i + 1).padStart(2, "0"));
+    cell.dataset.tone = tone;
+    cell.dataset.part = String(i); // 3D の強調に使う（main.js）
+    cell.title = `${names[tone]}\n${partDetail(j.parts[i])}`;
+    grid.append(cell);
+  });
+  box.replaceChildren(bar, legend, grid);
 }
 
 /** この PC で勧める作り方を主（塗り）のボタンにする（again: 作り終えた後。「作り直す」として控えめに並べる）。Inventor が無ければ STEP を勧め、理由を添える */
@@ -200,7 +220,7 @@ function publish() {
   updateFlow({
     own,
     job: { state: job.state, tone, made: madeCount(job), total: job.total ?? 0, good: job.good ?? 0, inventor: Boolean(job.inventor),
-      inventorError: Boolean(job.inventor_error), name: job.name },
+      inventorError: Boolean(job.inventor_error), name: job.name, parts: job.inventor ? partTones(job) : [] },
   });
 }
 

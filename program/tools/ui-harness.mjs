@@ -6,6 +6,7 @@
 // 状態（STATES）は、起動 → … → 作り終えた の順に 1 つの頁で進める（作る仕事は前の状態の続き）。
 
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { spawn, execSync } from "node:child_process";
 import { createRequire } from "node:module";
@@ -21,6 +22,16 @@ const FIXTURE = (n) => path.join(PROGRAM, "tests/fixtures/builder", `${n}.invent
 const IPT = "A1_円筒_両切欠き＋片ネジ_Φ54.5.ipt";
 const IAM = "Assembly_全体_Φ54.5.iam";
 const HTML = "LS4_parts_viewer.html";
+const DRAWING = "A1_円筒_部品図.dxf";
+const PDF3D = "U3D_SimpleShapes_3D.pdf";
+
+/** ページの多い PDF（試験用に作る 40 ページの図面。ページ送りの見え方を撮る） */
+async function manyPages() {
+  const { drawingSet } = await import("../tests/js/pdf-fixture.mjs");
+  const file = path.join(os.tmpdir(), "図面セット_40ページ.pdf");
+  fs.writeFileSync(file, drawingSet(40));
+  return file;
+}
 
 export const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 
@@ -82,9 +93,29 @@ async function openSample(page, name) {
 }
 
 async function openFile(page, file) {
-  await page.setInputFiles("#file-input", file);
+  // 中身で渡す（Playwright は、日本語の入ったパスを渡すと選んだことにならない）
+  await page.setInputFiles("#file-input", { name: path.basename(file), mimeType: "application/octet-stream", buffer: fs.readFileSync(file) });
   await page.waitForFunction((n) => document.querySelector("#file-name")?.textContent === n, path.basename(file), { timeout: 30000 });
   await sleep(800);
+}
+
+/** 図面の上でカーソルを動かし、図形の読み出しが出たら止める（出なければ最後の位置のまま） */
+async function hoverDrawing(page) {
+  const box = await page.locator("#view2d").boundingBox();
+  if (!box) return;
+  for (let fy = 0.35; fy <= 0.65; fy += 0.05) {
+    for (let fx = 0.3; fx <= 0.7; fx += 0.02) {
+      await page.mouse.move(box.x + box.width * fx, box.y + box.height * fy);
+      await sleep(40);
+      if (await page.locator("#readout.is-live").count()) return;
+    }
+  }
+}
+
+/** 「Inventor で作る」を押し、仕事が始まる（中止のボタンが出る）まで待つ（その前に段階を進めると、進める先が無い） */
+async function startJob(page) {
+  await page.click("#build");
+  await page.waitForSelector("#build-cancel:not([hidden])", { timeout: 10000 });
 }
 
 // 状態: [名前, そこへ行く操作, 次に押すべきもの（新しい画面の data-next → 前の画面の部品 の順に探す）]
@@ -94,20 +125,32 @@ export const STATES = [
   ["library", openLibrary, "#start-open"],
   ["ipt", async (p) => { await openSample(p, IPT); }, "[data-next]"],
   ["asm", async (p) => { await openSample(p, IAM); }, "[data-next]"],
+  // 図面（2D）。図形にカーソルを合わせた様子（読み出し・強調）も撮る: 図面の上を格子状に動かし、読み出しが出た所で止める
+  ["drawing", async (p) => { await openSample(p, DRAWING); await hoverDrawing(p); }, "[data-next], #open"],
+  ["layout", async (p) => { await p.click("#layout-tabs button:nth-child(2)"); await sleep(600); await hoverDrawing(p); }, "[data-next], #open"],
+  // PDF: ページの多い図面（ページ送り）・3D を含む PDF（主役の場所のタブ: 3D → 図面）
+  ["pages", async (p) => { await openFile(p, await manyPages()); }, "[data-next], #open"],
+  ["pdf3d", async (p) => { await openSample(p, PDF3D); }, "[data-next], #open"],
+  ["pdf3d-sheet", async (p) => { await p.click('#view-tab-list [data-view="sheet"]'); await sleep(600); }, "[data-next], #open"],
   ["html", async (p) => {
     await openSample(p, HTML);
     await p.waitForFunction(() => /取り込み/.test(document.querySelector("#source-status")?.textContent ?? "") && /r\d+/.test(document.querySelector("#source-status").textContent), null, { timeout: 30000 });
   }, "[data-next], #build-step"],
+  // 主役の場所のタブで「元のページ」に切り替えた様子（取り込みのボタンが見えるか）
+  ["source", async (p) => { await p.click('#view-tab-list [data-view="source"]'); await sleep(400); }, "[data-next], #capture"],
   ["spec", async (p) => { await openFile(p, FIXTURE("reel")); }, "[data-next], #build"],
   ["ask", async (p, dev) => { await dev("env?ready=0"); await p.click("#build"); await p.waitForSelector("#build-ask:not([hidden])"); }, "[data-next], #build-install"],
   ["building", async (p, dev) => {
     await dev("env?ready=1"); await dev("freeze");
     await p.click("#build-ask-no").catch(() => {});
-    await p.click("#build");
+    await startJob(p);
     await dev("step?n=8");
     await sleep(1800);
   }, "#build-cancel"],
   ["done", async (p, dev) => { await dev("step?n=100"); await sleep(1800); }, "[data-next], #build-open"],
+  // 作り直して、不一致 2 つ・失敗 1 つが混じった結果（例外の見せ方を確かめる）
+  ["mixed", async (p, dev) => { await dev("mix?mismatch=4,11&failed=19"); await startJob(p); await dev("step?n=100"); await sleep(1800); await dev("mix"); },
+    "[data-next], #build-open"],
 ];
 
 /** 状態を順に進め、各状態で visit(名前, 次に押すべきもの) を呼ぶ（only を渡せば、その状態だけ） */
@@ -143,7 +186,11 @@ export function measure(nextSelector) {
     return r.width > 0 && r.height > 0 && !el.closest("[hidden]");
   };
   const inView = (r) => r.top >= 0 && r.left >= 0 && r.bottom <= innerHeight && r.right <= innerWidth;
-  const rgb = (c) => (c.match(/[\d.]+/g) ?? []).map(Number);
+  // 色 → [r, g, b, a]（0〜255）。color-mix() の結果は color(srgb r g b / a)（0〜1）で返るので、255 倍する
+  const rgb = (c) => {
+    const n = (c.match(/[\d.]+/g) ?? []).map(Number);
+    return c.startsWith("color(srgb") ? [n[0] * 255, n[1] * 255, n[2] * 255, n[3] ?? 1] : n;
+  };
   const lum = ([r, g, b]) => {
     const f = (v) => ((v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
     return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);

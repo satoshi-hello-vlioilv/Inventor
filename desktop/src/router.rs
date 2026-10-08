@@ -47,7 +47,8 @@ impl Reply {
 pub type Native = Box<dyn Fn(&str, &str, bool, &[u8]) -> Option<Reply> + Send + Sync>;
 
 /// サンプルの種類（起動画面にこの順で並ぶ）と拡張子
-const SAMPLE_KINDS: [(&str, &[&str]); 4] = [("ipt", &["ipt"]), ("iam", &["iam"]), ("stp", &["stp", "step"]), ("html", &["html", "htm"])];
+const SAMPLE_KINDS: [(&str, &[&str]); 5] =
+    [("ipt", &["ipt"]), ("iam", &["iam"]), ("stp", &["stp", "step"]), ("dwg", &["dwg", "dxf", "pdf", "jww"]), ("html", &["html", "htm"])];
 
 pub struct Router {
     /// program フォルダ（画面は app、サンプルは samples）
@@ -353,7 +354,7 @@ mod tests {
         let kinds: Vec<&str> = list.iter().map(|s| s["kind"].as_str().unwrap()).collect();
         let mut order: Vec<&str> = kinds.clone();
         order.dedup();
-        assert_eq!(order, ["ipt", "iam", "stp", "html"], "種類の順（起動画面の並び）");
+        assert_eq!(order, ["ipt", "iam", "stp", "dwg", "html"], "種類の順（起動画面の並び）");
         for s in list {
             let (status, _, file) = call(&r, "GET", &format!("inventor://localhost{}", s["url"].as_str().unwrap()), None, &Value::Null);
             assert_eq!((status, file.body().len() as u64), (200, s["size"].as_u64().unwrap()), "{}", s["name"]);

@@ -1,7 +1,7 @@
 # Inventor 3Dツール
 
-Autodesk Inventor の部品（.ipt）・組立（.iam）、STEP（.stp）と、three.js で作った 3D モデル（.html）をブラウザで表示・解析し、
-three.js のモデルを STEP（.stp。Inventor 不要）と Inventor の部品（.ipt）・組立（.iam）に変換する 1 つのアプリ。
+Autodesk Inventor の部品（.ipt）・組立（.iam）、STEP（.stp）、2D の図面（.dwg・.dxf・.pdf・.jww。PDF の 3D も）と、three.js で作った 3D モデル（.html）を
+ブラウザで表示・解析し、three.js のモデルを STEP（.stp。Inventor 不要）と Inventor の部品（.ipt）・組立（.iam）に変換する 1 つのアプリ。
 
 Windows のデスクトップアプリ（`Inventor3DTool.exe`。Tauri・Rust の窓が画面（HTML・JavaScript・CSS）を出す）。WaveLog と同じ作りと配り方
 （最上位の exe ＋ `program` フォルダ。exe は GitHub Actions が作り、本物の WebView2 で自己診断して main へ置く）。
@@ -9,7 +9,8 @@ Windows のデスクトップアプリ（`Inventor3DTool.exe`。Tauri・Rust の
 
 - デスクトップ版の構成・判断・評価: [docs/desktop.md](docs/desktop.md)
 - アプリの構成・設計の判断・段階計画: [docs/app-architecture.md](docs/app-architecture.md)
-- 形式の調査結果: [docs/ipt-format.md](docs/ipt-format.md)（部品）・[docs/iam-format.md](docs/iam-format.md)（組立・STEP との照合）
+- 形式の調査結果: [docs/ipt-format.md](docs/ipt-format.md)（部品）・[docs/iam-format.md](docs/iam-format.md)（組立・STEP との照合）・
+  [docs/drawing-format.md](docs/drawing-format.md)（2D の図面: DWG・DXF・PDF と PDF の 3D（U3D）の読み取りと表示・確かめた結果）
 - Inventor で部品を作る手順（「Inventor で作る」・変換データ・コマンド）: [docs/inventor-builder.md](docs/inventor-builder.md)
 - .stp・.ipt・.iam を Inventor なしで作れるか（技術的な検討と、いまの制約）: [docs/cad-output.md](docs/cad-output.md)
 
@@ -24,7 +25,7 @@ Windows のデスクトップアプリ（`Inventor3DTool.exe`。Tauri・Rust の
 | 操作 | 動き |
 |---|---|
 | `Inventor3DTool.exe` をダブルクリック | アプリを開く（2 つめは開かず、開いている窓を前に出す） |
-| .ipt・.iam・.stp・.html・.inventor.json を `Inventor3DTool.exe` にドロップ（「プログラムから開く」でもよい） | そのファイルをアプリで開く（複数なら 1 つの窓にまとめ、見出しバーの「受け取った n 件」から切り替える）。開いている間にドロップしても、同じ窓で開く。.iam は同じフォルダの .ipt も部品として使い、組み立てて表示する |
+| .ipt・.iam・.stp・.dwg・.dxf・.pdf・.jww・.html・.inventor.json を `Inventor3DTool.exe` にドロップ（「プログラムから開く」でもよい） | そのファイルをアプリで開く（複数なら 1 つの窓にまとめ、見出しバーの「受け取った n 件」から切り替える）。開いている間にドロップしても、同じ窓で開く。.iam は同じフォルダの .ipt も部品として使い、組み立てて表示する |
 | 行動ドック（右下）の **STEP を作る** | 取り込んだ形（または開いた変換データ）から、STEP（.stp）を作る。Inventor もライブラリも使わない（下の「CAD ファイルを作る」） |
 | 行動ドック（右下）の **Inventor で作る** | STEP に加えて、Inventor で部品（.ipt）と組立（.iam）を作り、部品ごとに体積・表面積を照合する |
 
@@ -39,11 +40,12 @@ Windows のデスクトップアプリ（`Inventor3DTool.exe`。Tauri・Rust の
 | 場所 | 中身 |
 |---|---|
 | 見出しバー（上端） | いま開いているもの（種類と名前）・**サンプル・受け取ったファイル**・**ファイルを開く** |
-| 3D（主役） | 何も開いていなければ、ここが始め方（ドロップの受け口・**ファイルを選ぶ**・**サンプルで試す**）になる。HTML のときは左に元のページが並ぶ |
+| 3D（主役） | 何も開いていなければ、ここが始め方（ドロップの受け口・**ファイルを選ぶ**・**サンプルで試す**）になる。HTML のときは左に元のページが並ぶ。図面（.dwg・.dxf・.pdf・.jww）のときは 2D の図面になり、左上でレイアウト（モデル・紙。PDF はページ。9 つ以上ならページ送り）を切り替える。3D を含む PDF は、上の中央のタブで「図面」と「3D」を切り替える |
 | 右の欄 | 上から **段階の帯**（HTML・変換データのとき）→ 中身（寸法・部品表・単位・照合の結果など）→ **行動ドック**（右下） |
 
 - **塗りの青いボタンは、いつも 1 つだけ**。それがその画面で次にすること（何も開いていない → ファイルを選ぶ、組立の部品が足りない →
-  見つからない部品を加える、作れる → Inventor で作る か STEP を作る、作り終えた → 保存先を開く）。見るだけの部品には出さない
+  見つからない部品を加える、作れる → Inventor で作る か STEP を作る、作り終えた → 保存先を開く）。見るだけの部品には出さない。
+  足りない部品が Content Center の標準部品だけなら、加えるボタンは控えめにする（この PC には .ipt が無いことが多い。欄に用意の仕方を示す）
 - **段階の帯**: 取り込む（開く）→ 単位（中身）を確かめる → 作る → 照合する。緑の ✓ は済み、青はいまの段、琥珀の ! は確かめてほしい段
   （単位を大きさから推定した、など）、赤は失敗。段を押すと、その段の欄へ移る
 - **行動ドック**: 上の縁の色が仕事の状態（青: 進行中・緑: 一致・琥珀: 注意・赤: 失敗）。進み具合・中止・作り直しもここに出る
@@ -69,8 +71,11 @@ three.js の HTML を開くと、元のページで表示中の形を取り込�
      （回転・押し出し・面取りのフィーチャ）、近似の部品は STEP を開いた立体になる。初めてのときは、Inventor の操作に使う Python の
      ライブラリ（pywin32）を「入れて作る」かを尋ねる（インターネットから入れる。1 分ほど）
    - この PC に Inventor が見つからなければ、STEP のほうを勧める（Inventor のボタンも押せる）
-3. **結果を見る**: STEP の行（厳密な面か、三角形の面か）と、Inventor で作ったときは部品ごとに照合の結果
-   （**一致**（緑）・**不一致**（琥珀）・**失敗**（赤。理由を添える））が並ぶ。**保存先を開く** でフォルダを開く。途中でやめるときは **中止**
+3. **結果を見る**: STEP の行（厳密な面か、三角形の面か）と、Inventor で作ったときは部品ごとの照合の結果。部品ごとの**升目**
+   （番号は作る部品の順。**一致**（緑）・**不一致**（琥珀）・**失敗**（赤）・作成中（青）・待ち（枠だけ））で全体を見せ、その下に
+   目を向ける部品（不一致・失敗・作成中）だけを、差や理由とともに行で並べる。3D の形も同じ色で塗り、不一致・失敗・作成中があれば、
+   それだけを不透明にしてほかの部品を透かす（内側の部品でも、どこが違うかが見える）。升目にカーソルを合わせると、その部品を 3D で強調する。
+   **保存先を開く** でフォルダを開く。途中でやめるときは **中止**
 
 保存先は `ドキュメント\Inventor 3Dツール\<HTML の名前>_cad`（同じ名前があれば「 (2)」…。前の結果を上書きしない）。
 STEP（.stp）・部品（.ipt）・組立（.iam）・照合の結果（`build-report.json`）・作ったときの変換データの写し（`.inventor.json`）が入る
@@ -137,7 +142,7 @@ flowchart LR
 | `program/ipt_build/` | CAD ファイルを作るビルダー（Python。窓が作るときだけ別のプロセスで動かす。コマンドでも使える）。STEP は標準ライブラリだけで書き（`p21.py`・`brep.py`・`step.py`）、.ipt・.iam は Inventor で作る（操作に使うライブラリは中の `requirements.txt`） |
 | `program/samples/` | サンプルの置き場（「サンプル・受け取ったファイル」の一覧兼、評価の題材） |
 | `program/tests/` | 評価。Python（`test_*.py`: 配る形・ビルダー・STEP）と JavaScript（`js/`）。窓の評価は `desktop/` の `cargo test` |
-| `program/tools/` | 開発用の道具（ファイルの中身の調査・テスト用データの作成・書き出した STEP の形状カーネルでの確かめ・アイコンの絵・画面の撮影と測定 `ui-check.mjs`・改良案を画像にする `ui-variants.mjs`（案の定義は `ui-proposals/`。共通部分は `ui-harness.mjs`）・窓の代わり `ui_server.py`・改良案の評価関数 `ui_score.py`） |
+| `program/tools/` | 開発用の道具（ファイルの中身の調査・テスト用データの作成・書き出した STEP の形状カーネルでの確かめ・アイコンの絵・画面の撮影と測定 `ui-check.mjs`・改良案を画像にする `ui-variants.mjs`（案の定義は `ui-proposals/`。共通部分は `ui-harness.mjs`）・窓の代わり `ui_server.py`・改良案の評価関数 `ui_score.py`・図面の読み取りの評価 `dwg-check.mjs`（AutoCAD の値と比べる）・`cad2d-check.mjs`（DWG と DXF を突き合わせる。比べ方は `cad2d-compare.mjs`）・図面のサンプルを作る `make_drawing_sample.py`・PDF の読み取りの評価 `pdf-check.mjs`（MuPDF の絵と比べる。基準は `pdf_reference.py`）・U3D の評価 `u3d-check.mjs`（元の IDTF と比べる）） |
 | `.github/workflows/desktop.yml` | Windows で exe を作り、自己診断し、main へ置く |
 | `docs/`・`package.json`・`CLAUDE.md` | 設計と調査の記録、JavaScript の評価の実行（開発用）、作業の決まり |
 
@@ -146,11 +151,12 @@ flowchart LR
 | フォルダ | 役割 | 画面（DOM）に依存 |
 |---|---|:-:|
 | `core/` | ベクトル・行列・数値の道具、表示名（`labels.json`） | — |
-| `formats/` | ファイルの読み取り。`ipt/`（OLE2 → Zstandard → SAB → B-rep）・`iam/`（参照・出現・配置）・`step/`（ISO 10303-21）。入口は `open.js`（形式の判定と、表示・変換で共通に使う「モデル」への読み込み） | — |
+| `formats/` | ファイルの読み取り。`ipt/`（OLE2 → Zstandard → SAB → B-rep）・`iam/`（参照・出現・配置）・`step/`（ISO 10303-21）・`dwg/`（DWG のビット列・節・圧縮・オブジェクト）・`cad2d/`（DWG・DXF・PDF で共通の図面のモデル、DXF・PDF の読み取り）・`pdf/`（PDF の構造・ページの中身・書体・画像・3D の取り出し）・`u3d/`（U3D のメッシュ）・`model3d.js`（PDF の 3D → 3D の表示）。入口は `open.js`（形式の判定と、表示・変換で共通に使う「モデル」への読み込み） | — |
 | `model/` | 形式によらない形（面・稜線）: 曲線の計算、寸法の要約（穴・外径・R・ねじ・円錐）、表示用の面のデータ | — |
 | `html/` | three.js の HTML を隔離した枠で動かし、表示中の形状を取り出す（フック・受け渡し・表示用データ） | ✓ |
 | `convert/` | 実寸の単位（`units.js`）。三角形メッシュを立体に閉じ（`recognize/shells.js`）、回転体・押し出し（面取りを含む）を認識して元の形と照らし合わせ（`recognize/`）、変換データを作る（`inventor.js`）。変換データを開いたときの 3D と説明（`preview.js`） | — |
 | `viewer/` | 三角形分割・3D 表示・面と部品の説明 | ✓ |
+| `viewer2d/` | 2D の図面の表示: 描くもの（ブロック・画層・線種・ハッチング・ビューポート。`scene.js`）・Canvas への描画（`viewer2d.js`）・指した図形の索引と説明・文字の書式・色番号 | `viewer2d.js` だけ |
 | `ui/` | 画面の部品: 次にすることの決め方（`flow.js`）・段階の帯（`steps.js`）・右の欄・サンプルの一覧・ファイルの受け付け・変換の節（`convert.js`）・シーンの単位（`units.js`）・「CAD ファイルを作る」（`build.js`）・exe の名前 | ✓ |
 | `desktop.js` | 窓とのやりとり: サンプル・exe へドロップされたファイル（開いたままのドロップを含む）・「CAD ファイルを作る」 | ✓ |
 | `main.js` | 入口。ファイルを読み、表示し、3D ⇄ パネルを連動させる | ✓ |
@@ -160,10 +166,20 @@ three.js・fzstd（Zstandard の展開）・Delaunator と Constrainautor（面�
 ## できること
 
 - **.ipt**: 形状と寸法（外形・穴・外径・R・ねじ・円錐）を表示する。ねじは Inventor が面に付けた情報から呼び（M6×1 など）・等級・ねじ長さを示す。
-  材質・密度（iProperties）が分かれば体積と質量も示す。対応している面は平面・円筒・円錐・トーラスで、それ以外は稜線だけを表示する
+  材質・密度（iProperties）が分かれば、体積と質量を外形寸法のすぐ下に示す。対応している面は平面・円筒・円錐・トーラスで、それ以外は稜線だけを表示する
 - **.iam（組立）**: 部品の参照と配置を読み、参照先の .ipt（一緒に受け取ったもの・同じフォルダのもの・サンプル）で組み立てる。部品表（部品名・数・外形・材質・質量）の
-  行にカーソルを合わせると 3D の部品を強調し、押すとその部品を開く。見つからない部品は一覧に出し、その .ipt をドロップすると組立に加わる
+  行にカーソルを合わせると 3D の部品を強調し、押すとその部品を開く。見つからない部品は部品表の下に出し、その .ipt をドロップすると組立に加わる
+  （Content Center の標準部品なら、Inventor で .ipt に書き出す用意の仕方を示す）
 - **STEP（.stp・.step）**: 部品の形状と組立の配置を全て含むので、単独で表示できる（部品が 1 つなら部品として、2 つ以上なら組立として）
+- **2D の図面（.dwg・.dxf）**: AutoCAD・Inventor などが書いた図面を、AutoCAD なしで表示する。DWG は R13〜R2018（R2007 を除く）、
+  DXF は全ての版（ASCII・バイナリ）。モデルと紙のレイアウト（ビューポートの中のモデル）を切り替え、画層ごとに表示・非表示にでき、
+  線・円・文字・寸法などにカーソルを合わせると、種類と寸法（長さ・半径・文字・寸法の値）と画層を示す。白地で読みにくい色（シアン・黄）は、
+  色相を保って濃くする。読み方と確かめた結果・まだできないことは [docs/drawing-format.md](docs/drawing-format.md)
+- **PDF（.pdf）**: 図面の PDF を、ページごとに紙のレイアウトとして表示する（画層・線の太さ・文字・画像。ページの中身は表示するときに読む）。
+  3D を含む PDF（U3D）は、上のタブで「3D」に切り替えると 3D で回して見られ、右の欄に部品の一覧が出る（PRC はまだ）
+- **Jw_cad（.jww）**: Jw_cad の図面を、Jw_cad なしで表示する（版 600・700 で確かめた）。用紙の上に、画層グループ・画層の名前、Jw_cad の画面の色・線種、
+  文字・寸法・ブロック・ソリッドを描く。指した図形の長さは画層グループの縮尺を掛けた**実寸**で出す。補助線（印刷しない線）は専用の画層にまとめ、
+  画層の一覧から隠せる
 - **.html（three.js）**: 元のページを隔離した枠の中で動かし、表示中の 3D モデルを取り出す（インスタンス描画を含む）。シーンの単位を
   実寸（mm）に直し、開いた面は縫い合わせ・縁を塞いで立体にし、部品ごとに「回転体」「押し出し（端面の縁の等距離面取りを含む）」
   「近似（三角形のまま）」に分類して寸法を復元する
@@ -180,6 +196,7 @@ three.js・fzstd（Zstandard の展開）・Delaunator と Constrainautor（面�
 | [`program/samples/ipt/`](program/samples/ipt) | .ipt（部品）。アプリのサンプルと解析の評価に使う（詳しくは中の README） |
 | [`program/samples/iam/`](program/samples/iam) | .iam（組立）。参照する部品は samples/ipt のものを使って組み立てる |
 | [`program/samples/stp/`](program/samples/stp) | STEP（.stp・.step）。同じ部品の .ipt・同じ組立の .iam との照合にも使う |
+| [`program/samples/dwg/`](program/samples/dwg) | 図面（.dwg・.dxf・.pdf・.jww）。サンプルの部品 A1 の部品図・ネットの無料の素材（DWG・回路図や画層の PDF・3D の PDF・Jw_cad の線色と線種・塗り） |
 | [`program/samples/html/`](program/samples/html) | 形状認識の検証に使う three.js の HTML（アプリのサンプルにもなる） |
 
 ## 開発

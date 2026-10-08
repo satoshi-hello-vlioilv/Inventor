@@ -12,7 +12,10 @@ const reduceMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matche
 const token = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
 const EDGE_ANGLE_DEG = 25; // 取り込んだメッシュで稜線として描く折れ角
-const TONE_TOKEN = { exact: "--steel", approx: "--approx" };
+const FOCUS_TONES = new Set(["warn", "bad", "run"]); // 目を向ける印（不一致・失敗・作成中）。あれば、ほかの部品を透かす
+const GHOST_OPACITY = 0.12;
+// 面・部品の色の種類 → 色の名前（CSS の変数）。ok〜run は作った結果の印（mark）
+const TONE_TOKEN = { exact: "--steel", approx: "--approx", ok: "--ok", warn: "--warn", bad: "--critical", run: "--accent" };
 
 export class Viewer {
   /**
@@ -43,7 +46,11 @@ export class Viewer {
     this.materials = new Map(); // 面・部品の id → { material, tone }
     this.edgeMaterial = new THREE.LineBasicMaterial();
     this.highlighted = new Set();
+    this.marks = new Map(); // 面・部品の id → 印の色の種類（作った結果。元の色の代わりに塗る）
+    this.focus = false; // 目を向ける印があるか（あれば、それだけを不透明にし、ほかの部品を薄く透かす）
+    this.edgesVisible = true;
     this.bounds = new THREE.Box3();
+    this.home = VIEWS.iso; // 最初の視点（注視点から見たカメラの向き）
     this.fitted = false;
     this.tween = 0;
 
@@ -57,7 +64,9 @@ export class Viewer {
    * scene.bodies    … 部品（ipt・STEP の部品）の面（平面・円筒など）と稜線。面ごとに当たり判定する
    * scene.instances … 組立（iam・STEP）と変換データ。部品ごとに作った形状を、配置の数だけ置く。配置ごとに当たり判定する
    *                    （部品は面 bodies を持つか、作った形 geometry を持つ。変換データは convert/preview.js が作る）
-   * scene.meshes    … HTML から取り出した三角形メッシュ（部品ごとの groups 付き）
+   * scene.meshes    … 三角形メッシュ（部品ごとの groups 付き。HTML から取り出したもの・3D の PDF。groups の color はファイルの色）
+   * scene.view      … 最初の視点 { direction（注視点 → カメラ）, up（画面の上）}（3D の PDF の既定の視点）。up に最も近い軸が
+   *                    表示の上（+Y）になるようにモデルを回し、その軸の周りに回転させる。無ければ等角
    * @returns {{ volume?: number, volumes?: number[] }}  体積（mm³）。組立は部品ごと
    */
   show(sceneData) {
@@ -66,19 +75,33 @@ export class Viewer {
     if (sceneData.meshes) this.#showMeshes(sceneData.meshes);
     else if (sceneData.instances) stats = this.#showAssembly(sceneData);
     else stats = this.#showBodies(sceneData.bodies);
+    if (sceneData.view) this.#orient(sceneData.view);
     this.model.updateMatrixWorld(true);
     this.bounds.setFromObject(this.model);
     this.applyColors();
-    if (this.fitted) this.setView(VIEWS.iso, false);
+    // 表示の切り替え（HTML ⇄ ほか）で 3D の場所の大きさが変わった直後でも、新しい大きさで全体を収める
+    if (this.fitted) {
+      this.#syncSize();
+      this.setView(this.home, false);
+    }
     return stats;
   }
 
-  #material(id, tone) {
+  /** ファイルの視点に合わせる: up に最も近い軸を表示の上（+Y）に回し、最初の視点（home）を direction にする */
+  #orient({ direction, up }) {
+    const k = [0, 1, 2].reduce((best, i) => (Math.abs(up[i]) > Math.abs(up[best]) ? i : best), 0);
+    const axis = new THREE.Vector3().setComponent(k, Math.sign(up[k]) || 1);
+    this.model.quaternion.setFromUnitVectors(axis, new THREE.Vector3(0, 1, 0));
+    this.home = new THREE.Vector3(...direction).applyQuaternion(this.model.quaternion).toArray();
+  }
+
+  /** 面の材質。color（"#rrggbb"）はファイルが持つ色（3D の PDF の材質など）。無ければ tone の色（CSS のトークン） */
+  #material(id, tone, color = null) {
     const material = new THREE.MeshStandardMaterial({
       metalness: 0.25, roughness: 0.55, side: THREE.DoubleSide,
       polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
     });
-    this.materials.set(id, { material, tone });
+    this.materials.set(id, { material, tone, color: color ? new THREE.Color(color) : null });
     return material;
   }
 
@@ -123,6 +146,7 @@ export class Viewer {
       const matrix = new THREE.Matrix4().set(...inst.matrix);
       const mesh = new THREE.Mesh(shape.geometry, this.#material(inst.id, "exact"));
       const lines = new THREE.LineSegments(shape.edges, this.edgeMaterial);
+      lines.userData.id = inst.id; // 透かす部品の稜線を隠すため
       for (const obj of [mesh, lines]) {
         obj.matrixAutoUpdate = false;
         obj.matrix.copy(matrix);
@@ -144,7 +168,7 @@ export class Viewer {
       m.groups.forEach((g, i) => geometry.addGroup(g.start, g.count, i));
       geometry.applyMatrix4(matrix.fromArray(m.matrix));
       if (!m.normals) geometry.computeVertexNormals();
-      const mesh = new THREE.Mesh(geometry, m.groups.map((g) => this.#material(g.id, g.tone)));
+      const mesh = new THREE.Mesh(geometry, m.groups.map((g) => this.#material(g.id, g.tone, g.color)));
       mesh.userData.ids = m.groups.map((g) => g.id);
       this.model.add(mesh);
       this.surfaces.push(mesh);
@@ -161,6 +185,10 @@ export class Viewer {
     this.materials.clear();
     this.surfaces = [];
     this.highlighted.clear();
+    this.marks.clear();
+    this.focus = false;
+    this.model.quaternion.identity();
+    this.home = VIEWS.iso;
     this.requestRender();
   }
 
@@ -169,9 +197,26 @@ export class Viewer {
     this.applyColors();
   }
 
+  /**
+   * 部品に作った結果の印の色を塗る（[[id, 色の種類]]。空なら元の色に戻す）。
+   * 目を向ける印（不一致 warn・失敗 bad・作成中 run）があれば、それだけを不透明にし、ほかの部品を透かす（内側の部品も外から見える）
+   */
+  mark(entries) {
+    const marks = new Map(entries);
+    if (marks.size === this.marks.size && [...marks].every(([id, tone]) => this.marks.get(id) === tone)) return; // 変わらなければ描き直さない
+    this.marks = marks;
+    this.focus = [...marks.values()].some((tone) => FOCUS_TONES.has(tone));
+    this.applyColors();
+  }
+
+  /** 透かす部品か（目を向ける印があるとき、その印の無い部品。強調している部品は透かさない） */
+  #ghosted(id) {
+    return this.focus && !FOCUS_TONES.has(this.marks.get(id)) && !this.highlighted.has(id);
+  }
+
   setEdgesVisible(visible) {
-    for (const child of this.model.children) if (child.isLineSegments) child.visible = visible;
-    this.requestRender();
+    this.edgesVisible = visible;
+    this.applyColors(); // 稜線の見え方は、透かしている部品も合わせて決める
   }
 
   /** 視点を変える。direction はカメラを置く向き（注視点から見た方向）。 */
@@ -208,9 +253,19 @@ export class Viewer {
   applyColors() {
     const accent = new THREE.Color(token("--accent"));
     const tones = Object.fromEntries(Object.entries(TONE_TOKEN).map(([tone, name]) => [tone, new THREE.Color(token(name))]));
-    for (const [id, { material, tone }] of this.materials) {
-      const base = tones[tone] ?? tones.exact;
+    for (const [id, { material, tone, color }] of this.materials) {
+      const mark = this.marks.get(id);
+      const base = mark ? tones[mark] ?? tones.exact : color ?? tones[tone] ?? tones.exact;
       material.color.copy(this.highlighted.has(id) ? base.clone().lerp(accent, 0.65) : base);
+      const ghost = this.#ghosted(id);
+      if (material.transparent !== ghost) {
+        Object.assign(material, { transparent: ghost, opacity: ghost ? GHOST_OPACITY : 1, depthWrite: !ghost, needsUpdate: true });
+      }
+    }
+    for (const child of this.model.children) {
+      if (!child.isLineSegments) continue;
+      const id = child.userData.id; // 配置ごとの稜線だけが id を持つ（部品の面の稜線は透かさない）
+      child.visible = this.edgesVisible && !(id !== undefined && this.#ghosted(id));
     }
     this.edgeMaterial.color.set(token("--edge"));
     this.requestRender();
@@ -237,8 +292,8 @@ export class Viewer {
     const size = g.canvas.width, c = size / 2, len = size * 0.3;
     g.clearRect(0, 0, size, size);
     const inverse = this.camera.quaternion.clone().invert();
-    const axes = AXES.map(([name, dir]) => ({
-      name, color: token(`--axis-${name.toLowerCase()}`), v: new THREE.Vector3(...dir).applyQuaternion(inverse),
+    const axes = AXES.map(([name, dir]) => ({ // ファイルの軸（モデルを回して表示しているときは、回した後の向き）
+      name, color: token(`--axis-${name.toLowerCase()}`), v: new THREE.Vector3(...dir).applyQuaternion(this.model.quaternion).applyQuaternion(inverse),
     })).sort((a, b) => a.v.z - b.v.z);
     g.lineWidth = 4;
     g.lineCap = "round";
@@ -255,16 +310,22 @@ export class Viewer {
     }
   }
 
+  /** 描く大きさとカメラの縦横比を、3D の場所のいまの大きさに合わせる（→ 大きさがあるか） */
+  #syncSize() {
+    const { clientWidth: w, clientHeight: h } = this.stage;
+    if (!w || !h) return false;
+    this.renderer.setSize(w, h, false);
+    this.camera.aspect = w / h;
+    this.camera.updateProjectionMatrix();
+    return true;
+  }
+
   #watchSize() {
     new ResizeObserver(() => {
-      const { clientWidth: w, clientHeight: h } = this.stage;
-      if (!w || !h) return;
-      this.renderer.setSize(w, h, false);
-      this.camera.aspect = w / h;
-      this.camera.updateProjectionMatrix();
+      if (!this.#syncSize()) return;
       if (!this.fitted) {
         this.fitted = true; // 画面の縦横比が決まってから初回の全体表示を行う
-        this.setView(VIEWS.iso, false);
+        this.setView(this.home, false);
       }
       this.requestRender();
     }).observe(this.stage);

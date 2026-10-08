@@ -1,10 +1,15 @@
 // 右の欄の中身。4 つの表示を持つ（欄の上の段階の帯は steps.js、下の行動ドックは build.js と main.js）。
-//   ipt  … 部品（.ipt・STEP の部品・組立の中の部品）: 寸法・形状要素・位相・材質と質量・ファイル構造
-//   asm  … 組立（.iam・STEP）: 外形寸法・見つからない部品・部品表・構成
+//   ipt  … 部品（.ipt・STEP の部品・組立の中の部品）: 寸法・材質と質量・形状要素・位相・ファイル構造
+//   asm  … 組立（.iam・STEP）: 外形寸法・部品表・構成・見つからない部品（次にすることのボタンは行動ドック）
 //   html … three.js の HTML: 照合の結果・単位・作る部品・除外したもの
 //   spec … 変換データ（.inventor.json）: ファイルの情報・照合の結果・作る部品
+//   drawing … 2D の図面（.dwg・.dxf・.pdf・.jww）: ファイルの情報・図面（形式・大きさ・レイアウト）・画層（押すと表示・非表示）・図形の内訳
+//   model3d … 3D の PDF の 3D（主役の場所のタブで図面と切り替える）: 3D の情報（形式・部品・面・大きさ）・部品の一覧
 
 import { AXES, fmt, fmtMass, fmtSize } from "../viewer/describe.js";
+import { ACI, rgbHex } from "../viewer2d/colors.js";
+import { layerScales } from "../formats/cad2d/model.js";
+import { length, scaleText } from "../viewer2d/describe.js";
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, className, text) => {
@@ -40,7 +45,8 @@ function featureRow({ kind, dim, count, sub, note, tone, title }, onEnter, onLea
   button.type = "button";
   if (tone) button.dataset.tone = tone;
   if (title) button.title = title;
-  button.append(el("span", "kind", kind), el("span", "dim", dim), el("span", "count", `×${count}`), el("span", "sub", sub));
+  button.append(el("span", "kind", kind), el("span", "dim", dim), el("span", "count", count === null ? "" : `×${count}`)); // null: 数を出さない
+  if (sub) button.append(el("span", "sub", sub));
   if (note) button.append(el("span", "note", note));
   for (const type of ["pointerenter", "focus"]) button.addEventListener(type, onEnter);
   for (const type of ["pointerleave", "blur"]) button.addEventListener(type, onLeave);
@@ -117,8 +123,10 @@ export function renderIptPanel({ report, scene, describe, properties = {}, volum
   ];
   if (describe.unsupported) topology.push(["表示未対応の面", `${describe.unsupported}（稜線のみ表示）`]);
   if (scene.bodies.length > 1) topology.push(["ボディ", `${scene.bodies.length}（寸法は 1 つ目）`]);
-  topology.push(...massRows(properties, volume));
   definitionList("topology", topology);
+  const mass = massRows(properties, volume); // 寸法のすぐ下に出す（部品を見る人が最初に知りたいこと）
+  definitionList("mass", mass);
+  $("mass-card").hidden = !mass.length;
 
   document.querySelector("details.structure[data-mode~='ipt']").hidden = !report;
   if (!report) return rows;
@@ -159,8 +167,15 @@ export function renderAsmPanel({ describe, scene }, handlers) {
     title: g.missing ? g.path ?? g.file : "押すと、この部品を開きます",
   });
   const rows = renderRows("bom", describe.groups, row, handlers, "部品がありません");
+  // 見つからない部品（部品表の下）。Content Center の標準部品は、この PC には .ipt が無いことが多いので、用意の仕方を添える
   $("missing-section").hidden = !describe.missing.length;
-  renderRows("missing", describe.missing, (g) => ({ kind: "?", dim: g.file ?? g.name, count: g.count, sub: g.path ?? "", tone: "missing" }),
+  const standard = describe.missing.filter((g) => g.standard).length;
+  $("missing-hint").textContent = standard === describe.missing.length
+    ? "Content Center の標準部品です。Inventor で .ipt に書き出し、画面にドロップすると組立に加わります。"
+    : "組立が参照する部品ファイル（.ipt）を画面にドロップすると、組立に加わります。行を押すとファイルを選べます。";
+  renderRows("missing", describe.missing,
+    (g) => ({ kind: "?", dim: g.file ?? g.name, count: g.count, sub: g.standard && standard < describe.missing.length ? "Content Center の標準部品" : "",
+      tone: "missing", title: g.path ?? g.file }),
     { onEnter: handlers.onEnter, onLeave: handlers.onLeave, onClick: handlers.onMissing }, "");
   const info = [
     ["部品", `${describe.groups.length} 種類（形状あり ${found.length}）`],
@@ -213,4 +228,85 @@ export function renderSpecPanel({ describe }, handlers) {
   return renderRows("parts", describe.groups,
     (g) => ({ kind: g.label, dim: g.main, count: g.ids.length, sub: g.sub, note: g.note, tone: g.tone, title: g.name }), handlers,
     "作れる部品がありません");
+}
+
+/** 画層の色（"#rrggbb"。色番号 7 = 前景色は null） */
+const layerColor = (color) => (color?.rgb !== undefined ? rgbHex(color.rgb) : ACI[Math.abs(color?.index ?? 7)] ?? null);
+
+// レイアウトの呼び方（形式ごと。無ければ「レイアウト」）
+const LAYOUT_LABEL = { pdf: "ページ", jww: "用紙" };
+
+/**
+ * 図面（.dwg・.dxf・.pdf・.jww）。画層は、このレイアウトに図形があるものを数の多い順に。図形の無い画層は数だけ添える。
+ * @param {{ drawing, describe, layout, visible: (name) => boolean, display: (color) => string }} data
+ *   display … 図面の色 → 描く色（地に合わせた補正。見本を図面と同じ色にする）
+ * @param {{ onToggle: (name) => void, onEnter: (name) => void, onLeave: () => void }} handlers
+ * @returns {Map<string, HTMLElement>} 画層の名前 → 行（図形を指したとき、その画層の行に印を付ける）
+ */
+export function renderDrawingPanel({ drawing, describe, layout, visible, display }, { onToggle, onEnter, onLeave }) {
+  const units = drawing.units.name;
+  $("drawing-note").textContent = units ? `単位 ${units}` : "単位の指定なし";
+  const [w, h] = describe.extents ?? [];
+  const scales = layerScales(drawing);
+  definitionList("drawing-info", [
+    ["形式", `${drawing.format.toUpperCase()} ${drawing.version}`],
+    ["大きさ", describe.extents ? `${length(w)} × ${length(h)}${units ? ` ${units}` : ""}` : "—"],
+    [LAYOUT_LABEL[drawing.format] ?? "レイアウト", `${layout.model ? "モデル" : layout.name}${drawing.layouts.length > 1 ? `（全 ${drawing.layouts.length}）` : ""}`],
+    ...(scales.length ? [["縮尺", `${scales.map((k) => scaleText(1 / k)).join("・")}（指した図形の長さは実寸）`]] : []),
+  ]);
+
+  const used = describe.layers.filter((l) => l.count > 0).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, "ja"));
+  const unused = describe.layers.length - used.length;
+  const rows = new Map();
+  const items = used.map((l) => {
+    const button = el("button", "feature");
+    button.type = "button";
+    button.setAttribute("aria-pressed", String(visible(l.name)));
+    button.title = `${l.name}（押すと${visible(l.name) ? "隠す" : "表示する"}）`;
+    const swatch = el("span", "kind");
+    swatch.style.setProperty("--swatch", display(layerColor(l.color)));
+    swatch.dataset.dash = l.dash;
+    const note = l.off || l.frozen ? `（ファイルでは${l.frozen ? "凍結" : "非表示"}）` : "";
+    button.append(swatch, el("span", "dim", `${l.name}${note}`), el("span", "count", `×${l.count}`));
+    button.addEventListener("click", () => onToggle(l.name));
+    for (const type of ["pointerenter", "focus"]) button.addEventListener(type, () => onEnter(l.name));
+    for (const type of ["pointerleave", "blur"]) button.addEventListener(type, onLeave);
+    rows.set(l.name, button);
+    const li = el("li");
+    li.append(button);
+    return li;
+  });
+  if (unused) items.push(el("li", "empty", `ほかに、このレイアウトに図形の無い画層が ${unused} 個`));
+  $("layers").replaceChildren(...(items.length ? items : [el("li", "empty", "画層がありません")]));
+
+  renderTally("drawing-types", describe.types.map((t) => ["", t.label, t.count, t.type]));
+  const { unsupported: skipped, broken } = describe;
+  const notes = [
+    skipped.length ? `まだ描かない図形: ${skipped.map((t) => `${t.label} ${t.count}`).join("・")}` : "",
+    broken ? `値が壊れていて描けない図形: ${broken}` : "",
+  ].filter(Boolean);
+  $("drawing-unsupported").hidden = !notes.length;
+  $("drawing-unsupported").textContent = notes.length ? `${notes.join("。")}（ほかの図形は表示しています）` : "";
+  return rows;
+}
+
+/**
+ * 3D の PDF の 3D（U3D・PRC）。部品は、ファイルに置かれた順。
+ * @param {{ format: string, describe: object | null, error?: string, warnings?: string[] }} data
+ *   describe … viewer/describe.js の describeMeshes の結果（読めなかったときは null と error）
+ * @returns {Map<string, HTMLElement>} 部品のキー → 行
+ */
+export function renderModel3dPanel({ format, describe, error = "", warnings = [] }, handlers) {
+  definitionList("model3d-info", [
+    ["形式", format],
+    ["部品", describe ? `${describe.groups.length}` : "—"],
+    ["面", describe ? `${describe.faces}` : "—"],
+    ["大きさ", describe?.size ? fmtSize(describe.size) : "—"],
+  ]);
+  const notes = [error, warnings.length ? `表示していないもの: ${warnings.join("・")}` : ""].filter(Boolean);
+  $("model3d-warn").hidden = !notes.length;
+  $("model3d-warn").textContent = notes.join("。");
+  return renderRows("model3d-parts", describe?.groups ?? [],
+    (g) => ({ kind: String(g.number).padStart(2, "0"), dim: g.name || "（名前なし）", count: null, sub: `面 ${g.faces}` }), handlers,
+    error ? "読めなかったので、部品はありません" : "表示できる形がありません");
 }

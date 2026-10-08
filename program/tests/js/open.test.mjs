@@ -8,8 +8,8 @@ import { ROOT, readSample, readSampleFile, sampleIams, sampleIpts, sampleSteps }
 
 const samplesIn = (dir) => fs.readdirSync(path.join(ROOT, "samples", dir)).filter((n) => !/\.(md|png)$/i.test(n));
 
-test("形式を拡張子と中身から決める（全サンプル。拡張子が違っても HTML・STEP は中身で分かる）", () => {
-  const expected = { ipt: "ipt", iam: "iam", stp: "step", html: "html" };
+test("形式を拡張子と中身から決める（全サンプル。拡張子が違っても HTML・STEP・図面は中身で分かる）", () => {
+  const expected = { ipt: "ipt", iam: "iam", stp: "step", dwg: "drawing", html: "html" };
   for (const [dir, format] of Object.entries(expected)) {
     for (const name of samplesIn(dir)) assert.equal(detectFormat(name, readSampleFile(dir, name)), format, name);
   }
