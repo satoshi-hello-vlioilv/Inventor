@@ -2,27 +2,15 @@
 
 use std::path::{Path, PathBuf};
 
-/// 「作る」の保存先（この下に「<名前>_cad」を作る）。設定（config/appsettings.json の build.output_dir）が空なら
+/// 「作る」の保存先（この下に「<名前>_cad」を作る）。設定（build.output_dir）が空なら
 /// ドキュメントの下の「Inventor 3Dツール」。設定は %USERPROFILE% のような環境変数を書いてもよい。
 pub fn output_root(program: &Path) -> PathBuf {
-    let configured = configured_output_dir(&config_path(program));
+    let configured = crate::settings::text(program, "build.output_dir");
     if configured.is_empty() {
         documents_dir().join(crate::locate::APP_NAME)
     } else {
         PathBuf::from(expand_vars(&configured, |k| std::env::var(k).ok()))
     }
-}
-
-/// 設定ファイル。INVENTOR_TOOL_CONFIG（開発・網）か program/config/appsettings.json。
-fn config_path(program: &Path) -> PathBuf {
-    std::env::var_os("INVENTOR_TOOL_CONFIG").map(PathBuf::from).unwrap_or_else(|| program.join("config").join("appsettings.json"))
-}
-
-/// build.output_dir（読めない・無いときは空。既定で動く）。
-fn configured_output_dir(path: &Path) -> String {
-    let text = std::fs::read_to_string(path).unwrap_or_default();
-    let value: serde_json::Value = serde_json::from_str(text.trim_start_matches('\u{feff}')).unwrap_or_default();
-    value["build"]["output_dir"].as_str().unwrap_or("").trim().to_string()
 }
 
 /// %名前% を環境変数の値に置き換える（無い名前はそのまま残す。Windows の書き方）。
@@ -134,18 +122,5 @@ mod tests {
         assert_eq!(expand_vars("100%", get), "100%");
         assert_eq!(expand_vars("%%USERPROFILE%", get), r"%C:\Users\a");
         assert_eq!(expand_vars(r"D:\作る\%USERPROFILE%", get), r"D:\作る\C:\Users\a", "日本語の途中でも切れない");
-    }
-
-    #[test]
-    fn reads_the_configured_destination() {
-        let dir = std::env::temp_dir().join(format!("inv-settings-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("appsettings.json");
-        std::fs::write(&path, "\u{feff}{\"build\": {\"output_dir\": \"  D:\\\\CAD  \"}}").unwrap();
-        assert_eq!(configured_output_dir(&path), r"D:\CAD", "BOM 付き・前後の空白");
-        std::fs::write(&path, "{").unwrap();
-        assert_eq!(configured_output_dir(&path), "", "読めなければ既定");
-        assert_eq!(configured_output_dir(&dir.join("none.json")), "");
-        std::fs::remove_dir_all(&dir).ok();
     }
 }

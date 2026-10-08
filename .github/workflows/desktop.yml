@@ -107,6 +107,50 @@ jobs:
           if (Get-Process python -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "*hostedtoolcache*" }) { Write-Host "作る係（Python）が残っています"; exit 5 }
           if (-not $r.ok) { exit 1 }
 
+      # 版の管理（desktop/src/update.rs・launch.rs）を本物の Windows で: 置き場に版を置き（--publish-zip）、
+      # 置き場の入口 exe → この PC のフォルダへ写してそろえ、開き直す。2 つめの版では、動いている自分の exe を入れ替える
+      - name: 版の管理（置き場から入れる・起動でそろえる・動いている exe の入れ替え）
+        if: ${{ !cancelled() }}
+        run: |
+          $root = "$env:RUNNER_TEMP\upd"; $share = "$root\share"; $homeApp = "$root\home"
+          New-Item -ItemType Directory -Force $share | Out-Null
+          $exe = (Resolve-Path desktop\target\release\Inventor3DTool.exe).Path
+          $base = (Get-Content program\version.json -Raw | ConvertFrom-Json).version
+          function Make-Zip([string]$ver) {
+            $dir = "$root\zip-$ver\Inventor-main"
+            New-Item -ItemType Directory -Force "$dir\program" | Out-Null
+            Copy-Item $exe "$dir\Inventor3DTool.exe"
+            robocopy program "$dir\program" /E /XD __pycache__ config tests samples /NFL /NDL /NJH /NJS | Out-Null
+            ('{"version": "' + $ver + '"}') | Set-Content -Encoding utf8 "$dir\program\version.json"
+            Compress-Archive -Path $dir -DestinationPath "$root\$ver.zip" -Force
+            return "$root\$ver.zip"
+          }
+          function Wait-For([scriptblock]$ok, [int]$sec) {
+            $deadline = (Get-Date).AddSeconds($sec)
+            while (-not (& $ok) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 1 }
+            return (& $ok)
+          }
+          function Version-Of([string]$app) { try { (Get-Content "$app\program\version.json" -Raw | ConvertFrom-Json).version } catch { "" } }
+          function Running([string]$path) { @(Get-Process Inventor3DTool -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $path }).Count -gt 0 }
+          $env:INVENTOR_TOOL_INSTALL_ROOT = $homeApp
+          $v1 = "$base-ci1"; $v2 = "$base-ci2"
+          & $exe --publish-zip (Make-Zip $v1) $share
+          if ($LASTEXITCODE -ne 0) { Write-Host "置き場に $v1 を置けません"; exit 11 }
+          Start-Process -FilePath "$share\Inventor3DTool.exe"
+          $installed = Wait-For { (Version-Of $homeApp) -eq $v1 -and (Running "$homeApp\Inventor3DTool.exe") } 120
+          Write-Host "置き場の入口から入れた: $installed（版 $(Version-Of $homeApp)）"
+          Get-Process Inventor3DTool -ErrorAction SilentlyContinue | Stop-Process -Force
+          Start-Sleep -Seconds 2
+          & $exe --publish-zip (Make-Zip $v2) $share
+          if ($LASTEXITCODE -ne 0) { Write-Host "置き場に $v2 を置けません"; exit 12 }
+          Start-Process -FilePath "$homeApp\Inventor3DTool.exe"
+          $updated = Wait-For { (Version-Of $homeApp) -eq $v2 -and (Test-Path "$homeApp\.update\$v1.old\Inventor3DTool.exe") -and (Running "$homeApp\Inventor3DTool.exe") } 120
+          Write-Host "起動でそろえた: $updated（版 $(Version-Of $homeApp)・前の exe は .update\$v1.old へ）"
+          Get-Process Inventor3DTool -ErrorAction SilentlyContinue | Stop-Process -Force
+          Get-Content "$env:LOCALAPPDATA\Inventor3DTool\logs\desktop.log" -Tail 30 -Encoding utf8 -ErrorAction SilentlyContinue
+          if (-not $installed) { exit 13 }
+          if (-not $updated) { exit 14 }
+
       # 置く物をまとめる: exe・自己診断の結果・作った元の指紋（publish が比べる）
       - name: 成果物をまとめる
         if: always()

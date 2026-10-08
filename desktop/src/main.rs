@@ -12,12 +12,15 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod jobs;
+mod launch;
 mod locate;
 mod proc;
 mod received;
 mod router;
+mod settings;
 mod shortcut;
 mod system;
+mod update;
 
 use jobs::{Jobs, Tools};
 use received::Received;
@@ -37,6 +40,10 @@ const SELFTEST_JS: &str = include_str!("selftest.js");
 const SELFTEST_LIMIT: Duration = Duration::from_secs(300);
 /// 中身（program フォルダ）が見つからないときの画面
 const FAIL_HTML: &str = include_str!("fail.html");
+/// 起動のとき、配る版にそろえている間の画面（update.rs）
+const UPDATE_HTML: &str = include_str!("update.html");
+/// 開き直した窓が、前の窓の終わりを待つ長さ
+const AFTER_PID_WAIT: Duration = Duration::from_secs(15);
 /// 閉じるとき（×のほか、Windows の終了など）に、作る仕事の片付けを待つ長さ
 const EXIT_WAIT: Duration = Duration::from_secs(5);
 /// 画面へ「起動でファイルを受け取った」と知らせる式（画面の desktop.js が受け取りに来る）
@@ -89,6 +96,19 @@ fn native(app: Arc<OnceLock<AppHandle>>, info: Value) -> Native {
                     log(&format!("SELFTEST stage={stage}"));
                 }
                 Some(Reply::json(200, &json!({"received": true})))
+            }
+            // 版を置く ZIP を選ぶ（画面から大きな ZIP を送らず、窓がディスクから直接読む）
+            ("POST", "/__desktop/pick-zip") => {
+                use tauri_plugin_dialog::DialogExt;
+                let picked = app.get().and_then(|a| {
+                    let mut d = a.dialog().file().add_filter("アプリの ZIP", &["zip"]).set_title("版を置く ZIP を選ぶ");
+                    if let Some(w) = a.get_webview_window("main") {
+                        d = d.set_parent(&w);
+                    }
+                    d.blocking_pick_file()
+                });
+                let path = picked.and_then(|p| p.into_path().ok()).map(|p| p.display().to_string());
+                Some(Reply::json(200, &json!({"path": path})))
             }
             ("POST", "/__desktop/selftest/result") => {
                 if let Some(app) = app.get() {
@@ -143,8 +163,19 @@ fn shell(token: String, received: Arc<Received>, launched: Vec<String>, app: Arc
         }
     };
     let jobs = Jobs::new(root, work.join("logs"), Box::new(find), Box::new(opener), jobs::CANCEL_GRACE);
-    let shortcuts = shortcut::Shortcuts::system(std::env::current_exe().unwrap_or_default());
-    Ok(Router { program, token, jobs, received, inventor_installed: system::inventor_installed, shortcuts, native: native(app, info) })
+    // 尋ねるのは、配った形で動いているとき（開発の木・自己診断では尋ねない）
+    let offer = program.parent().is_some_and(|app| !update::is_dev_tree(app)) && selftest_path().is_none();
+    let shortcuts = shortcut::Shortcuts::system(std::env::current_exe().unwrap_or_default(), offer);
+    Ok(Router {
+        program,
+        token,
+        jobs,
+        received,
+        inventor_installed: system::inventor_installed,
+        shortcuts,
+        publishing: Default::default(),
+        native: native(app, info),
+    })
 }
 
 /// 中身が見つからないときの画面（理由と、次にすること）
@@ -199,8 +230,8 @@ fn open_outside(u: &Url) {
     }
 }
 
-fn window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
-    WebviewWindowBuilder::new(app, "main", WebviewUrl::External(app_url("/")))
+fn window(app: &AppHandle, start: &str) -> tauri::Result<WebviewWindow> {
+    WebviewWindowBuilder::new(app, "main", WebviewUrl::External(app_url(start)))
         .title(locate::APP_NAME)
         .inner_size(1600.0, 1000.0)
         .min_inner_size(960.0, 600.0)
@@ -227,10 +258,103 @@ fn window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .build()
 }
 
+/// 起動のときにそろえる版（配る版と違うとき）
+struct UpdatePlan {
+    app: PathBuf,
+    dir: PathBuf,
+    want: String,
+    have: String,
+    progress: update::Progress,
+}
+
+/// 配る版と比べ、違えばそろえる計画。開発の木・自己診断・同じフォルダの窓がもう開いているときは、そろえない
+fn update_plan(exe: &Path, flags: &launch::Flags) -> Option<UpdatePlan> {
+    if selftest_path().is_some() && std::env::var_os("INVENTOR_TOOL_UPDATE_FORCE").is_none() {
+        return None;
+    }
+    // アプリのフォルダ: program の親（新しい PC で program がまだ無ければ exe の場所）
+    let app = locate::program_dir().ok().and_then(|p| p.parent().map(Path::to_path_buf)).or_else(|| exe.parent().map(Path::to_path_buf))?;
+    if update::is_dev_tree(&app) || !launch::first_instance(&app) {
+        return None;
+    }
+    let program = app.join("program");
+    let have = update::local_version(&program);
+    let dir = flags.from_share.clone().unwrap_or_else(|| update::share_dir(&program).0);
+    match update::peek(&dir, have.as_deref()) {
+        update::Peek::Differs(want) => {
+            Some(UpdatePlan {
+                app, dir, want, have: have.unwrap_or_else(|| "（まだ入っていない）".into()), progress: Default::default()
+            })
+        }
+        update::Peek::Same => None,
+        update::Peek::Skip(why) => {
+            log(&format!("UPDATE 確かめませんでした（{why}）。いまの版で開く"));
+            None
+        }
+    }
+}
+
+/// そろえている間の画面と進み具合（窓の中身が無くても出せる）
+fn update_reply(plan: &UpdatePlan, path: &str) -> Option<Reply> {
+    let escape = |s: &str| s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+    match path {
+        "/__update" => Some(Reply {
+            status: 200,
+            headers: vec![("Content-Type".into(), "text/html; charset=utf-8".into()), ("Cache-Control".into(), "no-store".into())],
+            body: UPDATE_HTML
+                .replace("{{ want }}", &escape(&plan.want))
+                .replace("{{ have }}", &escape(&plan.have))
+                .replace("{{ log }}", &escape(&locate::local_root().join("logs").display().to_string()))
+                .into_bytes(),
+        }),
+        "/__update/progress" => Some(Reply::json(200, &plan.progress.get())),
+        _ => None,
+    }
+}
+
+/// 窓を出さずに版を置く（CI・保守の道具）: Inventor3DTool.exe --publish-zip <ZIP> <置き場>。置いた版を配る版にする。
+/// 答えは 1 行の JSON（終了コード 0 = できた）
+fn publish_from_command_line(args: &[String]) -> Option<i32> {
+    let [flag, zip, dir] = args else { return None };
+    if flag != "--publish-zip" {
+        return None;
+    }
+    let dir = Path::new(dir);
+    let _ = std::fs::create_dir_all(dir.join(update::VERSIONS));
+    let result = update::publish_zip(dir, Path::new(zip), &update::who(), &update::Progress::default(), 0)
+        .and_then(|v| update::set_release(dir, v["version"].as_str().unwrap_or(""), &update::who()));
+    let (code, out) = match result {
+        Ok(v) => (0, v),
+        Err(why) => (1, json!({"error": why})),
+    };
+    let _ = writeln!(std::io::stdout(), "{out}");
+    Some(code)
+}
+
 fn main() {
     let cwd = std::env::current_dir().unwrap_or_default();
+    let raw: Vec<String> = std::env::args().skip(1).collect();
+    if let Some(code) = publish_from_command_line(&raw) {
+        std::process::exit(code);
+    }
+    let (flags, file_args) = launch::split_args(raw);
+    if let Some(pid) = flags.after_pid {
+        launch::wait_for_exit(pid, AFTER_PID_WAIT);
+    }
+    let exe = std::env::current_exe().unwrap_or_default();
+    // 置き場の入口 exe: この PC のアプリのフォルダへ写して渡す（置き場の exe を開いたままにしない）
+    if let (None, Some(share)) = (&flags.from_share, update::is_share_entry(&exe)) {
+        match launch::handoff_from_share(&exe, &share, &file_args) {
+            Ok(target) => {
+                log(&format!("INSTALL 置き場の入口から {} へ渡した", target.display()));
+                return;
+            }
+            Err(why) => log(&format!("INSTALL この PC へ写せません（{why}）。置き場から開く")),
+        }
+    }
+    let plan = Arc::new(update_plan(&exe, &flags));
     let received = Arc::new(Received::default());
-    let first = received::paths_from_args(std::env::args().skip(1), &cwd);
+    let first = received::paths_from_args(file_args.clone(), &cwd);
     let launched = first.iter().filter_map(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).collect();
     received.push(first);
     let handle: Arc<OnceLock<AppHandle>> = Arc::default();
@@ -241,6 +365,7 @@ fn main() {
     let jobs = shell.as_ref().as_ref().ok().map(|r| r.jobs.clone());
     let close_jobs = jobs.clone();
     let proto = shell.clone();
+    let proto_plan = plan.clone();
 
     let app = tauri::Builder::default()
         // 2 つめの起動: 渡されたファイルを 1 つめの窓へ回し、窓を前に出す（2 つめはすぐ終わる）
@@ -266,7 +391,15 @@ fn main() {
         // 画面からの問い合わせ。1 つずつ別の糸で答える（作り始め・大きなファイルが画面を止めない）
         .register_asynchronous_uri_scheme_protocol(SCHEME, move |_ctx, req, responder| {
             let shell = proto.clone();
+            let plan = proto_plan.clone();
             std::thread::spawn(move || {
+                if let Some(reply) = plan.as_ref().as_ref().and_then(|p| update_reply(p, req.uri().path())) {
+                    let mut b = tauri::http::Response::builder().status(reply.status);
+                    for (k, v) in reply.headers {
+                        b = b.header(k, v);
+                    }
+                    return responder.respond(b.body(reply.body).unwrap());
+                }
                 let resp = match shell.as_ref() {
                     Ok(r) => r.handle(&req),
                     Err(why) => {
@@ -283,7 +416,35 @@ fn main() {
         })
         .setup(move |app| {
             let _ = handle.set(app.handle().clone());
-            window(app.handle())?;
+            window(app.handle(), if plan.is_some() { "/__update" } else { "/" })?;
+            // 配る版にそろえ、開き直す（失敗したら、そろえる画面が理由と「いまの版のまま開く」を出す）
+            if let Some(p) = plan.as_ref() {
+                let (h, app_dir, dir, want, have, progress, files) = (
+                    app.handle().clone(),
+                    p.app.clone(),
+                    p.dir.clone(),
+                    p.want.clone(),
+                    p.have.clone(),
+                    p.progress.clone(),
+                    file_args.clone(),
+                );
+                std::thread::spawn(move || match update::bring(&app_dir, &dir, &want, &progress) {
+                    Ok(_) => {
+                        log(&format!("UPDATE {have} → {want}（{}）", dir.display()));
+                        match launch::relaunch(&app_dir, &files) {
+                            Ok(()) => h.exit(0),
+                            Err(why) => {
+                                log(&format!("UPDATE {why}"));
+                                progress.fail(&format!("そろえましたが、{why}。アプリを開き直してください。"));
+                            }
+                        }
+                    }
+                    Err(why) => {
+                        log(&format!("UPDATE {have} → {want} をそろえられません: {why}"));
+                        progress.fail(&why);
+                    }
+                });
+            }
             if selftest_path().is_some() {
                 let h = app.handle().clone();
                 std::thread::spawn(move || {

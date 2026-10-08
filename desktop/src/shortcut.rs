@@ -31,15 +31,21 @@ pub struct Shortcuts {
     /// ショートカット → 指す先（読めなければ None）
     pub read: fn(&Path) -> Option<PathBuf>,
     pub write: fn(&Path, &Link) -> Result<(), String>,
+    /// 起動のとき「デスクトップに作りますか」と尋ねてよいか（開発の木・自己診断では尋ねない）と、
+    /// 「作らない」と答えた印のファイル（あれば尋ねない。設定の画面からはいつでも作れる）
+    pub offer_allowed: bool,
+    pub declined: Option<PathBuf>,
 }
 
 pub const DESCRIPTION: &str = "部品・組立・STEP・図面を見る／three.js の 3D を CAD にする";
 
 impl Shortcuts {
     /// この PC の置き場と、本物の読み書き（Windows 以外は作れない）
-    pub fn system(target: PathBuf) -> Shortcuts {
+    pub fn system(target: PathBuf, offer_allowed: bool) -> Shortcuts {
         Shortcuts {
             target,
+            offer_allowed,
+            declined: Some(crate::locate::local_root().join("shortcut_declined.json")),
             places: vec![
                 Place { key: "desktop", label: "デスクトップ", dir: crate::system::desktop_dir() },
                 Place { key: "start", label: "スタートメニュー", dir: crate::system::start_menu_dir() },
@@ -68,7 +74,21 @@ impl Shortcuts {
                 Some(json!({"place": p.key, "label": p.label, "state": state, "path": file}))
             })
             .collect();
-        json!({"supported": cfg!(windows) && !places.is_empty(), "places": places})
+        let supported = cfg!(windows) && !places.is_empty();
+        let desktop_missing = places.iter().any(|p| p["place"] == "desktop" && p["state"] != "ok");
+        let declined = self.declined.as_ref().is_some_and(|f| f.is_file());
+        json!({"supported": supported, "places": places, "target": self.target, "offer": supported && self.offer_allowed && desktop_missing && !declined})
+    }
+
+    /// 「作らない」と答えた（次からは尋ねない）
+    pub fn decline(&self) -> Result<Value, String> {
+        if let Some(f) = &self.declined {
+            if let Some(d) = f.parent() {
+                let _ = std::fs::create_dir_all(d);
+            }
+            std::fs::write(f, json!({"at": SystemTimeText::now()}).to_string()).map_err(|e| format!("答えを残せません（{e}）"))?;
+        }
+        Ok(self.status())
     }
 
     /// 置き場（key）にショートカットを作る（同じ名前は上書き）。答えは作った後の状態
@@ -81,6 +101,14 @@ impl Shortcuts {
         let working_dir = self.target.parent().unwrap_or(Path::new("."));
         (self.write)(&file, &Link { target: &self.target, working_dir, description: DESCRIPTION })?;
         Ok(self.status())
+    }
+}
+
+/// 答えた時刻（秒）
+struct SystemTimeText;
+impl SystemTimeText {
+    fn now() -> u64 {
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
     }
 }
 
@@ -183,6 +211,8 @@ mod tests {
             ],
             read: fake_read,
             write: fake_write,
+            offer_allowed: true,
+            declined: Some(root.join("declined.json")),
         }
     }
 
