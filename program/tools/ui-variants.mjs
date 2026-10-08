@@ -102,8 +102,13 @@ try {
   for (const theme of THEMES) {
     for (const p of TAKE) {
       const page = await app.newPage(theme, VIEW);
-      if (p.css) await page.addStyleTag({ content: p.css });
-      if (p.ops?.length) await page.evaluate(applyOps, p.ops);
+      // 案を当てる。開き直す状態（変わったこと・ショートカットの問い）でも当て直す（開き直すと CSS と組み替えが消える）
+      const apply = async () => {
+        if (p.css) await page.addStyleTag({ content: p.css });
+        if (p.ops?.length) await page.evaluate(applyOps, p.ops);
+      };
+      await apply();
+      page.on("load", () => apply().catch(() => {}));
       await walk(page, app.dev, async (state, next) => {
         const id = `${state}-${theme}-${p.key}`;
         await page.screenshot({ path: path.join(OUT, `${id}.png`) });
