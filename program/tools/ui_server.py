@@ -13,6 +13,7 @@
     POST /__dev/env?ready=0&inventor=0&python=0   ライブラリ・Inventor・Python があるかを変える
     POST /__dev/mix?mismatch=4,11&failed=19       次に作る仕事で、その番目（1 から）の部品を不一致・失敗にする（無しで全て一致）
     POST /__dev/shortcut?desktop=missing&start=ok  ショートカットの状態を変える（ok・missing・other。窓の shortcut.rs と同じ形で答える）
+    POST /__dev/update?role=developer&reachable=1  版の管理の役割（developer・maintainer・user・unset）・置き場に届くかを変える（update.rs と同じ形）
 """
 from __future__ import annotations
 
@@ -112,13 +113,37 @@ ENV = {"ready": True, "inventor": True, "python": True}
 LAUNCH: list[Path] = []
 GIVEN: dict[str, Path] = {}
 PENDING: list[Path] = []
+UPDATE = {"role": "developer", "reachable": True, "local": "2.1.0", "release": "2.1.0", "previous": "2.0.3", "keep": 5,
+          "versions": [("2.1.0", "2026-10-08T09:12:00Z", "sato@PC-SHIAGE01", "Inventor-main.zip", 812, 41_532_118),
+                       ("2.0.3", "2026-10-01T16:40:00Z", "sato@PC-SHIAGE01", "Inventor-main (3).zip", 790, 40_118_207),
+                       ("2.0.2", "2026-09-24T11:05:00Z", "tanaka@PC-SHIAGE07", "Inventor-main (2).zip", 788, 40_002_311),
+                       ("2.0.0", "2026-09-10T08:30:00Z", "sato@PC-SHIAGE01", "Inventor-main.zip", 702, 35_220_004)],
+          "roles": {"developers": ["sato"], "maintainers": ["tanaka", "suzuki"]}}
 SHORTCUTS = {"desktop": "missing", "start": "missing"}  # ショートカットの状態の模擬（既定は無い: 消した・作っていない）
 SHORTCUT_LABELS = {"desktop": "デスクトップ", "start": "スタートメニュー"}
 
 
+def update_status() -> dict:
+    """窓の update::status と同じ形"""
+    base = {"dir": "C:\\boxdrive\\Box\\(D)_仕上課\\90_アプリ開発\\90_Releases\\Inventor", "dirSource": "default",
+            "defaultDir": "C:\\boxdrive\\Box\\(D)_仕上課\\90_アプリ開発\\90_Releases\\Inventor", "user": "sato", "local": UPDATE["local"],
+            "publishing": False, "app": "C:\\Users\\sato\\Inventor3DTool"}
+    if not UPDATE["reachable"]:
+        return {**base, "reachable": False, "role": "unknown", "canManage": False, "why": "置き場が 3 秒で答えませんでした（Box Drive がつながっているか確かめてください）"}
+    role = UPDATE["role"]
+    v = {**base, "reachable": True, "role": role, "canManage": role in ("developer", "maintainer"),
+         "release": {"version": UPDATE["release"], "setAt": "2026-10-08T09:15:00Z", "setBy": "sato@PC-SHIAGE01", "previous": UPDATE["previous"]},
+         "pending": UPDATE["release"] != UPDATE["local"], "policy": {"keep": UPDATE["keep"]},
+         "versions": [{"version": a, "placedAt": b, "placedBy": c, "source": d, "commit": "acba55d", "files": e, "bytes": f} for a, b, c, d, e, f in UPDATE["versions"]],
+         "entry": {"path": base["dir"] + "\\Inventor3DTool.exe", "exists": True}}
+    if role in ("developer", "unset"):
+        v["roles"] = UPDATE["roles"] if role == "developer" else {"developers": [], "maintainers": []}
+    return v
+
+
 def shortcut_status() -> dict:
     """窓の shortcut.rs と同じ形"""
-    return {"supported": True, "places": [{"place": k, "label": SHORTCUT_LABELS[k], "state": v,
+    return {"supported": True, "offer": SHORTCUTS["desktop"] != "ok", "target": "C:\\Users\\you\\Inventor3DTool\\Inventor3DTool.exe", "places": [{"place": k, "label": SHORTCUT_LABELS[k], "state": v,
                                            "path": f"C:\\Users\\you\\{SHORTCUT_LABELS[k]}\\Inventor 3Dツール.lnk"} for k, v in SHORTCUTS.items()]}
 
 
@@ -186,6 +211,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.file(APP / "static", path[len("/static/"):])
         if path.startswith("/samples/"):
             return self.file(SAMPLES, path[len("/samples/"):])
+        if path == "/__desktop/pick-zip":
+            return self.json({"path": "C:\\Users\\sato\\Downloads\\Inventor-main.zip"})
         if path.startswith("/__dev/"):
             if path == "/__dev/freeze":
                 BUILD.frozen = True
@@ -199,6 +226,11 @@ class Handler(BaseHTTPRequestHandler):
                 for k in SHORTCUTS:
                     if k in query:
                         SHORTCUTS[k] = query[k][0]
+            elif path == "/__dev/update":
+                if "role" in query:
+                    UPDATE["role"] = query["role"][0]
+                if "reachable" in query:
+                    UPDATE["reachable"] = query["reachable"][0] == "1"
             elif path == "/__dev/env":
                 for k in ENV:
                     if k in query:
@@ -237,6 +269,34 @@ class Handler(BaseHTTPRequestHandler):
             return self.build_status()
         if path == "/api/build/open":
             return self.json({"opened": True})
+        if path == "/api/update" and method == "GET":
+            return self.json(update_status())
+        if path == "/api/update/progress":
+            return self.json({"state": "idle"})
+        if path.startswith("/api/update/") and method == "POST":
+            op, asked = path.rsplit("/", 1)[1], json.loads(body or b"{}")
+            if op != "settings" and UPDATE["role"] not in ("developer", "maintainer") and op != "roles":
+                return self.json({"message": "版の管理は、開発者とメンテナンス者だけができます"}, 403)
+            if op == "release":
+                UPDATE["previous"], UPDATE["release"] = UPDATE["release"], asked.get("version")
+                return self.json({"release": {"version": UPDATE["release"]}, "notes": []})
+            if op == "delete":
+                if asked.get("version") == UPDATE["release"]:
+                    return self.json({"message": "配っている版なので消せません。"}, 400)
+                UPDATE["versions"] = [v for v in UPDATE["versions"] if v[0] != asked.get("version")]
+                return self.json({"deleted": asked.get("version")})
+            if op == "publish":
+                UPDATE["versions"].insert(0, ("2.2.0", "2026-10-08T12:00:00Z", "sato@PC-SHIAGE01", "Inventor-main.zip", 820, 41_900_000))
+                return self.json({"version": "2.2.0", "files": 820, "bytes": 41_900_000, "pruned": []})
+            if op == "policy":
+                UPDATE["keep"] = int(asked.get("keep") or 0)
+                return self.json({"keep": UPDATE["keep"]})
+            if op == "roles":
+                UPDATE["roles"] = {"developers": asked.get("developers", []), "maintainers": asked.get("maintainers", [])}
+                return self.json(UPDATE["roles"])
+            return self.json({"saved": True})
+        if path == "/api/shortcut/decline":
+            return self.json(shortcut_status())
         if path == "/api/shortcut":
             if method == "POST":
                 place = json.loads(body or b"{}").get("place")

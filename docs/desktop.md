@@ -15,8 +15,8 @@
 | 版 | 2.0.0（作り直し → 大。`desktop/Cargo.toml` と `tauri.conf.json`。test_layout が一致を見張る） | 前の版の印（`app/version.py`）は Flask と一緒に外した |
 
 WaveLog から**持ってこなかったもの**: Python の常駐（サイドカー。WaveLog は画面と API を Python の Flask が作るので要る。
-こちらは API が小さく Rust だけで答えられる）・共有の置き場からの配布と版の入れ替え（こちらは ZIP を展開して使う）・
-版ごとの写しとショートカット作り（同じ理由）。
+こちらは API が小さく Rust だけで答えられる）。共有の置き場からの配布・版の入れ替え・ショートカット作りは、2026-10 に
+WaveLog と同等以上の形で足した（§8）。
 
 ## 2. 構成
 
@@ -148,3 +148,66 @@ Linux で作るときは WebKitGTK などが要る（`libwebkit2gtk-4.1-dev libg
 画面の無い環境では `dbus-run-session -- xvfb-run` で起こす。`INVENTOR_TOOL_SELFTEST=結果.json` で自己診断になる。
 開発・評価のための環境変数: `INVENTOR_TOOL_PROGRAM_DIR`（program の場所）・`INVENTOR_TOOL_LOCAL_ROOT`（作業場所）・`INVENTOR_TOOL_PYTHON`（使う Python）・
 `INVENTOR_TOOL_CONFIG`（設定ファイル）。
+`INVENTOR_TOOL_INSTALL_ROOT`（置き場から写す先。既定は %USERPROFILE%\Inventor3DTool）・`INVENTOR_TOOL_UPDATE_FORCE`（開発の木でもそろえる）。
+置き場に版を置くだけなら、窓を出さずに `Inventor3DTool.exe --publish-zip <ZIP> <置き場>`（置いた版を配る版にする。CI が使う）。
+
+## 8. 版の管理（配る・そろえる）・ショートカット（2026-10）
+
+利用者の依頼: WaveLog のように、版の配布の設定・ZIP ファイルで版を登録・不要な版の削除を設定から行い、WaveLog 同等以上に。
+版を置くところは `C:\boxdrive\Box\(D)_仕上課\90_アプリ開発\90_Releases\Inventor`（Box Drive。各 PC の同じ場所に同期される）。
+版の管理は開発者とメンテナンス者だけ（一般の人は見るだけ）。各 PC はアプリをローカルに写し、ショートカットはローカルを指し、
+起動のときに配る版へそろえる。
+
+### 8.1 置き場（`desktop/src/update.rs`）
+
+```
+<置き場>\
+  release.json        配る版 {"version","setAt","setBy","previous"}
+  versions\<版>\      版の中身（exe・README.md・program の中。設定 program\config と .pyc は除く）と manifest.json
+  versions\.<版>.<pid>.tmp\ ・ .del\   置いている・消している途中（"." で始まる物は一覧に出さない。1 時間たてば片付ける）
+  Inventor3DTool.exe  新しい PC の入口（配る版の exe の写し）
+  roles.json          役割 {"developers": [Windows のユーザー名], "maintainers": [...]}
+  policy.json         残す版の数 {"keep": N}（0 = 全て残す）
+```
+
+- **版の番号**は `program/version.json` の `version`（このリポジトリで版を上げるたびに書き換える。CLAUDE.md）。
+  同じ番号の版は置けない（もう写した PC と中身が食い違うため。WaveLog と同じ）
+- **ZIP から版を置く**: GitHub の「Code → Download ZIP」の ZIP をそのまま選ぶ（`Inventor-main/` の下でもよい。区切りが `\` の ZIP も読む）。
+  欠かせない物（exe・version.json・画面）を確かめ、配るファイルだけを `.tmp` へ書きながら sha256 を数え、目録を書いてから名前を変える（原子的）。
+  失敗したら途中の物を消す
+- **配る版を選ぶ**: 版の一覧のどれでも（古い版へ戻すのも同じ操作）。前に配った版を `previous` に残し、新しい PC の入口 exe を置き直す
+- **版を消す**（WaveLog に無い）: 配っている版は消せない。名前を `.del` に変えてから消す（消す途中の物を一覧に出さない）
+- **残す版の数**（WaveLog に無い）: 版を置いたとき、新しい順に N 個を残してほかを消す。配っている版と前に配った版は数に関わらず残す
+- **役割**（`roles.json`）: 開発者は版の管理と役割の変更、メンテナンス者は版の管理。窓が操作のたびに確かめる（画面の表示だけでは守らない）。
+  roles.json がまだ無い置き場では、最初の 1 人が自分を開発者にできる。開発者を 0 人にする変更は断る。Windows のユーザー名で見分ける
+  （大文字・小文字は区別しない。置き場に書ける人なら roles.json を書き換えられるので、悪意に対する守りではない）
+
+### 8.2 各 PC（`update.rs`・`launch.rs`・`main.rs`）
+
+1. 新しい PC: 置き場の `Inventor3DTool.exe` を開く → exe を `%USERPROFILE%\Inventor3DTool` へ写して（ネットから来た印 Zone.Identifier は外す）
+   渡し、すぐ終わる（置き場の exe を開いたままにしない）。写した exe が配る版を写して入れ、開き直す。置き場の場所は設定に覚える
+2. 起動のたび: 配る版と比べ（置き場が 3 秒で答えなければ、いまの版で開く）、違えば窓に「版をそろえています」（進み具合）を出して
+   `.update\<版>.stage` へ写し、全てのファイルを目録の大きさ・sha256 と照らす（違えば入れ替えない: Box Drive の同期の途中など）。
+   照らし終えたら単位（exe・README.md・program の直下）ごとに今の物を `.update\<今の版>.old` へ移して新しい物を置き、途中で失敗したら全て戻す。
+   **動いている exe も名前は変えられる**（Windows）ので、WaveLog の版ごとの exe の写しは要らない。入れ替えたら開き直す（`--after-pid`）
+3. そろえないとき: 開発の木（`.git`・`desktop/Cargo.toml`）・自己診断・同じフォルダの窓がもう開いている（名前付きのミューテックス）
+4. ショートカット: 置き場から写した exe（ローカル）を指す。起動のとき、デスクトップに無ければ作るかを尋ねる（「作らない」は覚える）。
+   設定からいつでも作る・作り直せる（デスクトップ・スタートメニュー。フォルダを移して別の exe を指す物も「作り直す」で直る）
+
+### 8.3 WaveLog との違い
+
+| 項目 | WaveLog | Inventor 3Dツール |
+|---|---|---|
+| 版の削除・残す数 | 無い | ある（配っている版・前に配った版は守る） |
+| 役割 | アプリの利用者の表（DB） | 置き場の roles.json（Windows のユーザー名。全 PC で同じ） |
+| 動いている exe の入れ替え | 版ごとの exe の写し（%LOCALAPPDATA%）から起こす | exe の名前を変えて入れ替え、開き直す（写しが要らない） |
+| ショートカット | デスクトップだけ | デスクトップとスタートメニュー。別の exe を指す物を見分けて直す |
+| ZIP の受け取り | 画面から送る | 窓のファイルを選ぶ窓で選び、窓がディスクから読む（大きな ZIP を画面で抱えない） |
+| 確かめ | 写す途中の sha256 | 同じ（写して照らし終えるまで入れ替えない。失敗したら全て戻す） |
+
+### 8.4 評価
+- `cargo test`: ZIP から置く（配るファイルだけ・目録の sha256・同じ版・ZIP でない物・途中の物を残さない・`\` の区切りと BOM）、配る版と
+  入口 exe、消す（配っている版は断る）、残す数、役割（最初の 1 人・開発者だけ・0 人を断る）、そろえる（目録と違えば写さない・設定を残す・
+  古い単位を .old へ・途中の失敗で全て戻す）、新しい PC へ入れて置き場を覚える、ショートカット（無い・作る・別の exe を指す物を直す・尋ねる）
+- CI（本物の Windows）: 置き場に版を置き（`--publish-zip`）、置き場の入口 exe から写して入れ、開き直す。次の版を置き、ローカルの exe を開くと、
+  動いている自分の exe を `.update\<前の版>.old` へ移してそろえ、開き直す

@@ -73,3 +73,20 @@ export const startBuild = (spec, { install = false, target = "inventor" } = {}) 
 export const cancelBuild = () => post("/api/build/cancel");
 /** 保存先をエクスプローラーで開く */
 export const openBuildFolder = () => post("/api/build/open");
+
+// ---- 設定: ショートカット・版の管理（desktop/src/shortcut.rs・update.rs。docs/desktop.md §8） ----
+
+/** ショートカットの状態 { supported, offer, target, places: [{ place, label, state: ok | missing | other, path }] } */
+export const shortcutStatus = async () => (await request("/api/shortcut")).json();
+/** 置き場（desktop・start）にショートカットを作る（作り直す）。答えは作った後の状態 */
+export const createShortcut = (place) => post("/api/shortcut", { place });
+/** 起動のときの「デスクトップに作りますか」に「作らない」と答えた（次からは尋ねない） */
+export const declineShortcut = () => post("/api/shortcut/decline");
+
+/** 版の管理の状態（置き場・配る版・版の一覧・役割。置き場に届かなければ reachable: false と理由 why） */
+export const updateStatus = async () => (await request("/api/update")).json();
+export const updateProgress = async () => (await request("/api/update/progress")).json();
+/** 版を置く ZIP を窓のファイルを選ぶ窓で選ぶ（選ばなければ null） */
+export const pickZip = async () => (await post("/__desktop/pick-zip")).path ?? null;
+/** 版の管理の操作: publish {path}・release {version}・delete {version}・policy {keep}・roles {developers, maintainers}・settings {dir} */
+export const updateOp = (op, body) => post(`/api/update/${op}`, body);
