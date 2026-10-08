@@ -5,8 +5,8 @@
   --bg: #e9edf2;
   --surface: #ffffff;
   --surface-2: #f3f6f9;
-  --stage-top: #f9fbfc;
-  --stage-bottom: #d9e0e8;
+  --stage-top: #ffffff; /* 3D の地: 白に近く、形（--steel）を一段濃くして図と地を分ける（docs/ui.md §13） */
+  --stage-bottom: #e6ebf1;
   --ink: #16202b;
   --muted: #536070;
   --rule: #d3dae3;
@@ -23,9 +23,9 @@
   --warn-soft: rgba(201, 139, 43, 0.14);
   --caution-ink: #8a5a12; /* 注意の文字（白地でコントラスト 5.9:1） */
   --on-warn: #16202b; /* 注意の色（--warn）の塗りの上の文字 */
-  --steel: #b4bbc3;
+  --steel: #97a2ae;
   --approx: #d3a867;
-  --edge: #26303c;
+  --edge: #1b2530;
   --axis-x: #cc4136;
   --axis-y: #2b8f45;
   --axis-z: #2a6ad2;
@@ -44,24 +44,24 @@
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #11161c; --surface: #1a2129; --surface-2: #222b35; --stage-top: #2b3541; --stage-bottom: #19212a;
+    --bg: #11161c; --surface: #1a2129; --surface-2: #222b35; --stage-top: #34404d; --stage-bottom: #1b232c;
     --ink: #e5eaf0; --muted: #a1acb9; --rule: #313c49; --rule-soft: #27313c;
     --accent: #6aa5ff; --accent-strong: #93bdff; --accent-ink: #0d1520; --accent-soft: rgba(106, 165, 255, 0.14);
     --critical: #ff8a80; --critical-soft: rgba(255, 138, 128, 0.1); --ok: #6fcf8a; --ok-soft: rgba(111, 207, 138, 0.12);
     --warn: #e0a84e; --warn-soft: rgba(224, 168, 78, 0.14); --caution-ink: #e8bd75; --on-warn: #1a2129;
-    --steel: #a9b1ba; --approx: #c89b58; --edge: #0f141a; --axis-x: #ff6a5c; --axis-y: #4cc46c; --axis-z: #5e9dff;
+    --steel: #b8c1cb; --approx: #c89b58; --edge: #0f141a; --axis-x: #ff6a5c; --axis-y: #4cc46c; --axis-z: #5e9dff;
     --sheet: #1b222b; --sheet-ink: #e8edf2;
     --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4); --shadow-2: 0 -6px 18px rgba(0, 0, 0, 0.35); --shadow-3: 0 24px 64px rgba(0, 0, 0, 0.6);
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-  --bg: #11161c; --surface: #1a2129; --surface-2: #222b35; --stage-top: #2b3541; --stage-bottom: #19212a;
+  --bg: #11161c; --surface: #1a2129; --surface-2: #222b35; --stage-top: #34404d; --stage-bottom: #1b232c;
   --ink: #e5eaf0; --muted: #a1acb9; --rule: #313c49; --rule-soft: #27313c;
   --accent: #6aa5ff; --accent-strong: #93bdff; --accent-ink: #0d1520; --accent-soft: rgba(106, 165, 255, 0.14);
   --critical: #ff8a80; --critical-soft: rgba(255, 138, 128, 0.1); --ok: #6fcf8a; --ok-soft: rgba(111, 207, 138, 0.12);
   --warn: #e0a84e; --warn-soft: rgba(224, 168, 78, 0.14); --caution-ink: #e8bd75; --on-warn: #1a2129;
-  --steel: #a9b1ba; --approx: #c89b58; --edge: #0f141a; --axis-x: #ff6a5c; --axis-y: #4cc46c; --axis-z: #5e9dff;
+  --steel: #b8c1cb; --approx: #c89b58; --edge: #0f141a; --axis-x: #ff6a5c; --axis-y: #4cc46c; --axis-z: #5e9dff;
     --sheet: #1b222b; --sheet-ink: #e8edf2;
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4); --shadow-2: 0 -6px 18px rgba(0, 0, 0, 0.35); --shadow-3: 0 24px 64px rgba(0, 0, 0, 0.6);
   color-scheme: dark;
@@ -101,7 +101,7 @@ kbd { font: 500 var(--fs-xs)/1.35 var(--font-num); padding: 0 5px; border: 1px s
 .app {
   box-sizing: border-box; height: 100%;
   display: grid; grid-template-rows: auto minmax(0, 1fr); grid-template-columns: minmax(0, 1fr) var(--side-w);
-  grid-template-areas: "bar bar" "stage side"; gap: 12px 16px; padding: 0 16px 16px;
+  grid-template-areas: "bar bar" "stage side"; /* 余白と枠で囲まず、1 枚の面を線で分ける（docs/ui.md §13） */
 }
 /* HTML: 元のページは 3D の下に重ねる（隠すと元のページの three.js が描かず、取り込めない）。上に出す方は主役の場所のタブで選ぶ */
 .app.is-html .source { grid-area: stage; z-index: 0; }
@@ -113,7 +113,7 @@ kbd { font: 500 var(--fs-xs)/1.35 var(--font-num); padding: 0 5px; border: 1px s
 /* ---- 見出しバー: いま開いているもの（左）・開く（右）。いつも同じ場所 ---- */
 .appbar {
   grid-area: bar; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 20px;
-  margin-inline: -16px; padding: 10px 16px; border-bottom: 1px solid var(--rule); background: var(--surface);
+  padding: 10px 16px; border-bottom: 1px solid var(--rule); background: var(--surface);
 }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: var(--fs-m); white-space: nowrap; }
 .logo { width: 26px; height: 26px; }
@@ -152,7 +152,7 @@ kbd { font: 500 var(--fs-xs)/1.35 var(--font-num); padding: 0 5px; border: 1px s
 /* ---- 元のページ（HTML を開いているとき）---- */
 .source {
   grid-area: source; min-width: 0; min-height: 320px; display: flex; flex-direction: column; overflow: hidden;
-  border: 1px solid var(--rule); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow-1);
+  border: 1px solid var(--rule); background: var(--surface);
 }
 .source-bar { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--rule); }
 .source-text { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
@@ -165,8 +165,8 @@ kbd { font: 500 var(--fs-xs)/1.35 var(--font-num); padding: 0 5px; border: 1px s
 /* ---- 3D ビュー ---- */
 .stage {
   grid-area: stage; position: relative; min-height: 320px; overflow: hidden;
-  border: 1px solid var(--rule); border-radius: var(--radius); box-shadow: var(--shadow-1);
-  background: linear-gradient(180deg, var(--stage-top), var(--stage-bottom));
+  /* 床の淡い影（形の下が落ち着く）と、上から下への地 */
+  background: radial-gradient(ellipse 60% 22% at 50% 82%, rgba(16, 32, 48, 0.1), transparent 70%), linear-gradient(180deg, var(--stage-top), var(--stage-bottom));
 }
 .stage .view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
 .stage .message { position: absolute; inset: 0; margin: 0; display: grid; place-items: center; padding: 24px; color: var(--muted); text-align: center; }
@@ -262,7 +262,7 @@ kbd { font: 500 var(--fs-xs)/1.35 var(--font-num); padding: 0 5px; border: 1px s
 /* ---- 右の欄: 段階の帯 → 中身（スクロール）→ 行動ドック ---- */
 .side {
   grid-area: side; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden;
-  background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius); box-shadow: var(--shadow-1);
+  background: var(--surface); border-inline-start: 1px solid var(--rule);
 }
 .side-scroll { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; padding: 0 16px 16px; }
 /* 区切り線は上側に影で描く（いちばん上の欄の線は、スクロールの枠の外になって見えない） */
@@ -408,28 +408,28 @@ details.card.more summary .h-note { margin-inline-start: 8px; }
 @keyframes flash { from { background: var(--accent-soft); } }
 
 /* ---- 寸法・一覧 ---- */
-.dims { margin: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; }
-.dims div { padding: 9px 12px; border-inline-end: 1px solid var(--rule); display: flex; flex-direction: column; gap: 2px; }
-.dims div:last-child { border-inline-end: 0; }
+.dims { margin: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.dims div { padding: 9px 12px; border-radius: 8px; background: var(--surface-2); display: flex; flex-direction: column; gap: 2px; }
 .dims dt { font-size: var(--fs-xs); color: var(--muted); display: flex; align-items: center; gap: 6px; }
 .dims dt::before { content: ""; width: 8px; height: 8px; border-radius: 2px; background: var(--axis-color); }
 .dims dd { margin: 0; font: 500 var(--fs-l)/1.3 var(--font-num); font-variant-numeric: tabular-nums; }
 
-.features { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+/* 行は枠で囲まず、細い線で区切る（1 つの表として読める）。カーソルを合わせた行だけを面で示す */
+.features { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .feature {
   width: 100%; text-align: start; cursor: default; color: var(--ink); font: inherit;
   display: grid; grid-template-columns: minmax(2.8em, max-content) 1fr auto; column-gap: 10px; row-gap: 2px; align-items: baseline;
-  padding: 9px 12px; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px;
+  padding: 10px 6px; background: transparent; border: 0; border-bottom: 1px solid var(--rule-soft); border-radius: 0;
   transition: border-color 0.12s, background-color 0.12s;
 }
-.feature:hover, .feature.is-active { border-color: var(--accent); background: var(--accent-soft); }
+.feature:hover, .feature.is-active { border-radius: 8px; border-bottom-color: transparent; background: var(--accent-soft); }
 .feature .kind { font-size: var(--fs-xs); font-weight: 600; color: var(--muted); }
 .feature .dim { font: 500 var(--fs-l)/1.3 var(--font-num); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .feature .count { font: 500 var(--fs-s) var(--font-num); color: var(--muted); }
 .feature .sub { grid-column: 2 / 4; font-size: var(--fs-xs); color: var(--muted); }
 .feature .note { grid-column: 2 / 4; font-size: var(--fs-xs); color: var(--caution-ink); display: flex; gap: 6px; align-items: baseline; }
 .feature .note::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--warn); transform: translateY(-1px); }
-.feature[data-tone] { border-inline-start: 4px solid var(--tone); }
+.feature[data-tone] { border-inline-start: 3px solid var(--tone); padding-inline-start: 10px; }
 [data-tone="exact"] { --tone: var(--steel); }
 [data-tone="approx"] { --tone: var(--approx); }
 [data-tone="excluded"] { --tone: var(--rule); }
@@ -440,7 +440,7 @@ details.card.more summary .h-note { margin-inline-start: 8px; }
 .features.is-bom .feature:focus-visible { outline-offset: -2px; }
 /* 画層: 色の見本・名前・図形の数。1 行ずつ低く並べ、押すと表示・非表示（消した画層は薄く、名前に取り消し線） */
 .features.layers { gap: 0; }
-.layers .feature { cursor: pointer; grid-template-columns: 26px 1fr auto; padding: 5px 10px; border-color: transparent; background: transparent; border-radius: 8px; }
+.layers .feature { cursor: pointer; grid-template-columns: 26px 1fr auto; padding: 5px 10px; border: 1px solid transparent; background: transparent; border-radius: 8px; } /* 画層は線で区切らず、押せる札として囲む */
 .layers .feature:hover, .layers .feature.is-active { border-color: var(--accent); background: var(--accent-soft); }
 /* 見本は線（画層の色と線種）: 実線・破線（dash）・鎖線（chain: 長い線と短い線の組み合わせ）。図面の中の線と目で結び付ける */
 .layers .feature .kind { width: 24px; height: 0; align-self: center; border-top: 2.5px solid var(--swatch); }
@@ -456,7 +456,7 @@ details.card.more summary .h-note { margin-inline-start: 8px; }
 .empty { color: var(--muted); font-size: var(--fs-s); }
 .tally { display: flex; flex-wrap: wrap; gap: 6px; }
 .tally:empty { display: none; }
-.tally-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--rule); border-radius: 999px; background: var(--surface); font-size: var(--fs-s); }
+.tally-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid transparent; border-radius: 999px; background: var(--surface-2); font-size: var(--fs-s); }
 .tally-chip .swatch { width: 10px; height: 10px; border-radius: 3px; background: var(--tone); }
 .tally-chip b { font: 600 var(--fs-s) var(--font-num); }
 .topology { margin: 0; display: grid; grid-template-columns: auto 1fr; column-gap: 14px; row-gap: 4px; font-size: var(--fs-s); }
@@ -516,6 +516,8 @@ details.card.more summary .h-note { margin-inline-start: 8px; }
 .drawer-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--rule); }
 .drawer-head h2 { margin: 0; font-size: var(--fs-l); font-weight: 600; }
 .drawer-body { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 22px; padding: 16px 20px 24px; }
+.st-strip { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 20px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); font-size: var(--fs-s); }
+.st-strip > span { display: inline-flex; align-items: center; gap: 6px; }
 .st-btn { min-height: 32px; padding: 4px 12px; font-size: var(--fs-s); }
 .st h3 { margin: 0; font-size: var(--fs-m); font-weight: 700; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
 .st h3 small { font-size: var(--fs-xs); font-weight: 400; color: var(--muted); }

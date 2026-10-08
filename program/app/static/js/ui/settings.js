@@ -1,5 +1,5 @@
 // 設定（右の引き出し）: ショートカット・版の管理（docs/desktop.md §8・docs/ui.md §12）。
-//   上から: ショートカット → 版（開発者・メンテナンス者だけ操作できる）→ 置き場 → 役割（開発者だけ）
+//   上から: 要点の 1 行（この PC の版・あなたの役割。案 G）→ ショートカット → 版（開発者・メンテナンス者だけ操作できる）→ 置き場 → 役割（開発者だけ）
 //   引き出しは <dialog>（開くと後ろを触れない・Esc で閉じる。サンプルの窓と同じ）
 // 窓（desktop/src/shortcut.rs・update.rs）が状態を答え、操作のたびに役割を確かめる。画面は答えを描くだけ（ここでは守らない）。
 // 消す・配るなど取り返しにくい操作は、その行の中で確かめてから行う（別の窓を重ねない）。
@@ -16,8 +16,7 @@ const button = (label, kind, onClick, title) => {
   return b;
 };
 const dot = (tone) => el("i", `dot ${tone}`);
-const ROLE_LABEL = { developer: "開発者", maintainer: "メンテナンス者", user: "一般の利用者", unset: "役割が決まっていない利用者", unknown: "役割が分からない利用者" };
-const youAre = (u) => `あなた（${u.user}）は${ROLE_LABEL[u.role] ?? u.role}です`;
+const ROLE_LABEL = { developer: "開発者", maintainer: "メンテナンス者", user: "一般の利用者", unset: "役割が未設定", unknown: "役割が不明（置き場に届かない）" };
 const STATE = { ok: ["ok", "あります"], missing: ["warn", "ありません"], other: ["warn", "別の場所の exe を指しています（作り直すと直ります）"] };
 const mb = (bytes) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 const when = (iso) => {
@@ -73,6 +72,20 @@ function row(name, value, ...actions) {
   v.append(...(Array.isArray(value) ? value : [value]));
   r.append(el("span", "st-name", name), v, ...actions);
   return r;
+}
+
+/** 要点の 1 行: この PC の版が配っている版と同じか・あなたの役割（開いてすぐ読める所に） */
+function renderStrip(u) {
+  if (!u || u.error) return null;
+  const strip = el("p", "st-strip");
+  const version = el("span");
+  const same = u.release && !u.pending;
+  version.append(dot(same || !u.release ? "ok" : "warn"), "この PC は ", el("b", "", u.local ?? "（版が分からない）"),
+    !u.release ? "" : same ? "（配っている版と同じ）" : `（配っている版は ${u.release.version}。次に開いたときにそろえます）`);
+  const role = el("span");
+  role.append("あなたは ", el("b", "", ROLE_LABEL[u.role] ?? u.role), u.user ? `（${u.user}）` : "");
+  strip.append(version, role);
+  return strip;
 }
 
 function renderShortcut(s) {
@@ -133,7 +146,7 @@ function renderVersions(u) {
     children.push(bar);
     if (state.publishing) children.push(renderPublishing(state.publishing));
   } else {
-    children.push(el("p", "st-lead", `版を置く・配る・消すのは、開発者とメンテナンス者だけができます（${youAre(u)}）。`));
+    children.push(el("p", "st-lead", "版を置く・配る・消すのは、開発者とメンテナンス者だけができます。"));
   }
   const table = el("table");
   const head = el("tr");
@@ -144,7 +157,7 @@ function renderVersions(u) {
   thead.append(head);
   table.append(thead, body);
   children.push((u.versions ?? []).length ? table : el("p", "st-lead", "置き場に版がまだありません。"));
-  return section("版", u.canManage ? `${youAre(u)}。取り返しにくい操作は、行の中で確かめてから行います` : null, ...children);
+  return section("版", u.canManage ? "取り返しにくい操作は、行の中で確かめてから行います" : null, ...children);
 }
 
 function renderPublishing(p) {
@@ -230,7 +243,7 @@ function renderRoles(u) {
 function render() {
   const { update: u, shortcut: s, message } = state;
   const body = $("settings-body");
-  const parts = [];
+  const parts = [renderStrip(u)].filter(Boolean);
   if (message) {
     const m = el("p", `st-message is-${message.tone}`, message.text);
     m.setAttribute("role", message.tone === "bad" ? "alert" : "status");
