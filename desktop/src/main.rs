@@ -360,7 +360,9 @@ fn main() {
     let handle: Arc<OnceLock<AppHandle>> = Arc::default();
     let shell = Arc::new(shell(received::random_hex(24), received.clone(), launched, handle.clone()));
     if let Err(why) = shell.as_ref() {
-        log(&format!("FAIL {}", why.replace('\n', " / ")));
+        // そろえる途中（新しい PC で program がまだ無い）なら、そろえてから開き直すので失敗ではない
+        let what = if plan.is_some() { "UPDATE 中身はそろえてから読む" } else { "FAIL" };
+        log(&format!("{what} {}", why.replace('\n', " / ")));
     }
     let jobs = shell.as_ref().as_ref().ok().map(|r| r.jobs.clone());
     let close_jobs = jobs.clone();

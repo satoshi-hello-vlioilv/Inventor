@@ -121,6 +121,9 @@ jobs:
             New-Item -ItemType Directory -Force "$dir\program" | Out-Null
             Copy-Item $exe "$dir\Inventor3DTool.exe"
             robocopy program "$dir\program" /E /XD __pycache__ config tests samples /NFL /NDL /NJH /NJS | Out-Null
+            # robocopy は 8 未満が成功（1 = 写した）。残すと段の終了コードになるので 0 に戻す
+            if ($LASTEXITCODE -ge 8) { throw "robocopy が失敗しました（$LASTEXITCODE）" }
+            $global:LASTEXITCODE = 0
             ('{"version": "' + $ver + '"}') | Set-Content -Encoding utf8 "$dir\program\version.json"
             Compress-Archive -Path $dir -DestinationPath "$root\$ver.zip" -Force
             return "$root\$ver.zip"
@@ -154,6 +157,7 @@ jobs:
           Get-Content "$env:LOCALAPPDATA\Inventor3DTool\logs\desktop.log" -Tail 30 -Encoding utf8 -ErrorAction SilentlyContinue
           if (-not $installed) { exit 13 }
           if (-not $updated) { exit 14 }
+          exit 0
 
       # 置く物をまとめる: exe・自己診断の結果・作った元の指紋（publish が比べる）
       - name: 成果物をまとめる
