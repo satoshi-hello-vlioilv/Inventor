@@ -1,7 +1,7 @@
 // アプリの入口: 受け取ったファイルを読み（formats/open.js）、3D（viewer/）と右の欄（ui/panel.js）に表示し、両者を連動させる。
 // 次にすること（主のボタン 1 つ）は ui/flow.js が決め、段階の帯（ui/steps.js）と行動ドックに出す（docs/ui.md）。
 //   .ipt・.iam・.stp … モデル（部品・組立）として読み、表示する
-//   .dwg・.dxf・.pdf・.jww … 2D の図面として読み（formats/cad2d）、Canvas に描く（viewer2d/）。レイアウト（PDF はページ）の切り替え・画層の表示・
+//   .dwg・.dxf・.pdf・.jww・.sfc・.p21 … 2D の図面として読み（formats/cad2d）、Canvas に描く（viewer2d/）。レイアウト（PDF はページ）の切り替え・画層の表示・
 //                      図形の読み出し。3D を含む PDF は、主役の場所のタブで 3D（formats/model3d.js → viewer/）に切り替える
 //   .html            … 隔離した iframe で動かし、three.js の形状を取り出して認識し（convert/recognize）、変換データを作る
 //   .json            … 変換データ（.inventor.json）。作る形を 3D で示し（convert/preview.js）、「Inventor で作る」で作る
@@ -230,7 +230,7 @@ async function loadModel(bytes, name, isSample) {
   }
 }
 
-// ---- 図面（.dwg・.dxf・.pdf・.jww）-------------------------------------------------------
+// ---- 図面（.dwg・.dxf・.pdf・.jww・.sfc・.p21）-------------------------------------------------------
 /** 図面を表示する（最初のレイアウト = モデル）。3D を含む PDF は、主役の場所のタブで 図面 ⇄ 3D を切り替える（最初は 3D） */
 function showDrawing(model, header) {
   setMode("drawing");

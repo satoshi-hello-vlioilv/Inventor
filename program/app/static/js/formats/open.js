@@ -1,17 +1,17 @@
 // ファイルを読み、表示と変換で共通に使う「モデル」にする（DOM に依存しない。画面は ui/、表示は viewer/ が受け持つ）。
 //   FORMATS … 開ける形式（案内の名前と拡張子）。開けるかの判定・ファイルを選ぶ窓・ドロップの案内・開けないときの知らせは、この並びから作る
-//   detectFormat(name, bytes) → "ipt" | "iam" | "step" | "html" | "drawing"（2D の図面: .dwg・.dxf・.pdf・.jww）
+//   detectFormat(name, bytes) → "ipt" | "iam" | "step" | "html" | "drawing"（2D の図面: .dwg・.dxf・.pdf・.jww・.sfc・.p21）
 //   readModel(bytes, name, { findPart }) → モデル（html は iframe で動かす必要があるので対象外。html/ が扱う）
 //   partOf(model, index) → 組立のモデルから、部品 1 つのモデル
 //
 // モデル
 //   { kind: "part",     format, name, scene: { bodies, labels }, report?, properties, thumbnail?, meta, warning? }
 //   { kind: "assembly", format, name, scene: { parts, instances, labels, source, unplaced? }, thumbnail?, meta, warning?, missing }
-//   { kind: "drawing",  format: "dwg" | "dxf" | "pdf" | "jww", name, drawing（cad2d/model.js の図面。PDF の 3D は drawing.models3d）, meta, warning? }
+//   { kind: "drawing",  format: "dwg" | "dxf" | "pdf" | "jww" | "sxf", name, drawing（cad2d/model.js の図面。PDF の 3D は drawing.models3d）, meta, warning? }
 //   meta … 見出しに添える一行（作成したソフト・保存日時など）、warning … 表示はできるが知らせること
 //   properties … { material, density_g_per_cm3 }（iProperties・STEP の材質）
 
-import { DwgError, DxfError, JwwError, PdfError, isDrawing, readDrawing } from "./cad2d/index.js";
+import { DwgError, DxfError, JwwError, PdfError, SxfError, isDrawing, readDrawing } from "./cad2d/index.js";
 import { layerScales, scaleText } from "./cad2d/model.js";
 import { buildIamScene, parseIam } from "./iam/index.js";
 import { CfbError, parseIpt } from "./ipt/index.js";
@@ -23,7 +23,7 @@ export class ModelError extends Error {}
 
 /** 開ける形式: [案内の名前, 受け付ける拡張子…]（.json は変換データ。main.js が読む） */
 export const FORMATS = [
-  [".ipt", "ipt"], [".iam", "iam"], [".stp", "stp", "step"], [".dwg", "dwg"], [".dxf", "dxf"], [".pdf", "pdf"], [".jww", "jww"],
+  [".ipt", "ipt"], [".iam", "iam"], [".stp", "stp", "step"], [".dwg", "dwg"], [".dxf", "dxf"], [".pdf", "pdf"], [".jww", "jww"], [".sfc", "sfc"], [".p21", "p21"],
   [".html", "html", "htm"], [".inventor.json", "json"],
 ];
 const EXTENSIONS = FORMATS.flatMap(([, ...ext]) => ext);
@@ -52,6 +52,7 @@ export function explainError(error) {
   if (error instanceof DxfError) return `DXF として読めませんでした。${error.message}`;
   if (error instanceof PdfError) return `PDF として読めませんでした。${error.message}`;
   if (error instanceof JwwError) return `Jw_cad の図面（JWW）として読めませんでした。${error.message}`;
+  if (error instanceof SxfError) return `SXF の図面（SFC・P21）として読めませんでした。${error.message}`;
   return `形状データを読み取れませんでした（${error.message}）。動作を確認しているのは Inventor 2026 で保存したファイルです。`;
 }
 
@@ -96,14 +97,15 @@ async function readIam(bytes, name, findPart) {
   };
 }
 
-/** 2D の図面（DWG・DXF・PDF・JWW）。見出しには形式・版・単位（PDF はページ数・JWW は用紙）・画層の縮尺を添える */
+/** 2D の図面（DWG・DXF・PDF・JWW・SXF）。見出しには形式・版・単位（PDF はページ数・JWW と SXF は用紙）・画層（SXF は部分図）の縮尺を添える */
 function readDrawingModel(bytes, name) {
   const drawing = readDrawing(bytes, name);
   // 図形のあるレイアウトが 1 つでもあるか（見つけたら止める。PDF はページの中身を読むのが表示のときなので、読むのは最初に図形のあるページまで）
   const some = drawing.layouts.some((l) => drawing.blocks.get(l.block)?.entities.length);
   if (!some && !drawing.models3d?.length) throw new ModelError("表示できる図形が見つかりませんでした（モデル・レイアウトが空です）。");
-  const where = { pdf: `${drawing.layouts.length} ページ`, jww: `用紙 ${drawing.layouts[0]?.name}` }[drawing.format] ?? (drawing.units.name && `単位 ${drawing.units.name}`);
-  const scales = layerScales(drawing);
+  const where = { pdf: `${drawing.layouts.length} ページ`, jww: `用紙 ${drawing.layouts[0]?.name}`, sxf: `用紙 ${drawing.sheet?.size}` }[drawing.format] ??
+    (drawing.units.name && `単位 ${drawing.units.name}`);
+  const scales = drawing.figureScales ?? layerScales(drawing); // SXF は部分図の縮尺
   const meta = [`${drawing.format.toUpperCase()} ${drawing.version}`, where, scales.length && `縮尺 ${scales.map((k) => scaleText(1 / k)).join("・")}`,
     drawing.models3d?.length && "3D あり"].filter(Boolean).join(" · ");
   const failed = drawing.failures.length;

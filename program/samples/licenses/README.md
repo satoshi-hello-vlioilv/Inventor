@@ -9,6 +9,7 @@
 | `ACadSharp-MIT.txt` | [DomCR/ACadSharp](https://github.com/DomCR/ACadSharp)（DWG の試験の図面） |
 | `open-source-rover-Apache-2.0.txt` | [nasa-jpl/open-source-rover](https://github.com/nasa-jpl/open-source-rover)（NASA JPL の Open Source Rover の図面） |
 | `ezjww-MIT.txt` | [neka-nat/ezjww](https://github.com/neka-nat/ezjww)（Jw_cad で保存し直した JWW の試験の図面） |
+| `ezsxf-MIT.txt` | [neka-nat/ezsxf](https://github.com/neka-nat/ezsxf)（SXF の試験の図面。`tests/fixtures/drawings/sxf/`） |
 | `U3D-Apache-2.0.txt` | [ningfei/u3d](https://github.com/ningfei/u3d)（Intel の U3D ライブラリの 3D の PDF の試験の素材） |
 
 素材を足すときは、再配布を許す利用条件かを確かめ、全文をここに置き、置いたフォルダの README の表に出典（リポジトリ・ファイル・コミット）を書く。

@@ -150,6 +150,14 @@
     const jwwShown = await until(() => $("file-name").textContent === jww && !$("view2d").hidden && inked() > 2000 && /補助線/.test($("layers").textContent), 30000);
     ok("Jw_cad の図面を開くと用紙に描かれ、補助線の画層が並ぶ", jww && jwwShown, `${jww} · 描いた点 ${inked()} · ${$("drawing-info").textContent}`);
 
+    // 7.8) SXF の図面（サンプルの P21）: 開くと用紙に描かれ、部分図の中の画層（外形線）が画層の一覧に並び、部分図の縮尺が出る
+    const sxf = samples.find((x) => x.kind === "dwg" && /\.p21$/i.test(x.name))?.name;
+    $("show-start")?.click();
+    [...document.querySelectorAll("button.sample-row")].find((b) => b.title === sxf)?.click();
+    const sxfShown = await until(() => $("file-name").textContent === sxf && !$("view2d").hidden && inked() > 2000 && /外形線/.test($("layers").textContent) &&
+      /部分図の縮尺/.test($("drawing-info").textContent), 30000);
+    ok("SXF の図面を開くと用紙に描かれ、部分図の画層と縮尺が並ぶ", sxf && sxfShown, `${sxf} · 描いた点 ${inked()} · ${$("drawing-info").textContent}`);
+
     // 8) HTML のモデル（隔離した iframe の three.js を取り込み、変換データを作る）。サンプルは three.js を CDN から読む
     //    CDN に届かない PC（ネットワークの制限）では測れないので、測っていないと書く（届くかは状態コードで見る。no-cors の答えは中身が見えない）
     const cdn = await fetch("https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js", { cache: "no-store" }).then((r) => r.status, (e) => String(e));

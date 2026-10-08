@@ -5,14 +5,14 @@ const $ = (id) => document.getElementById(id);
 const sizeText = (bytes) => (bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`);
 const span = (className, text) => Object.assign(document.createElement("span"), { className, textContent: text });
 const extOf = (name) => (name.match(/\.([^.]+)$/)?.[1].toLowerCase() ?? "").replace(/^htm$/, "html").replace(/^step$/, "stp");
-// サンプルの種類（置き場の名前。図面の置き場 dwg には .dxf・.pdf・.jww も入る）
-const kindOf = (name) => extOf(name).replace(/^(dxf|pdf|jww)$/, "dwg");
+// サンプルの種類（置き場の名前。図面の置き場 dwg には .dxf・.pdf・.jww・.sfc・.p21 も入る）
+const kindOf = (name) => extOf(name).replace(/^(dxf|pdf|jww|sfc|p21)$/, "dwg");
 // 種類の見出し（サンプルの置き場 samples/<種類> と同じ並び）: [種類, 見出し, 説明, 札（無ければ種類）]
 const KINDS = [
   ["ipt", "部品", "Inventor の部品"],
   ["iam", "組立", "部品の .ipt はサンプルから探して組み立てます"],
   ["stp", "STEP", "部品と組立の配置をすべて含む"],
-  ["dwg", "図面", "2D の図面。画層・レイアウトを切り替えて見る（PDF の 3D も）", "dwg・dxf・pdf・jww"],
+  ["dwg", "図面", "2D の図面。画層・レイアウトを切り替えて見る（PDF の 3D も）", "dwg・dxf・pdf・jww・sfc・p21"],
   ["html", "three.js の HTML", "取り込んで STEP・Inventor の部品にできます"],
 ];
 

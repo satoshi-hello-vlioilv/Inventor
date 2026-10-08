@@ -3,7 +3,7 @@
 //   asm  … 組立（.iam・STEP）: 外形寸法・部品表・構成・見つからない部品（次にすることのボタンは行動ドック）
 //   html … three.js の HTML: 照合の結果・単位・作る部品・除外したもの
 //   spec … 変換データ（.inventor.json）: ファイルの情報・照合の結果・作る部品
-//   drawing … 2D の図面（.dwg・.dxf・.pdf・.jww）: ファイルの情報・図面（形式・大きさ・レイアウト）・画層（押すと表示・非表示）・図形の内訳
+//   drawing … 2D の図面（.dwg・.dxf・.pdf・.jww・.sfc・.p21）: ファイルの情報・図面（形式・大きさ・レイアウト）・画層（押すと表示・非表示）・図形の内訳
 //   model3d … 3D の PDF の 3D（主役の場所のタブで図面と切り替える）: 3D の情報（形式・部品・面・大きさ）・部品の一覧
 
 import { AXES, fmt, fmtMass, fmtSize } from "../viewer/describe.js";
@@ -234,10 +234,10 @@ export function renderSpecPanel({ describe }, handlers) {
 const layerColor = (color) => (color?.rgb !== undefined ? rgbHex(color.rgb) : ACI[Math.abs(color?.index ?? 7)] ?? null);
 
 // レイアウトの呼び方（形式ごと。無ければ「レイアウト」）
-const LAYOUT_LABEL = { pdf: "ページ", jww: "用紙" };
+const LAYOUT_LABEL = { pdf: "ページ", jww: "用紙", sxf: "用紙" };
 
 /**
- * 図面（.dwg・.dxf・.pdf・.jww）。画層は、このレイアウトに図形があるものを数の多い順に。図形の無い画層は数だけ添える。
+ * 図面（.dwg・.dxf・.pdf・.jww・.sfc・.p21）。画層は、このレイアウトに図形があるものを数の多い順に。図形の無い画層は数だけ添える。
  * @param {{ drawing, describe, layout, visible: (name) => boolean, display: (color) => string }} data
  *   display … 図面の色 → 描く色（地に合わせた補正。見本を図面と同じ色にする）
  * @param {{ onToggle: (name) => void, onEnter: (name) => void, onLeave: () => void }} handlers
@@ -253,6 +253,7 @@ export function renderDrawingPanel({ drawing, describe, layout, visible, display
     ["大きさ", describe.extents ? `${length(w)} × ${length(h)}${units ? ` ${units}` : ""}` : "—"],
     [LAYOUT_LABEL[drawing.format] ?? "レイアウト", `${layout.model ? "モデル" : layout.name}${drawing.layouts.length > 1 ? `（全 ${drawing.layouts.length}）` : ""}`],
     ...(scales.length ? [["縮尺", `${scales.map((k) => scaleText(1 / k)).join("・")}（指した図形の長さは実寸）`]] : []),
+    ...(drawing.figureScales ? [["部分図の縮尺", drawing.figureScales.map((k) => scaleText(1 / k)).join("・")]] : []),
   ]);
 
   const used = describe.layers.filter((l) => l.count > 0).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, "ja"));

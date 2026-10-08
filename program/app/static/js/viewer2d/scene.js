@@ -9,7 +9,7 @@
 //     regions: [{ item, rings }]（模様のハッチング・画像の外形。描かないが、内側を指せるように索引に入れる）
 //     items:   [{ handle, type, layer, entity }]（指せる図形。レイアウトに直に置かれた図形の単位。ブロック参照は中身ごと 1 つ）
 //     extents: { min: [x, y], max: [x, y] } | null（放射線・構築線を除く）
-//     layers:  Map<画層, 図形の数>（このレイアウトに出る画層）
+//     layers:  Map<画層, 図形の数>（このレイアウトに出る画層。ブロックの中の図形も、画層 0 以外はその画層に数える）
 //     broken:  値が壊れていて描けなかった図形の数（飛ばして、残りを描く）
 //     unsupported: まだ描かない図形の種類 → 数（PDF はページごと。ほかは図面全体）
 //     ordered: 描く順序に意味がある（PDF。描く側は z の順に描く）・exact: 色を地に合わせて補正しない（PDF）・paper: 紙の外形（PDF のページ）
@@ -453,6 +453,9 @@ export function buildScene(drawing, layout, { hidden = new Set(), shown = new Se
   /** 図形 1 つを描く。値が壊れていて描けない図形（大きさが数でない円など）は飛ばして数え、図面の残りは描く */
   function draw(e, ctx, item, depth = 0, inBlock = false) {
     const mark = e.clip ? marks() : null;
+    // ブロック（SXF の部分図・寸法の中身など）の中の図形も、その画層に数える（画層の一覧で表示・非表示を切り替えられるように）。
+    // 画層 0 の図形は置く側の画層を引き継ぐので数えない
+    if (inBlock && e.layer && e.layer !== "0" && e.type !== "INSERT") usedLayers.set(e.layer, (usedLayers.get(e.layer) ?? 0) + 1);
     try {
       drawEntity(e, ctx, item, depth, inBlock);
     } catch {
