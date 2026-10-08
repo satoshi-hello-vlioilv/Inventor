@@ -119,7 +119,7 @@ UPDATE = {"role": "developer", "reachable": True, "local": "2.1.0", "release": "
                        ("2.0.2", "2026-09-24T11:05:00Z", "tanaka@PC-SHIAGE07", "Inventor-main (2).zip", 788, 40_002_311),
                        ("2.0.0", "2026-09-10T08:30:00Z", "sato@PC-SHIAGE01", "Inventor-main.zip", 702, 35_220_004)],
           "roles": {"developers": ["sato"], "maintainers": ["tanaka", "suzuki"]}}
-SHORTCUTS = {"desktop": "missing", "start": "missing"}  # ショートカットの状態の模擬（既定は無い: 消した・作っていない）
+SHORTCUTS = {"desktop": "ok", "start": "missing"}  # ショートカットの状態の模擬（既定はデスクトップにある: いつもの起動。無いときは /__dev/shortcut で）
 SHORTCUT_LABELS = {"desktop": "デスクトップ", "start": "スタートメニュー"}
 
 

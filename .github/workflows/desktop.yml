@@ -132,17 +132,21 @@ jobs:
           }
           function Version-Of([string]$app) { try { (Get-Content "$app\program\version.json" -Raw | ConvertFrom-Json).version } catch { "" } }
           function Running([string]$path) { @(Get-Process Inventor3DTool -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $path }).Count -gt 0 }
+          # exe は窓のアプリなので、& では終わりを待たない（$LASTEXITCODE も前の命令のまま）。待って終了コードを返す
+          function Publish([string]$zip) {
+            $p = Start-Process -FilePath $exe -ArgumentList @('--publish-zip', "`"$zip`"", "`"$share`"") -Wait -PassThru -NoNewWindow -RedirectStandardOutput "$root\publish.txt"
+            Get-Content "$root\publish.txt" -Encoding utf8 | Write-Host
+            return $p.ExitCode
+          }
           $env:INVENTOR_TOOL_INSTALL_ROOT = $homeApp
           $v1 = "$base-ci1"; $v2 = "$base-ci2"
-          & $exe --publish-zip (Make-Zip $v1) $share
-          if ($LASTEXITCODE -ne 0) { Write-Host "置き場に $v1 を置けません"; exit 11 }
+          if ((Publish (Make-Zip $v1)) -ne 0) { Write-Host "置き場に $v1 を置けません"; exit 11 }
           Start-Process -FilePath "$share\Inventor3DTool.exe"
           $installed = Wait-For { (Version-Of $homeApp) -eq $v1 -and (Running "$homeApp\Inventor3DTool.exe") } 120
           Write-Host "置き場の入口から入れた: $installed（版 $(Version-Of $homeApp)）"
           Get-Process Inventor3DTool -ErrorAction SilentlyContinue | Stop-Process -Force
           Start-Sleep -Seconds 2
-          & $exe --publish-zip (Make-Zip $v2) $share
-          if ($LASTEXITCODE -ne 0) { Write-Host "置き場に $v2 を置けません"; exit 12 }
+          if ((Publish (Make-Zip $v2)) -ne 0) { Write-Host "置き場に $v2 を置けません"; exit 12 }
           Start-Process -FilePath "$homeApp\Inventor3DTool.exe"
           $updated = Wait-For { (Version-Of $homeApp) -eq $v2 -and (Test-Path "$homeApp\.update\$v1.old\Inventor3DTool.exe") -and (Running "$homeApp\Inventor3DTool.exe") } 120
           Write-Host "起動でそろえた: $updated（版 $(Version-Of $homeApp)・前の exe は .update\$v1.old へ）"

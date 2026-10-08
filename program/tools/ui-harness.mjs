@@ -52,7 +52,9 @@ export async function launch() {
       await routeThree(context);
       const page = await context.newPage();
       page.on("pageerror", (e) => console.warn(`[${theme}] page error: ${e.message}`));
-      await dev("env?ready=1&inventor=1&python=1");
+      await dev("env?ready=1&inventor=1&python=1"); // 模擬の状態を既定に戻す（前のテーマで変えた物を持ち越さない）
+      await dev("shortcut?desktop=ok&start=missing");
+      await dev("update?role=developer&reachable=1");
       await page.goto(base);
       await page.waitForSelector("button.sample-row", { state: "attached", timeout: 15000 });
       await sleep(600);
@@ -151,7 +153,21 @@ export const STATES = [
   // 作り直して、不一致 2 つ・失敗 1 つが混じった結果（例外の見せ方を確かめる）
   ["mixed", async (p, dev) => { await dev("mix?mismatch=4,11&failed=19"); await startJob(p); await dev("step?n=100"); await sleep(1800); await dev("mix"); },
     "[data-next], #build-open"],
+  // 設定（右の引き出し）: 開発者が開いた様子・一般の利用者が開いた様子。起動のときのショートカットの問い（デスクトップに無いとき）
+  ["settings", async (p) => { await openSettings(p); }, "#settings-body .primary, #settings-close"],
+  ["settings-user", async (p, dev) => { await dev("update?role=user"); await p.click("#settings-close"); await openSettings(p); }, "#settings-close"],
+  ["offer", async (p, dev) => {
+    await dev("update?role=developer"); await dev("shortcut?desktop=missing");
+    await p.reload(); await p.waitForSelector("#shortcut-offer:not([hidden])");
+    if (await p.$("#start[open]")) await p.keyboard.press("Escape");
+  }, "#shortcut-offer-make"],
 ];
+
+async function openSettings(p) {
+  await p.click("#show-settings");
+  await p.waitForSelector("#settings-body .st-section table, #settings-body .st-section .st-lead");
+  await sleep(300);
+}
 
 /** 状態を順に進め、各状態で visit(名前, 次に押すべきもの) を呼ぶ（only を渡せば、その状態だけ） */
 export async function walk(page, dev, visit, only = null) {

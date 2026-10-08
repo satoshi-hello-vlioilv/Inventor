@@ -129,6 +129,27 @@ const BADGE = {
     ["insert", dialog("この アプリ（v2.1.0）", `${SUMMARY}${SHORTCUT}${VERSIONS}${SHARE}${ROLES}`), "beforeend", "body"]],
 };
 
+// ---- 2 回目（1 回目は B 80.0・A 74.0・E 74.0 で僅差。B を元にした複合案 3 つと、元の上位 2 案 B・E） ----
+const STRIP = `<div class="st-strip"><span><i class="dot ok"></i>この PC は <b>2.1.0</b>（配っている版と同じ）</span><span>あなたは <b>開発者</b>（sato）</span></div>`;
+const STRIP_CSS = `.st-strip { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); font-size: var(--fs-s); }`;
+const drawer = (body, width = 600, hideCols = true) => ({
+  css: `${DRAWER.css.replace("width: 600px", `width: ${width}px`)}${hideCols ? "" : " .st-drawer td, .st-drawer th { display: table-cell !important; }"} ${STRIP_CSS}`,
+  body: `<div class="st-scrim pv"></div><aside class="st-drawer st pv"><header><h2>設定</h2><button class="icon-button" type="button">✕</button></header><div class="st-body">${body}</div></aside>`,
+});
+// G B＋要点の 1 行（この PC の版・あなたの役割）を引き出しの上に
+const G_ = drawer(`${STRIP}${SHORTCUT}${VERSIONS}${SHARE}${ROLES}`);
+const STRIP_DRAWER = { css: G_.css, ops: [HEAD_GEAR, ["insert", G_.body, "beforeend", "body"]] };
+// H B＋見出しバーの入口を「歯車と版」に（v2.1.0 と状態の点。ショートカットが無い・版が違うと点が橙）
+const H_ = drawer(`${SHORTCUT}${VERSIONS}${SHARE}${ROLES}`);
+const BADGE_DRAWER = {
+  css: `${H_.css} ${BADGE.css}`,
+  ops: [["insert", `<button type="button" class="quiet st-head-btn" title="設定（ショートカット・版）">${GEAR}設定<span class="st-badge"><i></i>v2.1.0</span></button>`, "afterbegin", ".appbar-actions"],
+    ["insert", H_.body, "beforeend", "body"]],
+};
+// I B を広げて（760px）表の列を全て見せる＋要点の 1 行
+const I_ = drawer(`${STRIP}${SHORTCUT}${VERSIONS}${SHARE}${ROLES}`, 760, false);
+const WIDE_DRAWER = { css: I_.css, ops: [HEAD_GEAR, ["insert", I_.body, "beforeend", "body"]] };
+
 export const PROPOSALS = [
   { key: "base", name: "現状", css: "", ops: [] },
   { key: "A", name: "A 窓＋左の見出し", ...NAV },
@@ -137,4 +158,7 @@ export const PROPOSALS = [
   { key: "D", name: "D サンプルの窓のタブ", ...LIB_TAB },
   { key: "E", name: "E 1 枚の窓（要点＋節）", ...ONE },
   { key: "F", name: "F 版のバッジから", ...BADGE },
+  { key: "G", name: "G B＋要点の 1 行", ...STRIP_DRAWER },
+  { key: "H", name: "H B＋歯車と版のバッジ", ...BADGE_DRAWER },
+  { key: "I", name: "I 広い引き出し＋要点", ...WIDE_DRAWER },
 ];

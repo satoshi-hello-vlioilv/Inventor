@@ -44,6 +44,9 @@
       <button type="button" class="pill" id="received-switch" hidden title="受け取ったファイルを切り替える"></button>
     </div>
     <div class="appbar-actions">
+      <button type="button" class="quiet" id="show-settings" title="設定（ショートカット・版の管理）">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg>設定
+      </button>
       <button type="button" class="quiet" id="show-start">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h6v6H4zM14 5h6v6h-6zM4 15h6v4H4zM14 15h6v4h-6z"/></svg>サンプル・受け取ったファイル
       </button>
@@ -314,5 +317,25 @@
     <span>この PC のファイルを開く（画面にドロップしても開けます）</span>
   </footer>
 </dialog>
+
+<!-- 設定（ui/settings.js）: 右の引き出し。中身は窓に問い合わせて描く -->
+<dialog class="drawer" id="settings" aria-labelledby="settings-title">
+  <header class="drawer-head">
+    <h2 id="settings-title">設定</h2>
+    <button type="button" class="icon-button" id="settings-close" aria-label="閉じる" title="閉じる（Esc）">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+    </button>
+  </header>
+  <div class="drawer-body st" id="settings-body"></div>
+</dialog>
+
+<!-- 起動のとき、デスクトップにショートカットが無ければ尋ねる（「作らない」は覚える。設定からはいつでも作れる） -->
+<div class="offer" id="shortcut-offer" role="status" hidden>
+  <p id="shortcut-offer-text">デスクトップにショートカットを作りますか？ 次から、ダブルクリック 1 回でこのアプリを開けます。</p>
+  <div class="offer-actions">
+    <button type="button" class="secondary" id="shortcut-offer-make">作る</button><!-- 主のボタン（塗り）は画面の本題に譲る -->
+    <button type="button" class="quiet" id="shortcut-offer-no" title="次からは尋ねません（設定からいつでも作れます）">作らない</button>
+  </div>
+</div>
 </body>
 </html>
