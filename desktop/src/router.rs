@@ -183,9 +183,18 @@ impl Router {
                     return Reply::error(409, "いま別の版を置いています。終わってから、もう一度選んでください");
                 }
                 let keep = update::policy(&dir)["keep"].as_u64().unwrap_or(0) as usize;
-                done(update::publish_zip(&dir, Path::new(&text("path")), &update::who(), &self.publishing, keep))
+                let notes = text("notes");
+                done(update::publish_zip(&dir, Path::new(&text("path")), &update::who(), &self.publishing, keep).and_then(|mut r| {
+                    if !notes.is_empty() {
+                        r["notes"] = update::set_notes(&dir, r["version"].as_str().unwrap_or(""), &notes)?["notes"].clone();
+                    }
+                    Ok(r)
+                }))
             }
             "release" => manage().map_or_else(|r| r, |_| done(update::set_release(&dir, &text("version"), &update::who()))),
+            "notes" => manage().map_or_else(|r| r, |_| done(update::set_notes(&dir, &text("version"), &text("notes")))),
+            // そろえた後の「変わったこと」を見た（この PC のことなので、役割は問わない）
+            "seen" => done(self.program.parent().map_or(Ok(json!({"seen": true})), update::seen_news)),
             "delete" => manage().map_or_else(|r| r, |_| done(update::delete_version(&dir, &text("version")))),
             "policy" => manage().map_or_else(|r| r, |_| done(update::set_policy(&dir, v["keep"].as_u64().unwrap_or(0)))),
             "roles" => done(update::set_roles(&dir, &user, &v)),

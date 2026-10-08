@@ -25,7 +25,7 @@ const when = (iso) => {
 };
 const who = (by) => String(by ?? "").split("@")[0];
 
-let state = { update: null, shortcut: null, confirm: null, message: null, publishing: null };
+let state = { update: null, shortcut: null, confirm: null, message: null, publishing: null, draft: null };
 
 /** 引き出しを開く（開くたびに窓へ問い合わせ直す: ほかの PC が版を置いた・配った後でも、いまの状態を出す） */
 export async function openSettings() {
@@ -88,6 +88,15 @@ function renderStrip(u) {
   return strip;
 }
 
+/** この PC の版で変わったこと（要点の 1 行の下に畳んで。そろえた後の知らせを閉じた後でも読める） */
+function renderNews(u) {
+  const notes = u?.versions?.find((v) => v.version === u.local)?.notes ?? u?.news?.notes;
+  if (!notes) return null;
+  const box = el("details", "st-news");
+  box.append(el("summary", "", `${u.local} で変わったこと`), noteList(notes));
+  return box;
+}
+
 function renderShortcut(s) {
   if (!s || s.error) return section("ショートカット", null, el("p", "st-lead", s?.error ?? "読み込んでいます…"));
   if (!s.supported) return section("ショートカット", null, el("p", "st-lead", "ショートカットは Windows で作れます"));
@@ -108,11 +117,20 @@ function versionCells(v, u) {
   if (u.local === v.version) tags.push(el("span", "tag", "この PC"));
   const name = el("td");
   name.append(el(u.release?.version === v.version ? "b" : "span", "", v.version), ...tags);
+  // 変わったことの 1 行目（全文は重ねると出る）。管理できる人は、その横から書く・直す（操作の列は狭いので増やさない）
+  const notes = el("div", "st-notes");
+  if (v.notes) notes.append(Object.assign(el("span", "", v.notes.split("\n")[0]), { title: v.notes }));
+  if (u.canManage && state.confirm?.op !== "notes") {
+    const edit = button(v.notes ? "直す" : "変わったことを書く", "st-link", () => { state.confirm = { op: "notes", version: v.version }; render(); },
+      "この版で変わったことを書く（そろえた PC に 1 度見せます）");
+    notes.append(edit);
+  }
+  if (notes.childNodes.length) name.append(notes);
   const cells = [name, el("td", "num", when(v.placedAt)), el("td", "", who(v.placedBy)), el("td", "mono", v.source ?? ""), el("td", "num", mb(v.bytes ?? 0))];
   const actions = el("td", "act");
   const isRelease = u.release?.version === v.version;
+  const confirming = state.confirm?.version === v.version ? state.confirm.op : null;
   if (u.canManage && !isRelease) {
-    const confirming = state.confirm?.version === v.version ? state.confirm.op : null;
     if (confirming === "delete") {
       actions.append(el("span", "st-ask", "消しますか？"),
         button("消す", "danger", () => act(() => updateOp("delete", { version: v.version }), `版 ${v.version} を消しました`)),
@@ -121,7 +139,7 @@ function versionCells(v, u) {
       actions.append(el("span", "st-ask", `全ての PC が次の起動で ${v.version} にそろいます`),
         button("配る", "primary", () => act(() => updateOp("release", { version: v.version }), (a) => [`版 ${v.version} を配りました`, ...(a.notes ?? [])].join(" "))),
         button("やめる", "quiet", () => { state.confirm = null; render(); }));
-    } else {
+    } else if (confirming !== "notes") {
       actions.append(button("この版を配る", "secondary", () => { state.confirm = { op: "release", version: v.version }; render(); }),
         button("消す", "quiet", () => { state.confirm = { op: "delete", version: v.version }; render(); }));
     }
@@ -129,7 +147,27 @@ function versionCells(v, u) {
   const tr = el("tr", isRelease ? "is-now" : "");
   tr.title = `置いた人: ${who(v.placedBy) || "?"}　元の ZIP: ${v.source ?? "?"}`; // 引き出しの幅では、この 2 列を隠す（app.css）
   tr.append(...cells, actions);
-  return tr;
+  if (confirming !== "notes") return [tr];
+  // 変わったことを書く行（その版の下に開く）
+  const form = notesForm(v.notes ?? "", "保存", (notes) => act(() => updateOp("notes", { version: v.version, notes }), `版 ${v.version} の変わったことを${notes ? "書きました" : "消しました"}`));
+  const cell = Object.assign(el("td"), { colSpan: 6 });
+  cell.append(form);
+  const edit = el("tr", "st-edit");
+  edit.append(cell);
+  return [tr, edit];
+}
+
+/** 変わったことを書く欄（版を置く前・置いた後で同じ形）。書いた文は、そろえた PC に 1 度だけ見せる */
+function notesForm(value, label, onSave) {
+  const form = el("div", "st-form");
+  const area = Object.assign(el("textarea", "st-input st-area"), { value, maxLength: 2000, placeholder: "例: SXF の図面を開けるようにしました／設定の画面に版の説明を足しました" });
+  area.setAttribute("aria-label", "変わったこと");
+  const row = el("div", "st-bar");
+  row.append(el("span", "st-lead", "そろえた PC に、次に開いたとき 1 度だけ見せます（空でもかまいません）"),
+    button(label, "primary", () => onSave(area.value.trim())), button("やめる", "quiet", () => { state.confirm = null; state.draft = null; render(); }));
+  form.append(area, row);
+  queueMicrotask(() => area.focus());
+  return form;
 }
 
 function renderVersions(u) {
@@ -142,8 +180,15 @@ function renderVersions(u) {
     const input = Object.assign(el("input"), { type: "number", min: "0", value: String(u.policy?.keep ?? 0), title: "版を置いたとき、新しい順にこの数だけ残す（配っている版と前に配った版は残す）" });
     input.addEventListener("change", () => act(() => updateOp("policy", { keep: Math.max(0, Number(input.value) || 0) }), "残す版の数を変えました"));
     keep.append(input, "（0 = 全て）");
-    bar.append(button("ZIP から版を置く…", "primary", publish, "GitHub の Code → Download ZIP で落とした ZIP を選ぶ"), keep);
+    bar.append(button("ZIP から版を置く…", "primary", pick, "GitHub の Code → Download ZIP で落とした ZIP を選ぶ"), keep);
     children.push(bar);
+    if (state.draft) {
+      // ZIP を選んだ後: 変わったことを書いてから置く（置く物の名前もここで確かめる）
+      const box = el("div", "st-form");
+      box.append(el("span", "", `置く ZIP: ${state.draft.path.split(/[\\/]/).pop()}`),
+        notesForm("", "この ZIP を置く", (notes) => publish(state.draft.path, notes)));
+      children.push(box);
+    }
     if (state.publishing) children.push(renderPublishing(state.publishing));
   } else {
     children.push(el("p", "st-lead", "版を置く・配る・消すのは、開発者とメンテナンス者だけができます。"));
@@ -152,7 +197,7 @@ function renderVersions(u) {
   const head = el("tr");
   for (const h of ["版", "置いた日時", "置いた人", "元の ZIP", "大きさ", ""]) head.append(el("th", "", h));
   const body = el("tbody");
-  body.append(...(u.versions ?? []).map((v) => versionCells(v, u)));
+  body.append(...(u.versions ?? []).flatMap((v) => versionCells(v, u)));
   const thead = el("thead");
   thead.append(head);
   table.append(thead, body);
@@ -170,9 +215,16 @@ function renderPublishing(p) {
   return box;
 }
 
-async function publish() {
+/** ZIP を選ぶ（置くのは、変わったことを書いて「この ZIP を置く」を押してから） */
+async function pick() {
   const path = await pickZip().catch(() => null);
   if (!path) return;
+  state = { ...state, draft: { path }, confirm: null };
+  render();
+}
+
+async function publish(path, notes) {
+  state.draft = null;
   state.publishing = { stage: "check", source: path.split(/[\\/]/).pop() };
   render();
   const timer = setInterval(async () => {
@@ -182,7 +234,7 @@ async function publish() {
       render();
     }
   }, 400);
-  await act(() => updateOp("publish", { path }), (a) => `版 ${a.version} を置きました（${a.files} ファイル・${mb(a.bytes)}）${a.pruned?.length ? `。残す数を超えた ${a.pruned.join("・")} を消しました` : ""}。配るときは、その行の「この版を配る」を押します`);
+  await act(() => updateOp("publish", { path, notes }), (a) => `版 ${a.version} を置きました（${a.files} ファイル・${mb(a.bytes)}）${a.pruned?.length ? `。残す数を超えた ${a.pruned.join("・")} を消しました` : ""}。配るときは、その行の「この版を配る」を押します`);
   clearInterval(timer);
   state.publishing = null;
   render();
@@ -243,7 +295,7 @@ function renderRoles(u) {
 function render() {
   const { update: u, shortcut: s, message } = state;
   const body = $("settings-body");
-  const parts = [renderStrip(u)].filter(Boolean);
+  const parts = [renderStrip(u), renderNews(u)].filter(Boolean);
   if (message) {
     const m = el("p", `st-message is-${message.tone}`, message.text);
     m.setAttribute("role", message.tone === "bad" ? "alert" : "status");
@@ -253,6 +305,27 @@ function render() {
   const roles = renderRoles(u);
   if (roles) parts.push(roles);
   body.replaceChildren(...parts);
+}
+
+/** 変わったことの文（1 行に 1 つ。頭の「・」「-」は外す） */
+const noteLines = (text) => String(text ?? "").split("\n").map((l) => l.replace(/^\s*[・\-*]\s*/, "").trim()).filter(Boolean);
+const noteList = (text, list = el("ul")) => {
+  list.replaceChildren(...noteLines(text).map((l) => el("li", "", l)));
+  return list;
+};
+
+/** 起動でそろえた後: その版で変わったことを右下に 1 度だけ出す（閉じたら窓に「見た」と伝える。設定ではいつでも読める） */
+export async function showNews() {
+  const news = (await updateStatus().catch(() => null))?.news;
+  if (!news?.notes) return;
+  const head = $("news-head");
+  head.replaceChildren(el("b", "", news.version), " にそろえました ", el("small", "", `（${news.from} から）`));
+  noteList(news.notes, $("news-list"));
+  $("news").hidden = false;
+  $("news-close").onclick = async () => {
+    $("news").hidden = true;
+    await updateOp("seen", {}).catch(() => {});
+  };
 }
 
 /** 起動のとき: デスクトップにショートカットが無ければ、作るかを尋ねる（「作らない」は覚える。設定からはいつでも作れる） */
@@ -284,5 +357,5 @@ export function initSettings() {
   $("settings-close").addEventListener("click", closeSettings);
   dialog.addEventListener("click", (event) => event.target === dialog && closeSettings());
   // 閉じたら、確かめの途中・知らせを捨てる（次に開いたときは今の状態から）
-  dialog.addEventListener("close", () => { state = { ...state, confirm: null, message: null }; });
+  dialog.addEventListener("close", () => { state = { ...state, confirm: null, message: null, draft: null }; });
 }

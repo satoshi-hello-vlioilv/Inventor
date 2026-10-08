@@ -54,7 +54,7 @@ export async function launch() {
       page.on("pageerror", (e) => console.warn(`[${theme}] page error: ${e.message}`));
       await dev("env?ready=1&inventor=1&python=1"); // 模擬の状態を既定に戻す（前のテーマで変えた物を持ち越さない）
       await dev("shortcut?desktop=ok&start=missing");
-      await dev("update?role=developer&reachable=1");
+      await dev("update?role=developer&reachable=1&news=0");
       await page.goto(base);
       await page.waitForSelector("button.sample-row", { state: "attached", timeout: 15000 });
       await sleep(600);
@@ -157,8 +157,13 @@ export const STATES = [
   // 設定（右の引き出し）: 開発者が開いた様子・一般の利用者が開いた様子。起動のときのショートカットの問い（デスクトップに無いとき）
   ["settings", async (p) => { await openSettings(p); }, "#settings-body .primary, #settings-close"],
   ["settings-user", async (p, dev) => { await dev("update?role=user"); await p.click("#settings-close"); await openSettings(p); }, "#settings-close"],
+  // 起動でそろえた後の「変わったこと」（右下）と、設定の要点の下で読める様子
+  ["news", async (p, dev) => {
+    await dev("update?role=developer&news=1"); await p.reload();
+    await p.waitForSelector("#news:not([hidden])"); if (await p.$("#start[open]")) await p.keyboard.press("Escape");
+  }, "#news-close"],
   ["offer", async (p, dev) => {
-    await dev("update?role=developer"); await dev("shortcut?desktop=missing");
+    await dev("update?role=developer&news=0"); await dev("shortcut?desktop=missing");
     await p.reload(); await p.waitForSelector("#shortcut-offer:not([hidden])");
     if (await p.$("#start[open]")) await p.keyboard.press("Escape");
   }, "#shortcut-offer-make"],

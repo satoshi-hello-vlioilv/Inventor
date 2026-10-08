@@ -23,7 +23,7 @@ import { claimLaunch, listSamples, onLaunch } from "./desktop.js";
 import { PartLibrary, acceptFiles } from "./ui/files.js";
 import { initBuild } from "./ui/build.js";
 import { setupUnit } from "./ui/units.js";
-import { initSettings, offerShortcut } from "./ui/settings.js";
+import { initSettings, offerShortcut, showNews } from "./ui/settings.js";
 import { selectViewTab, setViewTabs } from "./ui/viewtabs.js";
 import { renderAsmPanel, renderDrawingPanel, renderHeader, renderHtmlPanel, renderIptPanel, renderModel3dPanel, renderSpecPanel, setPanelMode } from "./ui/panel.js";
 import { startDialog } from "./ui/start.js";
@@ -689,4 +689,5 @@ initBuild(); // 保存先と、作っている途中の仕事（画面を開き�
 initSettings();
 onLaunch(async (claim) => takeLaunch(await claim.catch(noServer(LAUNCH))));
 await takeLaunch(await launchReady); // 何も受け取っていなければ、3D の場所に始め方が見えている
+showNews(); // 起動でそろえた後なら、その版で変わったことを右下に 1 度だけ
 offerShortcut(); // デスクトップにショートカットが無ければ、右下で尋ねる（開いた物を見る邪魔をしないよう、開き終えてから）

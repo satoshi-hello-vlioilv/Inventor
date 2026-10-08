@@ -330,6 +330,14 @@
   <div class="drawer-body st" id="settings-body"></div>
 </dialog>
 
+<!-- 右下の知らせ（作業を塞がない。複数あれば積む）: そろえた後の「変わったこと」・ショートカットの問い -->
+<div class="toasts">
+<!-- 起動でそろえた後に 1 度だけ、その版で変わったこと（ui/settings.js。閉じた後は設定の要点の下で読める） -->
+<div class="offer" id="news" role="status" hidden>
+  <p class="news-head" id="news-head"></p>
+  <ul class="news-list" id="news-list"></ul>
+  <div class="offer-actions"><button type="button" class="secondary" id="news-close">閉じる</button></div>
+</div>
 <!-- 起動のとき、デスクトップにショートカットが無ければ尋ねる（「作らない」は覚える。設定からはいつでも作れる） -->
 <div class="offer" id="shortcut-offer" role="status" hidden>
   <p id="shortcut-offer-text">デスクトップにショートカットを作りますか？ 次から、ダブルクリック 1 回でこのアプリを開けます。</p>
@@ -337,6 +345,7 @@
     <button type="button" class="secondary" id="shortcut-offer-make">作る</button><!-- 主のボタン（塗り）は画面の本題に譲る -->
     <button type="button" class="quiet" id="shortcut-offer-no" title="次からは尋ねません（設定からいつでも作れます）">作らない</button>
   </div>
+</div>
 </div>
 </body>
 </html>

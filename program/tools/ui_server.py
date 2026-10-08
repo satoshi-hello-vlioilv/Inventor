@@ -13,7 +13,8 @@
     POST /__dev/env?ready=0&inventor=0&python=0   ライブラリ・Inventor・Python があるかを変える
     POST /__dev/mix?mismatch=4,11&failed=19       次に作る仕事で、その番目（1 から）の部品を不一致・失敗にする（無しで全て一致）
     POST /__dev/shortcut?desktop=missing&start=ok  ショートカットの状態を変える（ok・missing・other。窓の shortcut.rs と同じ形で答える）
-    POST /__dev/update?role=developer&reachable=1  版の管理の役割（developer・maintainer・user・unset）・置き場に届くかを変える（update.rs と同じ形）
+    POST /__dev/update?role=developer&reachable=1&news=1  版の管理の役割（developer・maintainer・user・unset）・置き場に届くか・
+                                                  そろえた後の「変わったこと」を見せるかを変える（update.rs と同じ形）
 """
 from __future__ import annotations
 
@@ -118,7 +119,10 @@ UPDATE = {"role": "developer", "reachable": True, "local": "2.1.0", "release": "
                        ("2.0.3", "2026-10-01T16:40:00Z", "sato@PC-SHIAGE01", "Inventor-main (3).zip", 790, 40_118_207),
                        ("2.0.2", "2026-09-24T11:05:00Z", "tanaka@PC-SHIAGE07", "Inventor-main (2).zip", 788, 40_002_311),
                        ("2.0.0", "2026-09-10T08:30:00Z", "sato@PC-SHIAGE01", "Inventor-main.zip", 702, 35_220_004)],
-          "roles": {"developers": ["sato"], "maintainers": ["tanaka", "suzuki"]}}
+          "roles": {"developers": ["sato"], "maintainers": ["tanaka", "suzuki"]},
+          "notes": {"2.1.0": "・設定の画面（ショートカット・版の管理）を足しました\n・3D の形を見やすくしました（陰影・全体表示）\n・PDF のページを番号の升目から選べます",
+                    "2.0.3": "・Jw_cad の図面（.jww）を開けるようにしました"},
+          "news": False}
 SHORTCUTS = {"desktop": "ok", "start": "missing"}  # ショートカットの状態の模擬（既定はデスクトップにある: いつもの起動。無いときは /__dev/shortcut で）
 SHORTCUT_LABELS = {"desktop": "デスクトップ", "start": "スタートメニュー"}
 
@@ -128,13 +132,16 @@ def update_status() -> dict:
     base = {"dir": "C:\\boxdrive\\Box\\(D)_仕上課\\90_アプリ開発\\90_Releases\\Inventor", "dirSource": "default",
             "defaultDir": "C:\\boxdrive\\Box\\(D)_仕上課\\90_アプリ開発\\90_Releases\\Inventor", "user": "sato", "local": UPDATE["local"],
             "publishing": False, "app": "C:\\Users\\sato\\Inventor3DTool"}
+    if UPDATE["news"]:  # そろえた後に 1 度見せる「変わったこと」（窓の update::news と同じ形）
+        base["news"] = {"version": UPDATE["local"], "from": "2.0.3", "notes": UPDATE["notes"][UPDATE["local"]]}
     if not UPDATE["reachable"]:
         return {**base, "reachable": False, "role": "unknown", "canManage": False, "why": "置き場が 3 秒で答えませんでした（Box Drive がつながっているか確かめてください）"}
     role = UPDATE["role"]
     v = {**base, "reachable": True, "role": role, "canManage": role in ("developer", "maintainer"),
          "release": {"version": UPDATE["release"], "setAt": "2026-10-08T09:15:00Z", "setBy": "sato@PC-SHIAGE01", "previous": UPDATE["previous"]},
          "pending": UPDATE["release"] != UPDATE["local"], "policy": {"keep": UPDATE["keep"]},
-         "versions": [{"version": a, "placedAt": b, "placedBy": c, "source": d, "commit": "acba55d", "files": e, "bytes": f} for a, b, c, d, e, f in UPDATE["versions"]],
+         "versions": [{"version": a, "placedAt": b, "placedBy": c, "source": d, "commit": "acba55d", "files": e, "bytes": f, "notes": UPDATE["notes"].get(a, "")}
+                      for a, b, c, d, e, f in UPDATE["versions"]],
          "entry": {"path": base["dir"] + "\\Inventor3DTool.exe", "exists": True}}
     if role in ("developer", "unset"):
         v["roles"] = UPDATE["roles"] if role == "developer" else {"developers": [], "maintainers": []}
@@ -231,6 +238,8 @@ class Handler(BaseHTTPRequestHandler):
                     UPDATE["role"] = query["role"][0]
                 if "reachable" in query:
                     UPDATE["reachable"] = query["reachable"][0] == "1"
+                if "news" in query:
+                    UPDATE["news"] = query["news"][0] == "1"
             elif path == "/__dev/env":
                 for k in ENV:
                     if k in query:
@@ -275,6 +284,12 @@ class Handler(BaseHTTPRequestHandler):
             return self.json({"state": "idle"})
         if path.startswith("/api/update/") and method == "POST":
             op, asked = path.rsplit("/", 1)[1], json.loads(body or b"{}")
+            if op == "seen":
+                UPDATE["news"] = False
+                return self.json({"seen": True})
+            if op == "notes" and UPDATE["role"] in ("developer", "maintainer"):
+                UPDATE["notes"][asked.get("version")] = asked.get("notes", "")
+                return self.json({"version": asked.get("version"), "notes": asked.get("notes", "")})
             if op != "settings" and UPDATE["role"] not in ("developer", "maintainer") and op != "roles":
                 return self.json({"message": "版の管理は、開発者とメンテナンス者だけができます"}, 403)
             if op == "release":
@@ -287,7 +302,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self.json({"deleted": asked.get("version")})
             if op == "publish":
                 UPDATE["versions"].insert(0, ("2.2.0", "2026-10-08T12:00:00Z", "sato@PC-SHIAGE01", "Inventor-main.zip", 820, 41_900_000))
-                return self.json({"version": "2.2.0", "files": 820, "bytes": 41_900_000, "pruned": []})
+                if asked.get("notes"):
+                    UPDATE["notes"]["2.2.0"] = asked["notes"]
+                return self.json({"version": "2.2.0", "files": 820, "bytes": 41_900_000, "pruned": [], "notes": asked.get("notes", "")})
             if op == "policy":
                 UPDATE["keep"] = int(asked.get("keep") or 0)
                 return self.json({"keep": UPDATE["keep"]})

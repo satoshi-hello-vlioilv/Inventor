@@ -29,6 +29,11 @@ pub const EXE: &str = "Inventor3DTool.exe";
 pub const RELEASE: &str = "release.json";
 pub const VERSIONS: &str = "versions";
 pub const MANIFEST: &str = "manifest.json";
+/// 版ごとの「変わったこと」（置き場の versions\<版>\notes.txt。目録とは別: 置いた後でも書き直せる）
+pub const NOTES: &str = "notes.txt";
+const NOTES_MAX: usize = 2000;
+/// そろえた後に 1 度だけ見せる「変わったこと」（この PC の .update\news.json。見たら消す）
+const NEWS: &str = "news.json";
 pub const ROLES: &str = "roles.json";
 /// 置き場の決まり {"keep": 残す版の数（0 = 全て残す）}
 pub const POLICY: &str = "policy.json";
@@ -189,12 +194,38 @@ pub fn versions(dir: &Path) -> Vec<Value> {
             let m: Value = serde_json::from_slice(&std::fs::read(e.path().join(MANIFEST)).ok()?).ok()?;
             (m["version"] == name.as_str()).then(|| {
                 json!({"version": name, "placedAt": m["placedAt"], "placedBy": m["placedBy"], "source": m["source"],
-                       "commit": m["commit"], "files": m["files"].as_array().map(|f| f.len()).unwrap_or(0), "bytes": m["bytes"]})
+                       "commit": m["commit"], "files": m["files"].as_array().map(|f| f.len()).unwrap_or(0), "bytes": m["bytes"],
+                       "notes": notes_of(dir, &name)})
             })
         })
         .collect();
     out.sort_by(|a, b| version_key(b["version"].as_str().unwrap_or("")).cmp(&version_key(a["version"].as_str().unwrap_or(""))));
     out
+}
+
+/// 版の「変わったこと」（無ければ空）
+pub fn notes_of(dir: &Path, version: &str) -> String {
+    std::fs::read_to_string(dir.join(VERSIONS).join(version).join(NOTES)).map(|t| t.trim().to_string()).unwrap_or_default()
+}
+
+/// 版の「変わったこと」を書く（空なら消す。長すぎる物は断る）
+pub fn set_notes(dir: &Path, version: &str, text: &str) -> Result<Value, String> {
+    let folder = dir.join(VERSIONS).join(version);
+    if !safe_version(version) || !folder.join(MANIFEST).is_file() {
+        return Err(format!("版 {version} は置き場にありません"));
+    }
+    let text = text.trim().replace("\r\n", "\n");
+    if text.chars().count() > NOTES_MAX {
+        return Err(format!("変わったことは {NOTES_MAX} 字までにしてください"));
+    }
+    let file = folder.join(NOTES);
+    let done = if text.is_empty() {
+        std::fs::remove_file(&file).or_else(|e| if e.kind() == std::io::ErrorKind::NotFound { Ok(()) } else { Err(e) })
+    } else {
+        write_atomic(&file, text.as_bytes())
+    };
+    done.map_err(|e| format!("変わったことを書けません（{e}）"))?;
+    Ok(json!({"version": version, "notes": text}))
 }
 
 /// 配る版（release.json。無ければ None = まだ選んでいない）
@@ -512,6 +543,9 @@ pub fn status(program: &Path, progress: &Progress) -> Value {
     let base = json!({"dir": dir, "dirSource": source, "defaultDir": DEFAULT_DIR, "user": user, "local": local,
                       "publishing": progress.running(), "app": program.parent()});
     let mut v = base;
+    if let Some(n) = program.parent().and_then(news) {
+        v["news"] = n;
+    }
     match read {
         None => {
             v["why"] = json!(format!("置き場が {} 秒で答えませんでした（Box Drive がつながっているか確かめてください）", REACH.as_secs()))
@@ -541,6 +575,21 @@ pub fn status(program: &Path, progress: &Progress) -> Value {
 }
 
 // ---- 各 PC（配る版にそろえる） -------------------------------------------------------------------------------------
+
+/// そろえた後に見せる「変わったこと」（いまの版のものだけ。前の版の物が残っていれば見せない）
+pub fn news(app: &Path) -> Option<Value> {
+    let v: Value = serde_json::from_slice(&std::fs::read(app.join(".update").join(NEWS)).ok()?).ok()?;
+    (v["version"].as_str() == local_version(&app.join("program")).as_deref()).then_some(v)
+}
+
+/// 「変わったこと」を見た（次からは見せない）
+pub fn seen_news(app: &Path) -> Result<Value, String> {
+    match std::fs::remove_file(app.join(".update").join(NEWS)) {
+        Ok(()) => Ok(json!({"seen": true})),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(json!({"seen": true})),
+        Err(e) => Err(format!("見た印を残せません（{e}）")),
+    }
+}
 
 /// 置き場を見た結果
 #[derive(Debug, PartialEq)]
@@ -726,6 +775,12 @@ pub fn bring(app: &Path, dir: &Path, version: &str, progress: &Progress) -> Resu
     stage(app, dir, version, progress)?;
     progress.tick(json!({"stage": "swap"}));
     let changed = swap(app, version, &have)?;
+    // 版が変わった（新しい PC へ入れたときは除く）: 「変わったこと」を、次に開いた画面で 1 度だけ見せる
+    let notes = notes_of(dir, version);
+    if have != "none" && have != version && !notes.is_empty() {
+        let news = json!({"version": version, "from": have, "notes": notes});
+        let _ = write_atomic(&app.join(".update").join(NEWS), &serde_json::to_vec_pretty(&news).unwrap_or_default());
+    }
     let program = app.join("program");
     if share_dir(&program).0 != dir {
         crate::settings::save(&program, &json!({"update": {"dir": dir}}))?;
@@ -947,6 +1002,46 @@ mod tests {
         assert!(set_roles(&share, "sato", &json!({"developers": []})).unwrap_err().contains("1 人は残して"));
         assert!(can_manage("developer") && can_manage("maintainer") && !can_manage("user") && !can_manage("unset"));
         std::fs::remove_dir_all(&share).ok();
+    }
+
+    #[test]
+    fn notes_are_written_per_version_and_shown_once_after_an_update() {
+        let share = temp("share4");
+        let zips = temp("zips4");
+        let app = temp("home4").join("Inventor3DTool");
+        std::fs::create_dir_all(share.join(VERSIONS)).unwrap();
+        for v in ["2.1.0", "2.2.0"] {
+            make_zip(&zips.join(format!("{v}.zip")), v, &[]);
+            publish_zip(&share, &zips.join(format!("{v}.zip")), "me", &Progress::default(), 0).unwrap();
+        }
+        // 書く・一覧に出る・空で消す・長すぎる・無い版
+        set_notes(&share, "2.2.0", "  ・SXF を開ける\r\n・設定の画面  ").unwrap();
+        assert_eq!(notes_of(&share, "2.2.0"), "・SXF を開ける\n・設定の画面");
+        assert_eq!(versions(&share)[0]["notes"], "・SXF を開ける\n・設定の画面");
+        assert!(set_notes(&share, "2.2.0", &"あ".repeat(NOTES_MAX + 1)).unwrap_err().contains("字まで"));
+        assert!(set_notes(&share, "9.9.9", "x").unwrap_err().contains("ありません"));
+        // 新しい PC へ入れたときは見せない
+        set_release(&share, "2.1.0", "me").unwrap();
+        set_notes(&share, "2.1.0", "最初の版").unwrap();
+        bring(&app, &share, "2.1.0", &Progress::default()).unwrap();
+        assert!(news(&app).is_none());
+        // 版が変わったら 1 度だけ見せる（見たら消える）
+        set_release(&share, "2.2.0", "me").unwrap();
+        bring(&app, &share, "2.2.0", &Progress::default()).unwrap();
+        let n = news(&app).unwrap();
+        assert_eq!((n["version"].as_str(), n["from"].as_str()), (Some("2.2.0"), Some("2.1.0")));
+        seen_news(&app).unwrap();
+        assert!(news(&app).is_none() && seen_news(&app).is_ok(), "2 度目の「見た」も失敗にしない");
+        // 変わったことの無い版へは何も見せない
+        set_notes(&share, "2.1.0", "").unwrap();
+        assert!(!share.join(VERSIONS).join("2.1.0").join(NOTES).exists());
+        set_release(&share, "2.1.0", "me").unwrap();
+        bring(&app, &share, "2.1.0", &Progress::default()).unwrap();
+        assert!(news(&app).is_none());
+        for d in [&share, &zips] {
+            std::fs::remove_dir_all(d).ok();
+        }
+        std::fs::remove_dir_all(app.parent().unwrap()).ok();
     }
 
     #[test]
