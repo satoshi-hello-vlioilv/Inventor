@@ -314,6 +314,7 @@ function renderSheet(fit) {
 const TABS_UP_TO = 8;
 const layoutName = (l) => (l.model ? "モデル" : l.name);
 
+/** レイアウトのタブ・ページ送りを作る（図面を開いたとき・欄を切り替えたとき）。切り替えで変わる状態は syncLayoutTabs が合わせる */
 function renderLayoutTabs() {
   const { layouts } = sheet.model.drawing;
   const group = $("layout-tabs");
@@ -324,46 +325,53 @@ function renderLayoutTabs() {
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = layoutName(l);
-      button.setAttribute("aria-current", String(i === sheet.layout));
       button.addEventListener("click", () => showLayout(i));
       return button;
     }));
+  } else {
+    const step = (text, title, delta) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "pager-step";
+      button.textContent = text;
+      button.title = title;
+      button.dataset.delta = String(delta);
+      button.addEventListener("click", () => showLayout(sheet.layout + delta));
+      return button;
+    };
+    // 中央: いまの番号と全部の数（見た目）の上に、透明な選択の一覧を重ねる（押すと一覧が開く）
+    const now = document.createElement("label");
+    now.className = "pager-now";
+    now.title = "押すとページを選ぶ（PageUp・PageDown で前・次）";
+    const select = document.createElement("select");
+    select.setAttribute("aria-label", "ページ");
+    select.append(...layouts.map((l, i) => new Option(`${layoutName(l)}（${i + 1} / ${layouts.length}）`, String(i))));
+    select.addEventListener("change", () => showLayout(Number(select.value)));
+    now.append(document.createElement("span"), select);
+    group.replaceChildren(step("‹", "前のページ（PageUp）", -1), now, step("›", "次のページ（PageDown）", 1));
+  }
+  syncLayoutTabs();
+}
+
+/** タブ・ページ送りを、いまのレイアウトに合わせる（作り直さないので、押したボタンの焦点はそのまま） */
+function syncLayoutTabs() {
+  const { layouts } = sheet.model.drawing;
+  const group = $("layout-tabs");
+  if (!group.classList.contains("pager")) {
+    [...group.children].forEach((button, i) => button.setAttribute("aria-current", String(i === sheet.layout)));
     return;
   }
-  const step = (text, title, delta) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "pager-step";
-    button.textContent = text;
-    button.title = title;
-    button.disabled = !layouts[sheet.layout + delta];
-    button.addEventListener("click", () => showLayout(sheet.layout + delta));
-    return button;
-  };
-  // 中央: いまの番号と全部の数（見た目）の上に、透明な選択の一覧を重ねる（押すと一覧が開く）
-  const now = document.createElement("label");
-  now.className = "pager-now";
-  now.title = "押すとページを選ぶ（PageUp・PageDown で前・次）";
-  const text = document.createElement("span");
-  text.append(layoutName(layouts[sheet.layout]), Object.assign(document.createElement("small"), { textContent: ` / ${layouts.length}` }));
-  const select = document.createElement("select");
-  select.setAttribute("aria-label", "ページ");
-  select.append(...layouts.map((l, i) => new Option(`${layoutName(l)}（${i + 1} / ${layouts.length}）`, String(i), false, i === sheet.layout)));
-  select.addEventListener("change", () => showLayout(Number(select.value)));
-  now.append(text, select);
-  group.replaceChildren(step("‹", "前のページ（PageUp）", -1), now, step("›", "次のページ（PageDown）", 1));
+  for (const button of group.querySelectorAll(".pager-step")) button.disabled = !layouts[sheet.layout + Number(button.dataset.delta)];
+  group.querySelector(".pager-now span").replaceChildren(layoutName(layouts[sheet.layout]),
+    Object.assign(document.createElement("small"), { textContent: ` / ${layouts.length}` }));
+  group.querySelector("select").value = String(sheet.layout);
 }
 
 /** レイアウト（ページ）を切り替える */
 function showLayout(index) {
   if (!sheet?.model.drawing.layouts[index] || sheet.layout === index) return;
   sheet.layout = index;
-  // 押したボタン（タブ・送り・一覧）に、作り直した後も焦点を戻す（キーボードで続けて操作できるように）
-  const group = $("layout-tabs");
-  const at = [...group.children].findIndex((child) => child.contains(document.activeElement));
-  renderLayoutTabs();
-  const again = group.children[at];
-  (again?.querySelector("select") ?? again)?.focus();
+  syncLayoutTabs();
   renderSheet(true);
 }
 

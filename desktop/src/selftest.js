@@ -128,7 +128,7 @@
     ok("2D の図面を開くと Canvas に描かれ、画層が並ぶ", drawingName && drawn && layers > 0, `${drawingName} · 描いた点 ${inked()} · 画層 ${layers}`);
     const tab = $("layout-tabs")?.children[1];
     tab?.click();
-    const switched = await until(() => tab?.getAttribute("aria-current") === "true" && inked() > 2000 && /A3/.test($("drawing-info").textContent), 10000);
+    const switched = await until(() => $("layout-tabs")?.children[1]?.getAttribute("aria-current") === "true" && inked() > 2000 && /A3/.test($("drawing-info").textContent), 10000);
     ok("図面のレイアウト（紙）に切り替えられる", switched, `${tab?.textContent ?? "タブが無い"} · ${$("drawing-info").textContent}`);
 
     // 7.6) 3D を含む PDF（サンプルの U3D）: 開くと主役の場所のタブ（図面・3D）が出て 3D が選ばれ、部品が並ぶ。図面のタブでページが描かれる
