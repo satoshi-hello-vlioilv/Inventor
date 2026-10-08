@@ -1,6 +1,7 @@
 // DXF（AutoCAD の交換形式。ASCII とバイナリ）を、図面のモデル（model.js。DWG と共通）に読む。
 // 節: HEADER（版・文字コード・単位）・TABLES（画層・線種・文字スタイル・ブロックの記録）・BLOCKS・ENTITIES・OBJECTS（レイアウト）。
-// 角度は度（DXF）→ ラジアン（モデル）に直す。文字コード: R2007 以降は UTF-8、それより前は $DWGCODEPAGE（ANSI_932 なら Shift_JIS）。
+// 角度は度（DXF）→ ラジアン（モデル）に直す。文字コード: R2007 以降は UTF-8、それより前は $DWGCODEPAGE（ANSI_932 なら Shift_JIS）、
+// 指定が無ければ中身で決める（Jw_cad の DXF は指定が無く Shift_JIS）。
 
 import { completeSpline } from "./curves.js";
 import { cadText, createDrawing, normalizeLayouts, unitsOf } from "./model.js";
@@ -106,6 +107,24 @@ function binaryTags(bytes, decode) {
   return tags;
 }
 
+/**
+ * 文字コードの指定（$DWGCODEPAGE）が無い DXF（Jw_cad などが書く R12）: 中身で決める。UTF-8 として正しければ UTF-8、
+ * Shift_JIS として正しく日本語が入っていれば Shift_JIS、どちらでもなければ Windows-1252（西欧）
+ */
+function guessEncoding(bytes) {
+  if (!bytes.some((b) => b >= 0x80)) return "windows-1252";
+  const decodes = (label) => {
+    try {
+      return new TextDecoder(label, { fatal: true }).decode(bytes);
+    } catch {
+      return null;
+    }
+  };
+  if (decodes("utf-8") !== null) return "utf-8";
+  const sjis = decodes("shift_jis");
+  return sjis !== null && /[\u3000-\u30ff\u4e00-\u9fff\uff00-\uffef]/.test(sjis) ? "shift_jis" : "windows-1252";
+}
+
 /** 文字コードを決めて、群の並びにする */
 function readTags(bytes) {
   const binary = isBinaryDxf(bytes);
@@ -118,7 +137,7 @@ function readTags(bytes) {
     version = (head.match(/\$ACADVER\0[\s\S]{1,3}(AC\d{4})/) ?? [])[1] ?? version;
   }
   const utf8 = (version && version >= "AC1021") || (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf);
-  let label = utf8 ? "utf-8" : CODEPAGES[codepage] ?? "windows-1252";
+  let label = utf8 ? "utf-8" : CODEPAGES[codepage] ?? (codepage ? "windows-1252" : guessEncoding(bytes));
   let decoder;
   try {
     decoder = new TextDecoder(label);

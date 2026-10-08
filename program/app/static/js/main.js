@@ -1,7 +1,7 @@
 // アプリの入口: 受け取ったファイルを読み（formats/open.js）、3D（viewer/）と右の欄（ui/panel.js）に表示し、両者を連動させる。
 // 次にすること（主のボタン 1 つ）は ui/flow.js が決め、段階の帯（ui/steps.js）と行動ドックに出す（docs/ui.md）。
 //   .ipt・.iam・.stp … モデル（部品・組立）として読み、表示する
-//   .dwg・.dxf・.pdf … 2D の図面として読み（formats/cad2d）、Canvas に描く（viewer2d/）。レイアウト（PDF はページ）の切り替え・画層の表示・
+//   .dwg・.dxf・.pdf・.jww … 2D の図面として読み（formats/cad2d）、Canvas に描く（viewer2d/）。レイアウト（PDF はページ）の切り替え・画層の表示・
 //                      図形の読み出し。3D を含む PDF は、主役の場所のタブで 3D（formats/model3d.js → viewer/）に切り替える
 //   .html            … 隔離した iframe で動かし、three.js の形状を取り出して認識し（convert/recognize）、変換データを作る
 //   .json            … 変換データ（.inventor.json）。作る形を 3D で示し（convert/preview.js）、「Inventor で作る」で作る
@@ -13,7 +13,7 @@ import { buildInventorSpec, readSpec } from "./convert/inventor.js";
 import { describeSpec, previewScene } from "./convert/preview.js";
 import { recognizeSnapshot } from "./convert/recognize/index.js";
 import { read3d } from "./formats/model3d.js";
-import { OPENABLE, detectFormat, explainError, partOf, readModel } from "./formats/open.js";
+import { ACCEPT, FORMATS, FORMAT_NAMES, OPENABLE, detectFormat, explainError, partOf, readModel } from "./formats/open.js";
 import { buildDisplayMeshes, describeRecognition } from "./html/describe.js";
 import { SourceFrame } from "./html/frame.js";
 import { setSpec } from "./ui/convert.js";
@@ -42,8 +42,8 @@ IDLE_TEXT.drawing = "線・文字・寸法にカーソルを合わせると、�
 const SETTLE_MS = 1200; // 元のページの最初の描画から取り込みまで待つ時間（初期化の完了待ち）
 const READY_TIMEOUT_MS = 15000;
 // 見出しバーの種類の札（いま何を見ているか）
-const EYEBROW = { "part:ipt": "部品 .ipt", "part:step": "STEP 部品", "assembly:step": "STEP 組立", "assembly:iam": "組立 .iam",
-  "drawing:dwg": "図面 .dwg", "drawing:dxf": "図面 .dxf", "drawing:pdf": "図面 .pdf" };
+const EYEBROW = { "part:ipt": "部品 .ipt", "part:step": "STEP 部品", "assembly:step": "STEP 組立", "assembly:iam": "組立 .iam" };
+const eyebrowOf = (model) => EYEBROW[`${model.kind}:${model.format}`] ?? (model.kind === "drawing" ? `図面 .${model.format}` : undefined);
 
 let idleText = IDLE_TEXT.ipt;
 let current = null; // 表示中の強調の対応 { info: Map<id, {group, text}>, rows: Map<groupKey, element> }
@@ -216,7 +216,7 @@ async function loadModel(bytes, name, isSample) {
     return;
   }
   showAlert(model.warning ? `${name}: ${model.warning}` : "");
-  const header = { eyebrow: EYEBROW[`${model.kind}:${model.format}`], name, meta: model.meta, isSample, thumbnailUrl: setThumbnail(model.thumbnail) };
+  const header = { eyebrow: eyebrowOf(model), name, meta: model.meta, isSample, thumbnailUrl: setThumbnail(model.thumbnail) };
   if (model.kind === "drawing") {
     assembly = null;
     showDrawing(model, header);
@@ -229,7 +229,7 @@ async function loadModel(bytes, name, isSample) {
   }
 }
 
-// ---- 図面（.dwg・.dxf・.pdf）-------------------------------------------------------
+// ---- 図面（.dwg・.dxf・.pdf・.jww）-------------------------------------------------------
 /** 図面を表示する（最初のレイアウト = モデル）。3D を含む PDF は、主役の場所のタブで 図面 ⇄ 3D を切り替える（最初は 3D） */
 function showDrawing(model, header) {
   setMode("drawing");
@@ -384,7 +384,8 @@ function highlightItems(items, text, layer) {
 
 function onDrawingHover(index) {
   const item = index === null ? null : sheet?.scene?.items[index];
-  if (item) highlightItems([index], describeItem(item, sheet.model.drawing.units.name), item.layer);
+  const { drawing } = sheet?.model ?? {};
+  if (item) highlightItems([index], describeItem(item, drawing.units.name, drawing.layers.get(item.layer)?.scale ?? 1), item.layer);
   else highlightItems([]);
 }
 
@@ -518,7 +519,7 @@ async function load(bytes, name, isSample = false) {
 // 開けるものの最初の 1 つを開く（組立 → STEP → そのほかの順）。2 つ以上なら起動画面の「受け取ったファイル」に並べて切り替える。
 const library = new PartLibrary(); // 組立が参照する部品を探す場所（受け取ったファイル・サンプル）
 const SPEC = /\.json$/i; // 変換データ（.inventor.json）
-const opens = (item) => OPENABLE.test(item.name) || SPEC.test(item.name);
+const opens = (item) => OPENABLE.test(item.name);
 const OPEN_FIRST = [/\.iam$/i, /\.(stp|step)$/i];
 const rank = (item) => {
   const i = OPEN_FIRST.findIndex((re) => re.test(item.name));
@@ -575,7 +576,7 @@ async function receive(items) {
   const others = items.filter((i) => !opens(i));
   if (!usable.length) usable.push(others.shift()); // 拡張子が違っても、中身で判断して開いてみる
   const notes = [];
-  if (others.length) notes.push(`${nameList(others)} は開けません（対応しているのは .ipt・.iam・.stp・.dwg・.dxf・.pdf・.html・.inventor.json）。`);
+  if (others.length) notes.push(`${nameList(others)} は開けません（対応しているのは ${FORMAT_NAMES}）。`);
   if (!usable.length) {
     startDialog.close();
     showAlert(notes.join(" "));
@@ -587,6 +588,10 @@ async function receive(items) {
   showNotice(notes.join(" "));
 }
 
+// 開ける形式の案内（ファイルを選ぶ窓・最初の画面の札・ドロップの案内）は formats/open.js の並びから作る
+$("file-input").accept = ACCEPT;
+$("dropzone").querySelector(".formats").replaceChildren(...FORMATS.map(([name]) => Object.assign(document.createElement("span"), { textContent: name })));
+$("drop-overlay").querySelector("p").textContent = `ドロップして開く（${FORMAT_NAMES}）`;
 acceptFiles({ input: $("file-input"), openers: [$("open"), $("welcome-open"), $("start-open")], dropzone: $("dropzone"), overlay: $("drop-overlay"),
   isDropzoneShown: () => !$("stage-empty").hidden }, receive);
 

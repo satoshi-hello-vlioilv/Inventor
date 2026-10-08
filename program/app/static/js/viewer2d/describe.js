@@ -1,6 +1,9 @@
 // 図面の説明（DOM に依存しない）: 指した図形の一行（種類・寸法・画層）と、右の欄の要約（図形の内訳・画層・まだ描かない図形）。
 
+import { scaleText } from "../formats/cad2d/model.js";
 import { mtextLines, singleLine } from "./text.js";
+
+export { scaleText };
 
 // 図形の種類の名前（AutoCAD の日本語版の呼び方に合わせる）
 export const TYPE_LABEL = {
@@ -43,10 +46,13 @@ function bulgedLength(points, bulges, closed) {
   return sum;
 }
 
-/** 指した図形の一行（種類 · 寸法 · 画層）。units は長さの単位（"mm" など。無ければ付けない） */
-export function describeItem(item, units = "") {
+/**
+ * 指した図形の一行（種類 · 寸法 · 画層）。units は長さの単位（"mm" など。無ければ付けない）。
+ * scale は画層の縮尺（model.js）: 形の長さは実寸（図面の長さ × scale）で出し、縮尺を添える。文字の高さは図面の長さのまま
+ */
+export function describeItem(item, units = "", scale = 1) {
   const e = item.entity;
-  const L = (v) => length(v, units);
+  const L = (v) => length(v * scale, units);
   const parts = [e.type === "DIMENSION" ? DIMENSION_LABEL[e.kind] ?? "寸法" : typeLabel(e.type)];
   switch (e.type) {
     case "LINE": {
@@ -76,8 +82,8 @@ export function describeItem(item, units = "") {
       } else parts.push(e.kind === "mesh" ? "ポリゴン メッシュ" : "ポリフェース メッシュ", `頂点 ${e.vertices.length}`);
       break;
     case "SPLINE": parts.push(`${e.degree} 次`, e.fit?.length ? `通過点 ${e.fit.length}` : `制御点 ${e.controls?.length ?? 0}`); break;
-    case "TEXT": case "ATTDEF": case "ATTRIB": parts.push(quote(singleLine(e.text) || e.tag || ""), `高さ ${L(e.height)}`); break;
-    case "MTEXT": parts.push(quote(mtextLines(e.text).join(" ")), `高さ ${L(e.height)}`); break;
+    case "TEXT": case "ATTDEF": case "ATTRIB": parts.push(quote(singleLine(e.text) || e.tag || ""), `高さ ${length(e.height, units)}`); break;
+    case "MTEXT": parts.push(quote(mtextLines(e.text).join(" ")), `高さ ${length(e.height, units)}`); break;
     case "INSERT": {
       const [sx, sy] = e.scale ?? [1, 1];
       parts.push(`「${e.block}」`);
@@ -98,6 +104,7 @@ export function describeItem(item, units = "") {
     case "VIEWPORT": if (e.viewHeight > 0 && e.height > 0) parts.push(`尺度 ${scaleText(e.height / e.viewHeight)}`); break;
     default: break;
   }
+  if (scale !== 1) parts.push(`縮尺 ${scaleText(1 / scale)}`);
   parts.push(`画層 ${item.layer}`);
   return parts.join(" · ");
 }
@@ -107,15 +114,6 @@ export function dashKind(dashes) {
   if (!dashes?.length || dashes.every((d) => d >= 0)) return "solid";
   const lines = dashes.filter((d) => d >= 0);
   return lines.length >= 2 && Math.min(...lines) < Math.max(...lines) * 0.5 ? "chain" : "dash";
-}
-
-/** 尺度の表記（1:2・2:1 など。きれいな比でなければ小数） */
-export function scaleText(k) {
-  if (!(k > 0)) return "—";
-  const near = (v) => Math.abs(v - Math.round(v)) < 1e-6 * Math.max(1, v);
-  if (k >= 1 && near(k)) return `${Math.round(k)}:1`;
-  if (k < 1 && near(1 / k)) return `1:${Math.round(1 / k)}`;
-  return String(Number(k.toFixed(4)));
 }
 
 /**

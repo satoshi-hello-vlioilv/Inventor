@@ -1,8 +1,9 @@
-// 2 次元の図面のモデル（DWG・DXF で共通。表示は viewer2d/ が受け持つ）。
+// 2 次元の図面のモデル（DWG・DXF・PDF・Jw_cad で共通。表示は viewer2d/ が受け持つ）。
 //
-// 図面: { format: "dwg"|"dxf", version, codepage, units: { code, name }, ltscale, layers, linetypes, styles, blocks, layouts, unsupported, failures }
+// 図面: { format: "dwg"|"dxf"|"pdf"|"jww", version, codepage, units: { code, name }, ltscale, layers, linetypes, styles, blocks, layouts, unsupported, failures }
 //   ltscale   … 線種の尺度（$LTSCALE。DWG はまだ見出しの変数を読まないので 1）
-//   layers    … Map<名前, { name, color: { index, rgb? }, off, frozen, locked, plot, linetype, lineweight }>
+//   layers    … Map<名前, { name, color: { index, rgb? }, off, frozen, locked, plot, linetype, lineweight, scale? }>
+//               scale … 画層の縮尺（実寸 = 図面の長さ × scale。Jw_cad の画層グループの縮尺 1/scale。無ければ 1）
 //   linetypes … Map<名前, { name, description, dashes: [長さ（正 = 線・負 = すき間・0 = 点）] }>
 //   styles    … Map<名前, { name, font, bigFont, height, widthFactor, oblique }>
 //   blocks    … Map<名前, { name, handle（ブロックの記録のハンドル。16 進）, base: [x, y, z], anonymous, xref, entities: [図形] }>
@@ -42,6 +43,21 @@ export function normalizeLayouts(layouts, blocks, modelName = "*Model_Space") {
   if (!out.some((l) => l.model) && blocks.has(modelName)) out.push({ name: "Model", block: modelName, model: true, tabOrder: 0 });
   out.sort((a, b) => Number(b.model) - Number(a.model) || (a.tabOrder ?? 0) - (b.tabOrder ?? 0));
   return out;
+}
+
+/** 画層の縮尺（layers の scale）の並び（小さい順）。どの画層も 1 なら空（実寸と図面の長さが同じ） */
+export function layerScales(drawing) {
+  const scales = [...new Set([...drawing.layers.values()].map((l) => l.scale).filter((k) => k > 0))].sort((a, b) => a - b);
+  return scales.some((k) => k !== 1) ? scales : [];
+}
+
+/** 尺度の表記（1:2・2:1 など。きれいな比でなければ小数）。k は図面の長さ / 実寸（ビューポートなら紙の長さ / モデルの長さ） */
+export function scaleText(k) {
+  if (!(k > 0)) return "—";
+  const near = (v) => Math.abs(v - Math.round(v)) < 1e-6 * Math.max(1, v);
+  if (k >= 1 && near(k)) return `${Math.round(k)}:1`;
+  if (k < 1 && near(1 / k)) return `1:${Math.round(1 / k)}`;
+  return String(Number(k.toFixed(4)));
 }
 
 // $INSUNITS の番号 → 単位（DXF の説明書）

@@ -48,7 +48,7 @@ pub type Native = Box<dyn Fn(&str, &str, bool, &[u8]) -> Option<Reply> + Send + 
 
 /// サンプルの種類（起動画面にこの順で並ぶ）と拡張子
 const SAMPLE_KINDS: [(&str, &[&str]); 5] =
-    [("ipt", &["ipt"]), ("iam", &["iam"]), ("stp", &["stp", "step"]), ("dwg", &["dwg", "dxf", "pdf"]), ("html", &["html", "htm"])];
+    [("ipt", &["ipt"]), ("iam", &["iam"]), ("stp", &["stp", "step"]), ("dwg", &["dwg", "dxf", "pdf", "jww"]), ("html", &["html", "htm"])];
 
 pub struct Router {
     /// program フォルダ（画面は app、サンプルは samples）
