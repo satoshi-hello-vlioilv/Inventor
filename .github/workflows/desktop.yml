@@ -41,9 +41,9 @@ jobs:
       # exe が名乗る「作ったコミット」。publish が Inventor3DTool.build.json に書く commit と同じ値
       INVENTOR_TOOL_BUILD_COMMIT: ${{ github.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -169,7 +169,7 @@ jobs:
           if (Test-Path "$env:RUNNER_TEMP\selftest.json") { Copy-Item "$env:RUNNER_TEMP\selftest.json" $out }
           "desktop:$(git rev-parse HEAD:desktop) icon:$(git rev-parse HEAD:program/tools/app_icon.py)" | Set-Content -NoNewline -Encoding ascii "$out\source.txt"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: Inventor3DTool-windows
@@ -184,10 +184,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: main
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: Inventor3DTool-windows
           path: built

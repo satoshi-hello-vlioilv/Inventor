@@ -132,6 +132,7 @@ export const STATES = [
   ["layout", async (p) => { await p.click("#layout-tabs button:nth-child(2)"); await sleep(600); await hoverDrawing(p); }, "[data-next], #open"],
   // PDF: ページの多い図面（ページ送り）・3D を含む PDF（主役の場所のタブ: 3D → 図面）
   ["pages", async (p) => { await openFile(p, await manyPages()); }, "[data-next], #open"],
+  ["pages-pop", async (p) => { await p.click("#layout-tabs .pager-now"); await p.waitForSelector("#page-pop:not([hidden])"); await sleep(200); }, "#page-pop [aria-current=\"true\"]"],
   ["pdf3d", async (p) => { await openSample(p, PDF3D); }, "[data-next], #open"],
   ["pdf3d-sheet", async (p) => { await p.click('#view-tab-list [data-view="sheet"]'); await sleep(600); }, "[data-next], #open"],
   ["html", async (p) => {

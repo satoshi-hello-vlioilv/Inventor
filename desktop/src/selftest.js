@@ -5,7 +5,7 @@
    調べること: 合言葉・画面の部品の種類・起動で受け取ったファイルが開く（組立と同じフォルダの部品も届く）・サンプル・合言葉の無い依頼を断る・
    2 つめの起動のファイルが届く・「STEP を作る」ボタンから STEP ができる・作成中（409）と作れない変換データ（400）の理由・
    2D の図面（DXF）を開くと Canvas に描かれ、レイアウトを切り替えられる・
-   HTML のモデル（隔離した iframe の three.js）を取り込める・同時の問い合わせ・速さ。 */
+   HTML のモデル（隔離した iframe の three.js）を取り込める・設定の引き出し・同時の問い合わせ・速さ。 */
 (async () => {
   const res = [];
   const ok = (name, cond, info = "") => res.push({ name, ok: !!cond, info: String(info).slice(0, 400) });
@@ -162,6 +162,17 @@
     } else {
       ok("HTML のモデルの取り込み: 測っていない（three.js の CDN に届かない環境）", true, `CDN の答え: ${cdn}`);
     }
+
+    // 8.5) 設定（右の引き出し）: 開くと窓に問い合わせて節が並び（ショートカット・版・置き場）、✕ で閉じる。ショートカットの置き場が分かる
+    const shortcut = (await api("/api/shortcut")).json ?? {};
+    ok("ショートカットの状態（デスクトップ・スタートメニューの場所が分かる）", shortcut.supported && shortcut.places?.length === 2,
+       (shortcut.places ?? []).map((p) => `${p.label} ${p.state}`).join("・"));
+    $("show-settings")?.click();
+    const opened8 = await until(() => $("settings").open && $("settings-body").querySelectorAll(".st-section").length >= 3, 10000);
+    ok("設定の引き出しが開き、ショートカット・版・置き場の節が並ぶ", opened8,
+       [...$("settings-body").querySelectorAll(".st-section h3")].map((h) => h.firstChild?.textContent).join("・"));
+    $("settings-close")?.click();
+    ok("設定の引き出しを ✕ で閉じられる", await until(() => !$("settings").open, 3000));
 
     // 9) 同時の問い合わせが混ざらない
     const paths = Array.from({ length: 40 }, (_, i) => (i % 2 ? "/api/build" : `/static/js/main.js?p=${i}`));

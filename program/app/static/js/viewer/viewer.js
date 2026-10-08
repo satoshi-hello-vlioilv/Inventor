@@ -8,6 +8,7 @@ import { edgeSegments, faceGeometry, meshVolume, partGeometry } from "./tessella
 
 export const VIEWS = { iso: [1, 1, 1], top: [0, 1, 1e-4], front: [0, 0, 1], right: [1, 0, 0] };
 const TRANSITION_MS = 380;
+const FIT_FILL = 0.85; // 全体表示で、形が画面（縦・横）に占める割合の上限（上のツールバー・下の案内に掛からない余白）
 const reduceMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 const token = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
@@ -227,7 +228,7 @@ export class Viewer {
     const from = camera.position.clone().sub(controls.target).normalize();
     const fromTarget = controls.target.clone();
     const fromDistance = camera.position.distanceTo(controls.target);
-    const toDistance = this.#fitDistance();
+    const toDistance = this.#fitDistance(to);
     const started = performance.now();
     const id = ++this.tween;
     const step = (now) => {
@@ -281,10 +282,28 @@ export class Viewer {
     });
   }
 
-  #fitDistance() {
-    const radius = Math.max(this.bounds.isEmpty() ? 1 : this.bounds.getSize(new THREE.Vector3()).length() / 2, 1e-3);
-    const { fov, aspect } = this.camera;
-    return (radius / Math.sin(THREE.MathUtils.degToRad(fov / 2))) * (aspect < 1 ? 1.35 / aspect : 1.15);
+  /**
+   * 向き direction（注視点 → カメラ）から見て、外形の箱の 8 つの角が画面の FIT_FILL の内に収まる距離。
+   * 外接球で測ると、細長い形（組立の軸など）が画面の半分ほどにしか広がらないので、画面に写る大きさで測る。
+   */
+  #fitDistance(direction) {
+    if (this.bounds.isEmpty()) return 10;
+    const back = direction.clone().normalize();
+    let right = this.camera.up.clone().cross(back);
+    if (right.lengthSq() < 1e-8) right = new THREE.Vector3(0, 0, -1).cross(back); // 真上・真下から見るとき
+    right.normalize();
+    const up = back.clone().cross(right);
+    const tanV = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) * FIT_FILL;
+    const tanH = tanV * this.camera.aspect;
+    const center = this.bounds.getCenter(new THREE.Vector3());
+    const { min, max } = this.bounds;
+    let distance = 1e-3;
+    for (const x of [min.x, max.x]) for (const y of [min.y, max.y]) for (const z of [min.z, max.z]) {
+      const p = new THREE.Vector3(x, y, z).sub(center);
+      const depth = p.dot(back); // カメラに近い側が正
+      distance = Math.max(distance, depth + Math.abs(p.dot(right)) / tanH, depth + Math.abs(p.dot(up)) / tanV);
+    }
+    return distance;
   }
 
   #drawGizmo() {

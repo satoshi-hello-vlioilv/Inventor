@@ -311,7 +311,8 @@ function renderSheet(fit) {
 }
 
 /** レイアウト（PDF はページ）の切り替え。1 つだけなら出さない。8 つまではタブ（名前が見え、1 回で移れる）、
- *  それより多ければページ送り（‹ 何番目 / 全部 ▾ ›。中央を押すと一覧から選ぶ。PageUp・PageDown でも）。docs/ui.md §11 */
+ *  それより多ければページ送り（‹ 何番目 / 全部 ▾ ›。中央を押すと番号の升目の吹き出しが開き、1 回で移れる。PageUp・PageDown でも）。
+ *  docs/ui.md §11 */
 const TABS_UP_TO = 8;
 const layoutName = (l) => (l.model ? "モデル" : l.name);
 
@@ -340,19 +341,54 @@ function renderLayoutTabs() {
       button.addEventListener("click", () => showLayout(sheet.layout + delta));
       return button;
     };
-    // 中央: いまの番号と全部の数（見た目）の上に、透明な選択の一覧を重ねる（押すと一覧が開く）
-    const now = document.createElement("label");
+    // 中央: いまの番号と全部の数。押すと、その下に番号の升目の吹き出しが開く（全てのページが 1 目で見え、1 回で移れる）
+    const now = document.createElement("button");
+    now.type = "button";
     now.className = "pager-now";
     now.title = "押すとページを選ぶ（PageUp・PageDown で前・次）";
-    const select = document.createElement("select");
-    select.setAttribute("aria-label", "ページ");
-    select.append(...layouts.map((l, i) => new Option(`${layoutName(l)}（${i + 1} / ${layouts.length}）`, String(i))));
-    select.addEventListener("change", () => showLayout(Number(select.value)));
-    now.append(document.createElement("span"), select);
+    now.setAttribute("aria-haspopup", "dialog");
+    now.setAttribute("aria-expanded", "false");
+    now.append(document.createElement("span"));
+    now.addEventListener("click", () => togglePagePop(!pagePop.hidden ? false : true));
     group.replaceChildren(step("‹", "前のページ（PageUp）", -1), now, step("›", "次のページ（PageDown）", 1));
+    pagePop.replaceChildren(...layouts.map((l, i) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = String(i + 1);
+      button.title = layoutName(l);
+      button.addEventListener("click", () => {
+        togglePagePop(false);
+        showLayout(i);
+      });
+      return button;
+    }));
   }
+  togglePagePop(false);
   syncLayoutTabs();
 }
+
+/** ページの番号の升目の吹き出し（ページ送りの中央の下）。開くと、いまのページに焦点を置く。Esc・外を押すと閉じる */
+const pagePop = $("page-pop");
+function togglePagePop(open) {
+  const now = $("layout-tabs").querySelector(".pager-now");
+  if (open && now) {
+    const stage = $("stage").getBoundingClientRect();
+    const at = now.getBoundingClientRect();
+    pagePop.style.left = `${Math.max(12, at.left - stage.left)}px`;
+    pagePop.style.top = `${at.bottom - stage.top + 6}px`;
+  }
+  pagePop.hidden = !(open && now);
+  now?.setAttribute("aria-expanded", String(!pagePop.hidden));
+  if (!pagePop.hidden) pagePop.querySelector('[aria-current="true"]')?.focus();
+}
+addEventListener("pointerdown", (event) => {
+  if (!pagePop.hidden && !pagePop.contains(event.target) && !event.target.closest(".pager-now")) togglePagePop(false);
+});
+pagePop.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  togglePagePop(false);
+  $("layout-tabs").querySelector(".pager-now")?.focus();
+});
 
 /** タブ・ページ送りを、いまのレイアウトに合わせる（作り直さないので、押したボタンの焦点はそのまま） */
 function syncLayoutTabs() {
@@ -365,7 +401,7 @@ function syncLayoutTabs() {
   for (const button of group.querySelectorAll(".pager-step")) button.disabled = !layouts[sheet.layout + Number(button.dataset.delta)];
   group.querySelector(".pager-now span").replaceChildren(layoutName(layouts[sheet.layout]),
     Object.assign(document.createElement("small"), { textContent: ` / ${layouts.length}` }));
-  group.querySelector("select").value = String(sheet.layout);
+  [...pagePop.children].forEach((button, i) => button.setAttribute("aria-current", String(i === sheet.layout)));
 }
 
 /** レイアウト（ページ）を切り替える */

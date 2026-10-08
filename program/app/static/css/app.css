@@ -121,9 +121,9 @@ kbd { font: 500 var(--fs-xs)/1.35 var(--font-num); padding: 0 5px; border: 1px s
 .current { min-width: 0; display: flex; align-items: center; gap: 10px; padding-inline-start: 20px; border-inline-start: 1px solid var(--rule); }
 .current h1 { margin: 0; min-width: 0; font: 500 var(--fs-l)/1.3 var(--font-num); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .app.is-empty .current h1 { color: var(--muted); font-family: var(--font-ui); font-size: var(--fs-m); }
-.kind-badge {
-  flex: none; padding: 2px 8px; border-radius: 6px; font-size: var(--fs-xs); font-weight: 600; color: var(--accent);
-  background: var(--accent-soft);
+.kind-badge { /* 種類の札は無彩色（色は「状態」と主のボタンだけに使う） */
+  flex: none; padding: 2px 8px; border-radius: 6px; font-size: var(--fs-xs); font-weight: 600; color: var(--ink);
+  background: var(--surface-2);
 }
 .app.is-empty .kind-badge { display: none; }
 .badge { flex: none; padding: 1px 8px; border-radius: 999px; font-size: var(--fs-xs); font-weight: 600; color: var(--muted); border: 1px solid var(--rule); }
@@ -200,18 +200,25 @@ kbd { font: 500 var(--fs-xs)/1.35 var(--font-num); padding: 0 5px; border: 1px s
 .view2d { cursor: crosshair; }
 .view2d.is-panning { cursor: grabbing; }
 .tool-group button[aria-current="true"] { color: var(--accent); background: var(--accent-soft); font-weight: 600; }
-/* ページ送り（9 つ以上のレイアウト・ページ）: ‹ 何番目 / 全部 ▾ ›。中央は、見た目の上に透明な選択の一覧を重ねる（押すと一覧） */
+/* ページ送り（9 つ以上のレイアウト・ページ）: ‹ 何番目 / 全部 ▾ ›。中央を押すと、番号の升目の吹き出し（.page-pop）が開く */
 .tool-group.pager .pager-step { min-width: 38px; font-size: var(--fs-l); padding-block: 7px; }
 .tool-group.pager .pager-step:disabled { color: var(--muted); opacity: 0.4; cursor: default; background: transparent; }
-.pager-now {
+.tool-group .pager-now {
   position: relative; display: flex; align-items: center; justify-content: center; gap: 4px; min-width: 104px; padding: 0 12px;
   font: 600 var(--fs-s)/1 var(--font-ui); font-variant-numeric: tabular-nums; color: var(--ink); border-inline-end: 1px solid var(--rule); cursor: pointer;
 }
 .pager-now small { color: var(--muted); font-weight: 400; font-size: var(--fs-s); }
 .pager-now::after { content: "▾"; color: var(--muted); font-size: 10px; margin-inline-start: 4px; }
 .pager-now:hover { background: var(--accent-soft); }
-.pager-now:focus-within { outline: 2px solid var(--accent); outline-offset: -2px; }
-.pager-now select { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; font: inherit; }
+.pager-now[aria-expanded="true"] { background: var(--accent-soft); }
+.page-pop {
+  position: absolute; z-index: 4; width: min(352px, calc(100% - 24px)); box-sizing: border-box; padding: 10px;
+  display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; max-height: 60%; overflow: auto;
+  background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; box-shadow: var(--shadow-3);
+}
+.page-pop button { font: 500 var(--fs-s)/1 var(--font-num); padding: 8px 0; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); color: var(--ink); cursor: pointer; }
+.page-pop button:hover { border-color: var(--accent); }
+.page-pop button[aria-current="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 700; }
 /* 入・切のボタン（is-check）は塗らずに印で: 選んでいるタブ（塗り）と見分ける */
 .tool-group button.is-check[aria-pressed] { color: var(--ink); background: transparent; }
 .tool-group button.is-check:hover { background: var(--accent-soft); }
@@ -376,9 +383,12 @@ details.card.more summary .h-note { margin-inline-start: 8px; }
   height: 30px; display: grid; place-items: center; border: 1.5px solid var(--tone); border-radius: 6px;
   font: 600 var(--fs-xs) var(--font-num); font-variant-numeric: tabular-nums; color: var(--muted);
 }
-.verdict-grid li:not([data-tone="wait"]) { background: var(--tone); color: var(--surface); }
-.verdict-grid li[data-tone="warn"] { color: var(--on-warn); }
-.verdict-grid li[data-tone="run"] { color: var(--accent-ink); }
+/* 結果の出た升目は淡い地＋色の文字・枠（欄の中で重くしない。docs/ui.md §13 の I）。待ちは枠だけ */
+.verdict-grid li:not([data-tone="wait"]) {
+  background: color-mix(in srgb, var(--tone) 16%, var(--surface)); color: color-mix(in srgb, var(--tone) 80%, var(--ink));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 45%, transparent);
+}
+.verdict-grid li[data-tone="warn"], .verdict-grid li[data-tone="run"] { color: color-mix(in srgb, var(--tone) 70%, var(--ink)); }
 .verdict-grid li:hover { outline: 2px solid var(--ink); outline-offset: 1px; }
 .build-results { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 46vh; overflow-y: auto; }
 .build-results li { display: grid; grid-template-columns: 4.4em minmax(0, 1fr) auto; column-gap: 8px; align-items: baseline; font-size: var(--fs-s); padding: 2px 0; }
