@@ -121,10 +121,15 @@
       <div class="tool-group" role="group" aria-label="表示">
         <button type="button" id="toggle-edges" aria-pressed="true" data-mode="empty ipt asm html spec model3d">稜線</button>
         <button type="button" class="is-check" id="toggle-lineweight" aria-pressed="true" data-mode="drawing" title="線の太さ（画層・図形の設定）で描く">線の太さ</button>
+        <button type="button" id="measure" aria-pressed="false" data-mode="drawing" title="2 点の間を測る（M）。端点・中点・中心・交点に吸い付く">測る <kbd>M</kbd></button>
         <button type="button" id="fit" title="全体が収まるように表示（図面はダブルクリックでも）">全体表示</button>
       </div>
       <p class="mouse-help" data-mode="empty ipt asm html spec model3d">ドラッグで回転・右ドラッグで移動・ホイールで拡大</p>
       <p class="mouse-help" data-mode="drawing">ドラッグで移動・ホイールで拡大・ダブルクリックで全体</p>
+      <!-- 測っている間だけ出す案内の帯（ツールバーの下の行。ui/measure.js） -->
+      <div class="measure-row" id="measure-band" hidden>
+        <div class="measure-band" role="status"><b>測る</b><span id="measure-step">1 点目をクリック</span><span class="measure-snaps">端点・中点・中心・交点に吸い付く</span><button type="button" id="measure-stop">やめる <kbd>Esc</kbd></button></div>
+      </div>
     </div>
     <canvas class="gizmo" id="gizmo" width="152" height="152" aria-hidden="true"></canvas>
     <p class="stage-legend" id="stage-legend" hidden><span data-tone="ok">一致</span><span data-tone="warn">不一致</span><span data-tone="bad">失敗</span><span data-tone="run">作成中</span><span data-tone="wait">待ち</span></p>
@@ -223,6 +228,16 @@
         <h2>図面<span class="h-note" id="drawing-note"></span></h2>
         <dl class="topology" id="drawing-info"></dl>
         <p class="hint-text is-warn" id="drawing-unsupported" hidden></p>
+      </section>
+
+      <!-- 測った結果・選んだ図形（図面で測る・図形を押すと出す。ui/measure.js が出し入れするので data-mode は付けない） -->
+      <section class="card measure-card" id="measure-card" hidden>
+        <h2>測った結果<span class="h-note" id="measure-note"></span></h2>
+        <dl class="topology" id="measure-result"></dl>
+      </section>
+      <section class="card selection-card" id="selection-card" hidden>
+        <h2>選んだ図形<span class="h-note">Esc で外す</span></h2>
+        <dl class="topology" id="selection-info"></dl>
       </section>
 
       <section class="card" data-mode="drawing">

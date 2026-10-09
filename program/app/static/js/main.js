@@ -19,6 +19,7 @@ import { SourceFrame } from "./html/frame.js";
 import { History } from "./edit/history.js";
 import { saveSpec, setSpec } from "./ui/convert.js";
 import { DimensionEditor } from "./ui/dimedit.js";
+import { MeasureTool } from "./ui/measure.js";
 import { onFlow, setNext, updateFlow } from "./ui/flow.js";
 import "./ui/steps.js";
 import { claimLaunch, listSamples, onLaunch } from "./desktop.js";
@@ -100,7 +101,19 @@ const overlayInsets = () => {
   const chip = readoutChip.getBoundingClientRect();
   return { top, bottom: chip.height ? stage.bottom - chip.top + 8 : 0, left: 0, right: 0 };
 };
-const drawingViewer = new DrawingViewer({ stage: $("stage"), canvas: $("view2d") }, { onHover: onDrawingHover, insets: overlayInsets });
+const drawingViewer = new DrawingViewer({ stage: $("stage"), canvas: $("view2d") }, {
+  onHover: (index, at) => measureTool.hover(at) || onDrawingHover(index), // 測っている間は図形を強調しない（吸い付く点の印だけ）
+  onClick: (hit) => measureTool.click(hit),
+  insets: overlayInsets,
+});
+// 選ぶ・測る（docs/ui.md §19）。図面の図を見ている間だけ
+const measureTool = new MeasureTool({
+  viewer: drawingViewer,
+  context: () => (sheet?.view === "sheet" && sheet.scene
+    ? { scene: sheet.scene, units: sheet.model.drawing.units.name, scaleOf: (i) => sheet.model.drawing.layers.get(sheet.scene.items[i]?.layer)?.scale ?? 1 }
+    : null),
+  readout: (text) => highlightItems([], text ?? undefined),
+});
 
 function showMessage(id, message) {
   $(id).textContent = message;
@@ -120,6 +133,7 @@ function setMode(mode) {
   $("view2d").hidden = mode !== "drawing";
   $("stage").setAttribute("aria-label", mode === "drawing" ? "図面" : "3D ビュー");
   if (mode !== "drawing") {
+    measureTool.reset();
     sheet = null;
     drawingViewer.clear();
     delete $("app").dataset.layout;
@@ -294,6 +308,7 @@ function showDrawingView(key) {
   setPanelMode(is3d ? "model3d" : "drawing");
   idleText = IDLE_TEXT[is3d ? "model3d" : "drawing"];
   current = null;
+  measureTool.reset();
   if (is3d) show3d(index);
   else {
     renderLayoutTabs(); // 欄の切り替え（data-mode）が出したページのタブを、ページの数に合わせ直す
@@ -342,6 +357,8 @@ function renderSheet(fit) {
   const pick = (on) => new Set([...sheet.layers].filter(([, v]) => v === on).map(([k]) => k));
   sheet.scene = buildScene(drawing, layout, { hidden: pick(false), shown: pick(true) });
   drawingViewer.show(sheet.scene, { fit });
+  if (fit) measureTool.reset(); // 別の図面・レイアウト
+  else measureTool.refresh(); // 画層の切り替え: 選んだ図形と測った線を残す
   const visible = (name) => {
     if (sheet.layers.has(name)) return sheet.layers.get(name);
     const l = drawing.layers.get(name);
@@ -468,6 +485,11 @@ addEventListener("keydown", (event) => {
   if (!sheet || sheet.view !== "sheet" || !["PageUp", "PageDown"].includes(event.key) || event.target.closest?.("input, select, textarea")) return;
   event.preventDefault();
   showLayout(sheet.layout + (event.key === "PageDown" ? 1 : -1));
+});
+
+// M で測る・Esc で 1 つ戻す（1 点目 → 測る → 選んだ図形）。図面の図を見ているときだけ（入力の欄の中は除く。MeasureTool.key）
+addEventListener("keydown", (event) => {
+  if (!dimEditor.isOpen && measureTool.key(event)) event.preventDefault();
 });
 
 /** 図面の図形の強調（読み出しの文と、画層の行の印） */

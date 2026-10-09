@@ -111,11 +111,13 @@ export function flattenSubpath({ points, curves = [], closed = false }, step = 0
 }
 
 // ---- 膨らみ ---------------------------------------------------------------------------------------------------------
-/** 膨らみ（bulge = tan(中心角 / 4)。正 = 反時計回り）のある線分 a → b を点の列に（a を含めず b を含む）。step は刻みの角度 */
-export function bulgePoints(a, b, bulge, step = Math.PI / 32) {
-  const z = b[2] ?? a[2] ?? 0;
+/**
+ * 膨らみ（bulge = tan(中心角 / 4)。正 = 反時計回り）のある線分 a → b の円弧 → { center, radius, theta（中心角。符号つき）, start（a の角）, mid（弧の中点）}。
+ * 膨らみが無い（直線）・弦が 0 なら null
+ */
+export function bulgeArc(a, b, bulge) {
   const chord = Math.hypot(b[0] - a[0], b[1] - a[1]);
-  if (!bulge || chord === 0) return [[b[0], b[1], z]];
+  if (!bulge || chord === 0) return null;
   const theta = 4 * Math.atan(bulge);
   const radius = chord / (2 * Math.sin(Math.abs(theta) / 2));
   // 中心: 弦の中点から、弦の左（反時計回りのとき）へ h。半円を越える弧は h が負になり、反対側へ
@@ -123,6 +125,16 @@ export function bulgePoints(a, b, bulge, step = Math.PI / 32) {
   const dir = [(b[0] - a[0]) / chord, (b[1] - a[1]) / chord];
   const center = [(a[0] + b[0]) / 2 - sign * h * dir[1], (a[1] + b[1]) / 2 + sign * h * dir[0]];
   const start = Math.atan2(a[1] - center[1], a[0] - center[0]);
+  const half = start + theta / 2;
+  return { center, radius, theta, start, mid: [center[0] + radius * Math.cos(half), center[1] + radius * Math.sin(half)] };
+}
+
+/** 膨らみのある線分 a → b を点の列に（a を含めず b を含む）。step は刻みの角度 */
+export function bulgePoints(a, b, bulge, step = Math.PI / 32) {
+  const z = b[2] ?? a[2] ?? 0;
+  const arc = bulgeArc(a, b, bulge);
+  if (!arc) return [[b[0], b[1], z]];
+  const { center, radius, theta, start } = arc;
   const n = Math.max(1, Math.ceil(Math.abs(theta) / step));
   const out = [];
   for (let i = 1; i < n; i++) {

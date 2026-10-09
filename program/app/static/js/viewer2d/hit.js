@@ -1,5 +1,5 @@
 // 指した点に近い図形を探す索引（DOM に依存しない）。scene.js の描くもの（線・塗り・文字・点）から作る。
-//   const index = new HitIndex(scene); index.find(x, y, tolerance) → items の番号 | null
+//   const index = new HitIndex(scene); index.find(x, y, tolerance) → items の番号 | null・index.has(番号) → 描いた（指せる）図形か（隠した画層の図形は false）
 // 線分は一様な格子に入れる（格子の幅は外形の 1/256）。格子を多くまたぐ長い線分（放射線など）は別に持ち、毎回調べる。
 // 近さ: 線分・点は距離、文字は内側なら 0、塗り（ハッチング・塗り潰し）は内側なら許容の半分（境界の線のほうを先に拾う）。
 // 同じ近さなら後に描いたもの（上にあるもの）を選ぶ。
@@ -16,6 +16,7 @@ export class HitIndex {
     this.long = [];
     this.segments = []; // [x0, y0, x1, y1, item, order]
     this.areas = []; // { item, order, rings, box, clip? }（塗り・文字の外形）
+    this.drawn = new Set(); // 線・塗り・文字・点のどれかを描いた図形の番号
     let order = 0;
     for (const s of scene.strokes) {
       for (const line of s.lines) {
@@ -34,7 +35,12 @@ export class HitIndex {
     return i * 100003 + j;
   }
 
+  has(item) {
+    return this.drawn.has(item);
+  }
+
   #addSegment(seg) {
+    this.drawn.add(seg[4]);
     const index = this.segments.length;
     this.segments.push(seg);
     const [i0, j0] = this.#cellOf(Math.min(seg[0], seg[2]), Math.min(seg[1], seg[3]));
@@ -66,11 +72,23 @@ export class HitIndex {
       }
     }
     if (!(x0 <= x1)) return;
+    this.drawn.add(item);
     this.areas.push({ item, order, rings, clip, inside, box: [x0, y0, x1, y1] });
   }
 
   #cellOf(x, y) {
     return [Math.floor((x - this.min[0]) / this.cell), Math.floor((y - this.min[1]) / this.cell)];
+  }
+
+  /** (x, y) の周り radius の内を通るかもしれない線分 [ax, ay, bx, by, item, …]（格子で絞るだけ。交点を求めるのに使う） */
+  segmentsNear(x, y, radius) {
+    const [i0, j0] = this.#cellOf(x - radius, y - radius);
+    const [i1, j1] = this.#cellOf(x + radius, y + radius);
+    const found = new Set(this.long);
+    if ((i1 - i0 + 1) * (j1 - j0 + 1) <= 4 * MAX_CELLS) {
+      for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) for (const index of this.cells.get(this.#key(i, j)) ?? []) found.add(index);
+    }
+    return [...found].map((index) => this.segments[index]);
   }
 
   /** (x, y) から tolerance（図面の単位）の内で最も近い図形の番号 */

@@ -226,6 +226,23 @@ kbd { font: 500 var(--fs-xs)/1.35 var(--font-num); padding: 0 5px; border: 1px s
 .tool-group button.is-check:hover { background: var(--accent-soft); }
 .tool-group button.is-check::before { content: "☐"; margin-inline-end: 5px; color: var(--muted); }
 .tool-group button.is-check[aria-pressed="true"]::before { content: "☑"; color: var(--accent); }
+/* 測る（図面。docs/ui.md §19）: 押した状態はタブと同じ塗り（モード）。測っている間は、ツールバーの下の行に案内の帯（短く: いま・次・やめる） */
+.tool-group #measure { font-weight: 600; }
+.tool-group #measure kbd { margin-inline-start: 4px; line-height: 1; margin-block: -2px; } /* 札でボタンが高くならないように（ほかのボタンと高さをそろえる） */
+.tool-group #measure[aria-pressed="true"] kbd { color: var(--accent); border-color: currentColor; }
+.measure-row { flex-basis: 100%; display: flex; justify-content: center; pointer-events: none; }
+.measure-band {
+  pointer-events: auto; display: flex; align-items: center; gap: 14px; max-width: 100%; box-sizing: border-box; padding: 6px 8px 6px 14px;
+  background: var(--surface); border: 1px solid var(--accent); border-radius: 10px; box-shadow: var(--shadow-1); font-size: var(--fs-s);
+}
+.measure-band b { color: var(--accent); }
+.measure-band #measure-step { color: var(--ink); font-weight: 600; }
+.measure-band .measure-snaps { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.measure-band button { font: 500 var(--fs-s)/1 var(--font-ui); padding: 6px 10px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); color: var(--ink); cursor: pointer; white-space: nowrap; }
+.measure-band button:hover { border-color: var(--accent); background: var(--accent-soft); }
+.measure-card dd:first-of-type { font: 700 var(--fs-l) var(--font-num); color: var(--accent); } /* 距離は大きく（結果の要） */
+.measure-card dt:first-of-type { align-self: center; }
+.selection-card dd, .measure-card dd { overflow-wrap: anywhere; }
 /* 3D に塗った結果の凡例（右下） */
 .stage-legend {
   position: absolute; right: 12px; bottom: 14px; margin: 0; display: flex; gap: 12px; padding: 6px 12px; pointer-events: none;
