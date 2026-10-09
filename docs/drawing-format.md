@@ -360,7 +360,7 @@ node program/tools/sxf-check.mjs --arrows program/samples/dwg program/tests/fixt
 | `formats/dwg/objects.js` | 3DSOLID などの ACIS のデータ（版 1: 隠した SAT の文字、版 2: SAT か SAB）。R2013+ はオブジェクトの中に無い |
 | `formats/dwg/acds.js` | R2013+ の AcDs の節（AcDb:AcDsPrototype_1b）からハンドルで ACIS のデータを取り出す（ACadSharp（MIT）の読みに従う） |
 | `formats/acis/` | ACIS の読み（`sab.js`）と B-rep（`brep.js`）。**Inventor（.ipt）と共用**（もとは `formats/ipt/`）。`index.js` は表示の形と三角形 |
-| `formats/cad2d/solids3d.js` | 図面の中のソリッドを集める（置き方・色・単位を mm に）→ `drawing.models3d`（format: "ACIS"） |
+| `formats/cad2d/solids3d.js` | 図面の中のソリッドを集める（置き方・色・単位を mm に・ブロック参照の道筋）→ `drawing.models3d`（format: "ACIS"）。道筋で一覧を木にする（docs/ui.md §18） |
 | `formats/model3d.js` | 3D の表示のメッシュ（PDF の U3D と同じ形）。同じ形は 1 回だけ三角形にする。原点から遠い座標は中心をずらす |
 | `formats/cad2d/placement.js` | ブロック参照の置き方の行列（2D と 3D で共用） |
 

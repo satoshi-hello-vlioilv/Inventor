@@ -336,23 +336,41 @@ export function renderDrawingPanel({ drawing, describe, layout, visible, display
 }
 
 /**
- * 3D の PDF の 3D（U3D・PRC）。部品は、ファイルに置かれた順。
+ * 3D の PDF の 3D（U3D・PRC）と図面の 3D ソリッド。部品は、ファイルに置かれた順。
  * @param {{ format: string, describe: object | null, error?: string, warnings?: string[] }} data
  *   describe … viewer/describe.js の describeMeshes の結果（読めなかったときは null と error）
- * @returns {Map<string, HTMLElement>} 部品のキー → 行
+ * @param {{ onEnter, onLeave, tree?: { nodes, state }, onPick?, onChange? }} handlers
+ *   tree … 図面の 3D ソリッドの木（describeSolidTree の nodes と、開閉・消した行 state）。あれば木で描く（ui/tree.js）
+ * @returns {Map<string, HTMLElement>} 部品のキー → 行（木では、行の key と部品のキー。閉じた枝の中の部品は、その枝の行）
  */
 export function renderModel3dPanel({ format, describe, error = "", warnings = [], units = null }, handlers) {
   $("model3d-units").textContent = units ? `大きさは ${units}` : "大きさはファイルの単位"; // 図面の 3D ソリッドは mm に直してある
   definitionList("model3d-info", [
     ["形式", format],
     ["部品", describe ? `${describe.groups.length}` : "—"],
-    ["面", describe ? `${describe.faces}` : "—"],
+    ["三角形", describe ? `${describe.faces}` : "—"],
     ["大きさ", describe?.size ? fmtSize(describe.size) : "—"],
   ]);
   const notes = [error, warnings.length ? `表示していないもの: ${warnings.join("・")}` : ""].filter(Boolean);
   $("model3d-warn").hidden = !notes.length;
   $("model3d-warn").textContent = notes.join("。");
+  const tree = Boolean(handlers.tree);
+  $("model3d-tree").hidden = !tree;
+  $("model3d-parts").hidden = tree;
+  $("model3d-note").textContent = tree ? "カーソルを合わせると強調 · 目で消す" : "カーソルを合わせると強調";
+  if (tree) {
+    // 図面の 3D ソリッドは木（ui/tree.js）。3D から指した部品は、見えている一番近い行で示す
+    const { nodes, state } = handlers.tree;
+    const rows = renderTree($("model3d-tree"), nodes, state, handlers);
+    const byPart = (list, shown) => list.forEach((n) => {
+      const row = rows.get(n.key) ?? shown;
+      if (!n.children.length) for (const key of n.keys) if (!rows.has(key)) rows.set(key, row);
+      byPart(n.children, row);
+    });
+    byPart(nodes, null);
+    return rows;
+  }
   return renderRows("model3d-parts", describe?.groups ?? [],
-    (g) => ({ kind: String(g.number).padStart(2, "0"), dim: g.name || "（名前なし）", count: null, sub: `面 ${g.faces}` }), handlers,
+    (g) => ({ kind: String(g.number).padStart(2, "0"), dim: g.name || "（名前なし）", count: null, sub: `三角形 ${g.faces}` }), handlers,
     error ? "読めなかったので、部品はありません" : "表示できる形がありません");
 }

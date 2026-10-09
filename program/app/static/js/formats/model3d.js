@@ -58,13 +58,15 @@ function fileView(views, name = "DefaultView") {
 
 /**
  * 読んだ結果 → 3D 表示のメッシュ。部品（モデルのノードの置き方）ごとに 1 つ、陰影ごとに群（色はファイルの材質の色）。
- * parts: 部品の一覧（名前・面と頂点の数・群の id。id で 3D と欄の行を結ぶ）
+ * parts: 部品の一覧（名前・三角形と頂点の数 faces・vertices・群の id。id で 3D と欄の行を結ぶ）
+ *   図面の 3D ソリッドは solid: { label（種類と番号）, layer, path（ブロック参照の道筋）, size（外形 mm）, shape（形のデータの番号）} も持つ（一覧を木にする）
  */
 function viewerMeshes(result, prefix = "3d") {
   const parts = [];
   const meshes = result.meshes.map((m, i) => {
     const ids = m.groups.map((g, k) => `${prefix}:${i}:${k}`);
-    parts.push({ name: m.instance ? `${m.name}（${m.instance + 1}）` : m.name, faces: m.faces, vertices: m.vertices, ids });
+    parts.push({ name: m.instance ? `${m.name}（${m.instance + 1}）` : m.name, faces: m.faces, vertices: m.vertices, ids,
+      ...(m.solid && { solid: m.solid }) });
     return {
       positions: m.positions, normals: m.normals, index: m.index, matrix: m.matrix,
       groups: m.groups.map((g, k) => ({ start: g.start, count: g.count, id: ids[k], tone: "exact", color: g.color })),
@@ -77,6 +79,19 @@ function viewerMeshes(result, prefix = "3d") {
 
 const SOLID_LABEL = { "3DSOLID": "3D ソリッド", REGION: "リージョン", BODY: "ボディ", PLANESURFACE: "平面サーフェス", EXTRUDEDSURFACE: "押し出しサーフェス",
   LOFTEDSURFACE: "ロフトサーフェス", REVOLVEDSURFACE: "回転サーフェス", SWEPTSURFACE: "スイープサーフェス", NURBSURFACE: "NURBS サーフェス" };
+/** 置いた形の外形の大きさ（列優先の行列で移した頂点の範囲） */
+function extent(p, m) {
+  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < p.length; i += 3) {
+    for (let k = 0; k < 3; k++) {
+      const v = m[k] * p[i] + m[4 + k] * p[i + 1] + m[8 + k] * p[i + 2] + m[12 + k];
+      if (v < lo[k]) lo[k] = v;
+      if (v > hi[k]) hi[k] = v;
+    }
+  }
+  return lo.every(Number.isFinite) ? hi.map((v, k) => v - lo[k]) : [0, 0, 0];
+}
+
 // AutoCAD の「南東の等角図」（右手前の上から見る。Z が上）
 const SOUTH_EAST = { direction: [1, -1, 1].map((v) => v / Math.sqrt(3)), up: [-1, 1, 2].map((v) => v / Math.sqrt(6)) };
 
@@ -98,6 +113,7 @@ function readSolids({ solids, unit = 1 }) {
   const centers = placed.map(({ s, m }) => apply(s.matrix, m.center));
   const middle = centers.length ? [0, 1, 2].map((k) => (Math.min(...centers.map((c) => c[k])) + Math.max(...centers.map((c) => c[k]))) / 2) : [0, 0, 0];
   const meshes = [];
+  const shapes = [...meshOf.keys()]; // 形のデータの番号（同じブロックの参照は同じ形のデータを指す。置き方に左右されずに同じ形と分かる）
   solids.forEach((s, i) => {
     const m = meshOf.get(s.acis);
     if (!m) return void (unreadable += 1);
@@ -106,8 +122,10 @@ function readSolids({ solids, unit = 1 }) {
     const a = multiply(multiply(translation(middle.map((v) => -v)), s.matrix), translation(m.center));
     const k = unit;
     const matrix = [a[0] * k, a[4] * k, a[8] * k, 0, a[1] * k, a[5] * k, a[9] * k, 0, a[2] * k, a[6] * k, a[10] * k, 0, a[3] * k, a[7] * k, a[11] * k, 1];
+    const label = `${SOLID_LABEL[s.solid] ?? s.solid} ${i + 1}`;
     meshes.push({
-      name: `${SOLID_LABEL[s.solid] ?? s.solid} ${i + 1}（画層 ${s.layer}）`, instance: 0,
+      name: `${label}（画層 ${s.layer}）`, instance: 0,
+      solid: { label, layer: s.layer, path: s.path ?? [], size: extent(m.positions, matrix), shape: shapes.indexOf(s.acis) },
       positions: m.positions, normals: m.normals, index: m.index, matrix,
       groups: [{ start: 0, count: m.index.length, color: s.color }], faces: m.index.length / 3, vertices: m.positions.length / 3,
     });

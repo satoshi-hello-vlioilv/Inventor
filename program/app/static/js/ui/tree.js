@@ -3,7 +3,7 @@
 //   親を消すと中も消える（中の行は淡くなる）。行を押すと、組立なら開閉、部品なら handlers.onPick（部品を開くなど）。
 //
 //   renderTree(ul, nodes, state, handlers) → Map<行の key, 行の要素>
-//     nodes … [{ key, name, count, sub, children, ids }]（ids … 3D の部品の id。強調・消すのに使う）
+//     nodes … [{ key, name, count, sub, children, ids }]（count … ×n。null なら出さない。ids … 3D の部品の id。強調・消すのに使う）
 //     state … { open: Set<key>, hidden: Set<key> }（呼ぶ側が持つ。描き直しても開閉・表示を保つ）
 //     handlers … { onEnter(node), onLeave(), onPick(node), onChange() }（onChange: 開閉・表示が変わった。呼ぶ側が描き直す）
 //   hiddenIds(nodes, state) → 消えている部品の id（自分か親が消えている行の ids）
@@ -30,7 +30,7 @@ export function renderTree(list, nodes, state, handlers) {
     li.tabIndex = items.length ? -1 : 0;
     const line = el("div", "tree-line");
     line.append(el("span", "tree-twisty", branch ? (open ? "▾" : "▸") : ""), el("span", branch ? "tree-icon is-branch" : "tree-icon", branch ? "▣" : "◧"),
-      el("span", "tree-name", node.name), el("span", "tree-count", `×${node.count}`));
+      el("span", "tree-name", node.name), el("span", "tree-count", node.count == null ? "" : `×${node.count}`)); // 数の無い行（1 つだけ）は出さない
     const eye = el("button", `tree-eye${hidden ? " is-off" : ""}`);
     eye.type = "button";
     eye.innerHTML = hidden ? EYE_OFF : EYE;
