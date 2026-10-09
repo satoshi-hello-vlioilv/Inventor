@@ -169,6 +169,17 @@ export const STATES = [
     await p.reload(); await p.waitForSelector("#shortcut-offer:not([hidden])");
     if (await p.$("#start[open]")) await p.keyboard.press("Escape");
   }, "#shortcut-offer-make"],
+  // 変換データの寸法を直す（穴・面取り・直せない斜めの辺のある刃）。前の状態の問い・知らせは閉じる
+  ["specedit", async (p, dev) => {
+    await dev("shortcut?desktop=ok"); await p.reload(); await sleep(600);
+    if (await p.$("#start[open]")) await p.keyboard.press("Escape");
+    await openFile(p, FIXTURE("blade"));
+  }, "[data-next], #build"],
+  // 寸法を直す欄（部品の行を押し、直径を 240 → 250 に）。欄の無い版では、変換データの一覧のまま
+  ["dimedit", async (p) => {
+    await p.click("#parts li button"); await sleep(400);
+    if (await p.$("#dim-D0\\.0")) { await p.fill("#dim-D0\\.0", "250"); await p.press("#dim-D0\\.0", "Enter"); await sleep(800); }
+  }, "[data-next], #build"],
 ];
 
 async function openSettings(p) {

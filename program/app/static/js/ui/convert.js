@@ -36,9 +36,12 @@ export function setSpec(next, sourceName = "") {
   setBuildSpec(kinds ? spec : null);
 }
 
+/** いまの変換データを、保存の窓で選んだ場所へ書く → 保存した場所（やめたら null） */
+export const saveSpec = () => saveFile({ name: fileName, title: "変換データを保存", filter: { label: "変換データ", extensions: ["json"] }, content: formatSpec(spec) });
+
 $("save-spec").addEventListener("click", async () => {
   try {
-    const path = await saveFile({ name: fileName, title: "変換データを保存", filter: { label: "変換データ", extensions: ["json"] }, content: formatSpec(spec) });
+    const path = await saveSpec();
     if (path) note(`${path} に保存しました`);
   } catch (error) {
     note(`保存できませんでした: ${error.message}（「コピー」で写すこともできます）`);

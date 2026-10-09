@@ -73,9 +73,10 @@ export class Viewer {
    * scene.meshes    … 三角形メッシュ（部品ごとの groups 付き。HTML から取り出したもの・3D の PDF。groups の color はファイルの色）
    * scene.view      … 最初の視点 { direction（注視点 → カメラ）, up（画面の上）}（3D の PDF の既定の視点）。up に最も近い軸が
    *                    表示の上（+Y）になるようにモデルを回し、その軸の周りに回転させる。無ければ等角
+   * @param {{ keepView?: boolean }} options  keepView … 視点を変えない（同じ形を直して描き直すとき）
    * @returns {{ volume?: number, volumes?: number[] }}  体積（mm³）。組立は部品ごと
    */
-  show(sceneData) {
+  show(sceneData, { keepView = false } = {}) {
     this.clear();
     let stats = {};
     if (sceneData.meshes) this.#showMeshes(sceneData.meshes);
@@ -86,7 +87,7 @@ export class Viewer {
     this.bounds.setFromObject(this.model);
     this.applyColors();
     // 表示の切り替え（HTML ⇄ ほか）で 3D の場所の大きさが変わった直後でも、新しい大きさで全体を収める
-    if (this.fitted) {
+    if (this.fitted && !keepView) {
       this.#syncSize();
       this.setView(this.home, false);
     }

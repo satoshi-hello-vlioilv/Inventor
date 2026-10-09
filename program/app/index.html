@@ -171,6 +171,27 @@
         <div class="tally" id="tally" data-mode="html"></div>
         <div class="tally" id="spec-tally" data-mode="spec"></div>
         <ul class="features" id="parts"></ul>
+        <!-- 寸法を直す欄（変換データの部品の行を押すと、部品の一覧と入れ替わる。ui/dimedit.js） -->
+        <div class="dim-edit" id="dim-edit" hidden>
+          <button type="button" class="dim-back" id="dim-back">← 作る部品の一覧</button>
+          <div class="dim-head"><b id="dim-title"></b><span id="dim-name"></span></div>
+          <div class="dim-sketch" id="dim-sketch"></div>
+          <div class="dim-bar">
+            <span class="dim-count" id="dim-count"></span>
+            <button type="button" class="dim-tool" id="dim-undo" disabled>↶ 取り消す</button>
+            <button type="button" class="dim-tool" id="dim-redo" disabled>↷ やり直す</button>
+          </div>
+          <ul class="dim-groups" id="dim-groups"></ul>
+          <p class="dim-linked" id="dim-linked" role="status" hidden></p>
+          <details class="dim-fixed" id="dim-fixed">
+            <summary id="dim-fixed-summary"></summary>
+            <ul id="dim-fixed-list"></ul>
+          </details>
+          <div class="dim-save-row">
+            <button type="button" class="secondary" id="dim-save">直した変換データを保存</button>
+            <p class="dim-save-note" id="dim-save-note" role="status"></p>
+          </div>
+        </div>
         <details class="more" data-mode="html">
           <summary id="excluded-summary">除外したもの</summary>
           <dl class="topology" id="excluded"></dl>

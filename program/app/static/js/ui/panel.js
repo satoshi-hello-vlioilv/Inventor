@@ -241,6 +241,7 @@ export function renderAsmPanel({ describe, scene }, handlers) {
  */
 export function renderHtmlPanel({ describe }, handlers) {
   const { counts } = describe;
+  $("parts-note").textContent = "mm";
   renderTally("tally", [
     ["exact", "正確", counts.exact, "回転体・押し出しとして寸法を復元"],
     ["approx", "近似", counts.approx, "三角形のまま（円は多角形）"],
@@ -267,8 +268,9 @@ export function renderSpecPanel({ describe }, handlers) {
   if (counts.approx) tally.push(["approx", "うち近似", `${counts.approx} 種類`, "三角形のまま作る部品（円は多角形）"]);
   if (counts.skipped) tally.push(["approx", "作らない", `${counts.skipped} 個`, "取り込んだときに近似（三角形のまま）だった部品（版 2 までの変換データ）"]);
   renderTally("spec-tally", tally);
+  $("parts-note").textContent = "mm · 行を押すと寸法を直せます";
   return renderRows("parts", describe.groups,
-    (g) => ({ kind: g.label, dim: g.main, count: g.ids.length, sub: g.sub, note: g.note, tone: g.tone, title: g.name }), handlers,
+    (g) => ({ kind: g.label, dim: g.main, count: g.ids.length, sub: g.sub, note: g.note, tone: g.tone, title: `${g.name}（押すと寸法を直せます）` }), handlers,
     "作れる部品がありません");
 }
 

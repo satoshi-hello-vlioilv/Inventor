@@ -16,7 +16,9 @@ import { read3d } from "./formats/model3d.js";
 import { ACCEPT, FORMATS, FORMAT_NAMES, OPENABLE, detectFormat, explainError, partOf, readModel } from "./formats/open.js";
 import { buildDisplayMeshes, describeRecognition } from "./html/describe.js";
 import { SourceFrame } from "./html/frame.js";
-import { setSpec } from "./ui/convert.js";
+import { History } from "./edit/history.js";
+import { saveSpec, setSpec } from "./ui/convert.js";
+import { DimensionEditor } from "./ui/dimedit.js";
 import { onFlow, setNext, updateFlow } from "./ui/flow.js";
 import "./ui/steps.js";
 import { claimLaunch, listSamples, onLaunch } from "./desktop.js";
@@ -109,6 +111,7 @@ const showNotice = (message) => showMessage("notice", message);
 
 /** 表示モード: empty（何も開いていない）・ipt（部品）・asm（組立）・html・spec（変換データ）。 */
 function setMode(mode) {
+  dimEditor.close();
   $("app").classList.toggle("is-html", mode === "html");
   $("app").classList.toggle("is-empty", mode === "empty");
   $("app").classList.toggle("is-drawing", mode === "drawing");
@@ -563,6 +566,52 @@ function loadHtml(text, name, isSample = false) {
 }
 
 // ---- 変換データ（.inventor.json）-----------------------------------------------------
+let openSpec = null; // 開いている変換データ { spec（直した後）, original（開いたとき）, name }
+const specEdits = new History({ onChange: () => dimEditor.refresh() }); // 寸法の直しの取り消し・やり直し
+const dimEditor = new DimensionEditor({
+  history: specEdits,
+  getSpec: () => openSpec.spec,
+  commit: (spec) => showSpec(spec, { keepView: true }),
+});
+
+/** 変換データを 3D・部品の一覧・作る仕事へ出す（開いたとき・寸法を直したとき） */
+function showSpec(spec, { keepView = false } = {}) {
+  openSpec.spec = spec;
+  const describe = describeSpec(spec);
+  viewer?.show(previewScene(spec), { keepView });
+  const rows = renderSpecPanel({ describe }, {
+    ...rowHandlers((g) => g.ids),
+    onClick: (g) => dimEditor.open(spec.parts.findIndex((p) => p.key === g.key), openSpec.original),
+  });
+  current = { info: describe.partInfo, rows };
+  specParts = describe.groups;
+  highlight([]);
+  setSpec(spec, openSpec.name);
+}
+
+$("dim-save").addEventListener("click", async () => {
+  const note = (text) => ($("dim-save-note").textContent = text);
+  try {
+    const path = await saveSpec();
+    if (path) {
+      specEdits.markSaved();
+      note(`${path} に保存しました`);
+    }
+  } catch (error) {
+    note(`保存できませんでした: ${error.message}`);
+  }
+});
+
+// Ctrl+Z・Ctrl+Y（Ctrl+Shift+Z）で寸法の直しを取り消す・やり直す（数の欄の中は、欄の文字の取り消し）
+addEventListener("keydown", (event) => {
+  if (!dimEditor.isOpen || !(event.ctrlKey || event.metaKey) || event.target.closest?.("input, textarea, select")) return;
+  const key = event.key.toLowerCase();
+  if (key === "z" && !event.shiftKey) specEdits.undo();
+  else if (key === "y" || (key === "z" && event.shiftKey)) specEdits.redo();
+  else return;
+  event.preventDefault();
+});
+
 function loadSpec(text, name, isSample = false) {
   let spec;
   try {
@@ -577,13 +626,10 @@ function loadSpec(text, name, isSample = false) {
   const { file, captured_at: at } = spec.source;
   const when = at && !Number.isNaN(Date.parse(at)) ? new Date(at).toLocaleString("ja-JP") : null;
   renderHeader({ eyebrow: "変換データ", name, meta: [file && `${file} から取り込み`, when].filter(Boolean).join(" · "), isSample, thumbnailUrl: null });
-  const describe = describeSpec(spec);
-  viewer?.show(previewScene(spec));
-  const rows = renderSpecPanel({ describe }, rowHandlers((g) => g.ids));
-  current = { info: describe.partInfo, rows };
-  specParts = describe.groups;
-  highlight([]);
-  setSpec(spec, name);
+  openSpec = { spec, original: spec, name };
+  specEdits.clear();
+  $("dim-save-note").textContent = "";
+  showSpec(spec);
 }
 
 async function load(bytes, name, isSample = false) {

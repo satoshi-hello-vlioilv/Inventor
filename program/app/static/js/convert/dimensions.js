@@ -133,6 +133,9 @@ function filletAt({ corner, back, forward }, r) {
 
 // ---- 寸法の一覧 ----------------------------------------------------------------------------
 
+/** 寸法の置き場所（全体・外周・穴 n。回転体は断面）。画面で寸法を見出しで分けるのに使う */
+export const placeOf = (dim, part) => (!dim.at ? "全体" : part.kind === "revolve" ? "断面" : loopName(dim.at.loop));
+
 /**
  * 部品の寸法の一覧（表示の順: 形 → 断面 → 面取り）。
  * @returns {{ id, kind, label, value, unit, editable, reason?, at? }[]}
