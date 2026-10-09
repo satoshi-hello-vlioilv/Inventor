@@ -12,8 +12,6 @@ from __future__ import annotations
 import math
 import re
 
-import numpy as np
-
 H = 1e-7  # cm: 数値微分の幅
 RESIDUAL = 1e-6  # 今の形に合うとみなす式の値（cm・単位ベクトルの成分）
 VALUE_TOL = 1e-7  # cm: 寸法の式の値と今の寸法の差の許容（名前つきの値は mm で小数 6 桁。Inventor は形をその差だけ動かす）
@@ -245,9 +243,9 @@ class ConstraintSystem:
         return [(lambda e=e: math.dist(_xy(e.StartSketchPoint), _xy(e.CenterSketchPoint)) - math.dist(_xy(e.EndSketchPoint), _xy(e.CenterSketchPoint)))
                 for e in self.sketch.entities if hasattr(e, "CenterSketchPoint") and not hasattr(e, "radius")]
 
-    def row(self, f, variables) -> np.ndarray:
+    def row(self, f, variables) -> list[float]:
         """式 f の勾配（数値微分）"""
-        out = np.zeros(len(variables))
+        out = [0.0] * len(variables)
         for j, (obj, attr) in enumerate(variables):
             v = getattr(obj, attr)
             setattr(obj, attr, v + H)
@@ -258,12 +256,12 @@ class ConstraintSystem:
             out[j] = (plus - minus) / (2 * H)
         return out
 
-    def basis(self) -> np.ndarray:
+    def basis(self) -> list[list[float]]:
         """これまでの式（円弧の式を含む）の勾配が張る空間の正規直交基底（スケッチに線が増えたら作り直す）"""
         variables = self.variables()
         key = (len(self.sketch.entities), len(variables))
         if getattr(self, "_key", None) != key:
-            self._key, self._variables, self._basis, self._count = key, variables, np.zeros((0, len(variables))), 0
+            self._key, self._variables, self._basis, self._count = key, variables, [], 0
             for f in self.inherent():
                 self._extend(f)
         while self._count < len(self.equations):
@@ -274,16 +272,19 @@ class ConstraintSystem:
     def _extend(self, f) -> bool:
         """勾配が今の基底と独立なら基底に足して True（グラム・シュミットを 2 回。丸めの誤差を抑える）"""
         r = self.row(f, self._variables)
-        norm = np.linalg.norm(r)
+        norm = math.sqrt(math.fsum(v * v for v in r))
         if norm == 0:
             return False
-        r = r / norm
+        r = [v / norm for v in r]
         for _ in range(2):
-            r = r - self._basis.T @ (self._basis @ r)
-        rest = np.linalg.norm(r)
+            for b in self._basis:
+                d = math.fsum(x * y for x, y in zip(r, b))
+                if d:
+                    r = [x - d * y for x, y in zip(r, b)]
+        rest = math.sqrt(math.fsum(v * v for v in r))
         if rest <= 1e-7:
             return False
-        self._basis = np.vstack([self._basis, r / rest])
+        self._basis.append([v / rest for v in r])
         return True
 
     def add(self, label: str, f) -> None:
