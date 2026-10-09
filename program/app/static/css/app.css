@@ -26,7 +26,7 @@
   --steel: #97a2ae;
   --approx: #d3a867;
   --edge: #1b2530;
-  --light-ambient: 0.8; --light-key: 2.2; --light-fill: 1.2; /* 3D の光の強さ（空と地・主・左の補い。補いで面の向きの差を出す。docs/ui.md §14） */
+  --light-ambient: 0.7; --light-key: 2.5; --light-fill: 1.1; /* 3D の光の強さ（空と地・主・左の補い。補いで面の向きの差を出し、主を強く全体を弱くして締める。docs/ui.md §14） */
   --mark-ok: #3f9d5f; /* 3D の形を塗る一致の色（文字の --ok より明るく: 形の陰影を残す。ダークは --ok のまま） */
   --axis-x: #cc4136;
   --axis-y: #2b8f45;
@@ -287,6 +287,7 @@ kbd { font: 500 var(--fs-xs)/1.35 var(--font-num); padding: 0 5px; border: 1px s
 #missing-section .feature { border-bottom-color: color-mix(in srgb, var(--warn) 30%, transparent); }
 .side-scroll > .key-card { order: -2; margin: 12px -4px 6px; padding: 12px 14px; border-radius: 10px; background: var(--surface-2); box-shadow: none; }
 .key-card .dims div { background: var(--surface); }
+.key-card .dims dd { font-size: var(--fs-xl); font-weight: 600; } /* 要点の囲みの外形寸法は大きな数で（部品の大きさを一目で。docs/ui.md §14） */
 .key-sub { display: flex; flex-direction: column; gap: 10px; }
 .side-scroll > details.more { order: 98; }
 .side-scroll > .file-card { order: 99; padding-block: 10px; }
