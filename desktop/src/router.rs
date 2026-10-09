@@ -10,6 +10,17 @@
 //!   POST /api/build            作り始める（{spec, install, target: inventor | step}。jobs.rs）         … 合言葉
 //!   POST /api/build/cancel     中止する                                                          … 合言葉
 //!   POST /api/build/open       保存先をエクスプローラーで開く                                         … 合言葉
+//!   GET  /api/shortcut         ショートカット（デスクトップ・スタートメニュー）が有るか（shortcut.rs）     … 合言葉
+//!   POST /api/shortcut         ショートカットを作る・作り直す（{place: desktop | start}）              … 合言葉
+//!   POST /api/shortcut/decline 起動のときの「デスクトップに作りますか」に「作らない」と答えた             … 合言葉
+//!   GET  /api/update           版の管理の状態（置き場・配る版・版の一覧・役割。update::status）         … 合言葉
+//!   GET  /api/update/progress  版を置いている途中の進み具合                                         … 合言葉
+//!   POST /api/update/publish   ZIP から版を置く（{path}。ZIP は窓のファイルを選ぶ窓で選ぶ）              … 合言葉・開発者／メンテナンス者
+//!   POST /api/update/release   配る版を選ぶ（{version}）                                           … 合言葉・開発者／メンテナンス者
+//!   POST /api/update/delete    版を消す（{version}。配っている版は消せない）                           … 合言葉・開発者／メンテナンス者
+//!   POST /api/update/policy    残す版の数（{keep}）                                               … 合言葉・開発者／メンテナンス者
+//!   POST /api/update/roles     役割（{developers, maintainers}）                                  … 合言葉・開発者（最初の 1 人は自分を）
+//!   POST /api/update/settings  この PC の置き場（{dir}。空なら既定）                                 … 合言葉・開発者／メンテナンス者（置き場に届かないときは誰でも）
 //!   /__desktop/…               窓そのもの（自己診断など。main.rs が native として渡す）                 … 合言葉
 //!
 //! 合言葉: 開いた HTML のモデルは隔離した iframe（sandbox・別の生まれ）で動かす。その中のスクリプトも同じ置き場へ問い合わせを
@@ -17,6 +28,8 @@
 
 use crate::jobs::Jobs;
 use crate::received::Received;
+use crate::shortcut::Shortcuts;
+use crate::update;
 use serde_json::{json, Map, Value};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
@@ -47,8 +60,13 @@ impl Reply {
 pub type Native = Box<dyn Fn(&str, &str, bool, &[u8]) -> Option<Reply> + Send + Sync>;
 
 /// サンプルの種類（起動画面にこの順で並ぶ）と拡張子
-const SAMPLE_KINDS: [(&str, &[&str]); 5] =
-    [("ipt", &["ipt"]), ("iam", &["iam"]), ("stp", &["stp", "step"]), ("dwg", &["dwg", "dxf", "pdf", "jww"]), ("html", &["html", "htm"])];
+const SAMPLE_KINDS: [(&str, &[&str]); 5] = [
+    ("ipt", &["ipt"]),
+    ("iam", &["iam"]),
+    ("stp", &["stp", "step"]),
+    ("dwg", &["dwg", "dxf", "pdf", "jww", "sfc", "p21"]),
+    ("html", &["html", "htm"]),
+];
 
 pub struct Router {
     /// program フォルダ（画面は app、サンプルは samples）
@@ -58,6 +76,9 @@ pub struct Router {
     pub received: Arc<Received>,
     /// この PC に Inventor があるか（網では差し替える）
     pub inventor_installed: fn() -> bool,
+    pub shortcuts: Shortcuts,
+    /// 版を置いている途中の進み具合（1 つの窓で 1 つずつ）
+    pub publishing: update::Progress,
     pub native: Native,
 }
 
@@ -111,6 +132,22 @@ impl Router {
                 self.build_status(Map::new())
             }
             ("POST", "/api/build/open") => Reply::json(200, &json!({"opened": self.jobs.open_output()})),
+            ("GET", "/api/update") => Reply::json(200, &update::status(&self.program, &self.publishing)),
+            ("GET", "/api/update/progress") => Reply::json(200, &self.publishing.get()),
+            ("POST", p) if p.starts_with("/api/update/") => self.update_op(&p["/api/update/".len()..], body),
+            ("GET", "/api/shortcut") => Reply::json(200, &self.shortcuts.status()),
+            ("POST", "/api/shortcut/decline") => match self.shortcuts.decline() {
+                Ok(v) => Reply::json(200, &v),
+                Err(why) => Reply::error(500, &why),
+            },
+            ("POST", "/api/shortcut") => {
+                let place =
+                    serde_json::from_slice::<Value>(body).ok().and_then(|v| v["place"].as_str().map(str::to_string)).unwrap_or_default();
+                match self.shortcuts.create(&place) {
+                    Ok(status) => Reply::json(200, &status),
+                    Err(why) => Reply::error(500, &why),
+                }
+            }
             ("GET", p) if p.starts_with("/api/files/") => match self.received.path(&p["/api/files/".len()..]) {
                 Some(file) if file.is_file() => match std::fs::read(&file) {
                     Ok(bytes) => {
@@ -120,6 +157,61 @@ impl Router {
                 },
                 _ => Reply::error(404, "ファイルが見つかりません（移動・削除された可能性があります）"),
             },
+            _ => Reply::error(404, "ありません"),
+        }
+    }
+
+    /// 版の管理の操作。置き場の役割を毎回確かめる（画面の表示だけでは守らない）
+    fn update_op(&self, op: &str, body: &[u8]) -> Reply {
+        let v: Value = serde_json::from_slice(body).unwrap_or_default();
+        let (dir, _) = update::share_dir(&self.program);
+        let user = update::user_name();
+        let role = if dir.is_dir() { update::role_of(&dir, &user) } else { "unknown" };
+        let manage = || -> Result<(), Reply> {
+            if update::can_manage(role) {
+                Ok(())
+            } else {
+                Err(Reply::error(403, "版の管理は、開発者とメンテナンス者だけができます"))
+            }
+        };
+        let done = |r: Result<Value, String>| match r {
+            Ok(v) => Reply::json(200, &v),
+            Err(why) => Reply::error(400, &why),
+        };
+        let text = |k: &str| v[k].as_str().unwrap_or("").trim().to_string();
+        match op {
+            "publish" => {
+                if let Err(r) = manage() {
+                    return r;
+                }
+                if self.publishing.running() {
+                    return Reply::error(409, "いま別の版を置いています。終わってから、もう一度選んでください");
+                }
+                let keep = update::policy(&dir)["keep"].as_u64().unwrap_or(0) as usize;
+                let notes = text("notes");
+                done(update::publish_zip(&dir, Path::new(&text("path")), &update::who(), &self.publishing, keep).and_then(|mut r| {
+                    if !notes.is_empty() {
+                        r["notes"] = update::set_notes(&dir, r["version"].as_str().unwrap_or(""), &notes)?["notes"].clone();
+                    }
+                    Ok(r)
+                }))
+            }
+            "release" => manage().map_or_else(|r| r, |_| done(update::set_release(&dir, &text("version"), &update::who()))),
+            "notes" => manage().map_or_else(|r| r, |_| done(update::set_notes(&dir, &text("version"), &text("notes")))),
+            // そろえた後の「変わったこと」を見た（この PC のことなので、役割は問わない）
+            "seen" => done(self.program.parent().map_or(Ok(json!({"seen": true})), update::seen_news)),
+            "delete" => manage().map_or_else(|r| r, |_| done(update::delete_version(&dir, &text("version")))),
+            "policy" => manage().map_or_else(|r| r, |_| done(update::set_policy(&dir, v["keep"].as_u64().unwrap_or(0)))),
+            "roles" => done(update::set_roles(&dir, &user, &v)),
+            "settings" => {
+                // 置き場に届かないときは誰でも直せる（届かない置き場からは役割も読めないため）
+                if role != "unknown" {
+                    if let Err(r) = manage() {
+                        return r;
+                    }
+                }
+                done(crate::settings::save(&self.program, &json!({"update": {"dir": text("dir")}})).map(|_| json!({"saved": true})))
+            }
             _ => Reply::error(404, "ありません"),
         }
     }
@@ -270,6 +362,15 @@ mod tests {
             jobs,
             received: Arc::default(),
             inventor_installed: || true,
+            shortcuts: crate::shortcut::Shortcuts {
+                target: program.join("Inventor3DTool.exe"),
+                places: vec![],
+                read: |_| None,
+                write: |_, _| Ok(()),
+                offer_allowed: false,
+                declined: None,
+            },
+            publishing: Default::default(),
             native: Box::new(|m, p, _, _| (m == "GET" && p == "/__desktop/info").then(|| Reply::json(200, &json!({"shell": "test"})))),
         };
         (r, opened)
@@ -321,6 +422,33 @@ mod tests {
     }
 
     #[test]
+    fn shortcut_status_and_create() {
+        use crate::shortcut::{Place as Where, Shortcuts};
+        let place = Place::new("shortcut");
+        let (r, _) = router(&place, &program());
+        let desk = place.dir.join("Desktop");
+        let r = Router {
+            shortcuts: Shortcuts {
+                target: place.dir.join("Inventor3DTool.exe"),
+                places: vec![Where { key: "desktop", label: "デスクトップ", dir: Some(desk.clone()) }],
+                read: |f| std::fs::read_to_string(f).ok().map(PathBuf::from),
+                write: |f, l| std::fs::write(f, l.target.display().to_string()).map_err(|e| e.to_string()),
+                offer_allowed: false,
+                declined: None,
+            },
+            ..r
+        };
+        let (status, v, _) = call(&r, "GET", "inventor://localhost/api/shortcut", Some("t0k3n"), &Value::Null);
+        assert_eq!((status, v["places"][0]["state"].as_str()), (200, Some("missing")));
+        let (status, v, _) = call(&r, "POST", "inventor://localhost/api/shortcut", Some("t0k3n"), &json!({"place": "desktop"}));
+        assert_eq!((status, v["places"][0]["state"].as_str()), (200, Some("ok")));
+        assert!(desk.join(format!("{}.lnk", crate::locate::APP_NAME)).is_file());
+        let (status, v, _) = call(&r, "POST", "inventor://localhost/api/shortcut", Some("t0k3n"), &json!({"place": "x"}));
+        assert_eq!(status, 500);
+        assert!(v["message"].as_str().unwrap().contains("知らない置き場"));
+    }
+
+    #[test]
     fn every_api_call_needs_the_token() {
         let place = Place::new("token");
         let (r, _) = router(&place, &program());
@@ -332,6 +460,8 @@ mod tests {
             ("POST", "/api/build"),
             ("POST", "/api/build/cancel"),
             ("POST", "/api/build/open"),
+            ("GET", "/api/shortcut"),
+            ("POST", "/api/shortcut"),
             ("GET", "/__desktop/info"),
         ] {
             assert_eq!(call(&r, m, &format!("inventor://localhost{p}"), None, &Value::Null).0, 403, "{p}");

@@ -41,9 +41,9 @@ jobs:
       # exe が名乗る「作ったコミット」。publish が Inventor3DTool.build.json に書く commit と同じ値
       INVENTOR_TOOL_BUILD_COMMIT: ${{ github.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -107,6 +107,58 @@ jobs:
           if (Get-Process python -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "*hostedtoolcache*" }) { Write-Host "作る係（Python）が残っています"; exit 5 }
           if (-not $r.ok) { exit 1 }
 
+      # 版の管理（desktop/src/update.rs・launch.rs）を本物の Windows で: 置き場に版を置き（--publish-zip）、
+      # 置き場の入口 exe → この PC のフォルダへ写してそろえ、開き直す。2 つめの版では、動いている自分の exe を入れ替える
+      - name: 版の管理（置き場から入れる・起動でそろえる・動いている exe の入れ替え）
+        if: ${{ !cancelled() }}
+        run: |
+          $root = "$env:RUNNER_TEMP\upd"; $share = "$root\share"; $homeApp = "$root\home"
+          New-Item -ItemType Directory -Force $share | Out-Null
+          $exe = (Resolve-Path desktop\target\release\Inventor3DTool.exe).Path
+          $base = (Get-Content program\version.json -Raw | ConvertFrom-Json).version
+          function Make-Zip([string]$ver) {
+            $dir = "$root\zip-$ver\Inventor-main"
+            New-Item -ItemType Directory -Force "$dir\program" | Out-Null
+            Copy-Item $exe "$dir\Inventor3DTool.exe"
+            robocopy program "$dir\program" /E /XD __pycache__ config tests samples /NFL /NDL /NJH /NJS | Out-Null
+            # robocopy は 8 未満が成功（1 = 写した）。残すと段の終了コードになるので 0 に戻す
+            if ($LASTEXITCODE -ge 8) { throw "robocopy が失敗しました（$LASTEXITCODE）" }
+            $global:LASTEXITCODE = 0
+            ('{"version": "' + $ver + '"}') | Set-Content -Encoding utf8 "$dir\program\version.json"
+            Compress-Archive -Path $dir -DestinationPath "$root\$ver.zip" -Force
+            return "$root\$ver.zip"
+          }
+          function Wait-For([scriptblock]$ok, [int]$sec) {
+            $deadline = (Get-Date).AddSeconds($sec)
+            while (-not (& $ok) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 1 }
+            return (& $ok)
+          }
+          function Version-Of([string]$app) { try { (Get-Content "$app\program\version.json" -Raw | ConvertFrom-Json).version } catch { "" } }
+          function Running([string]$path) { @(Get-Process Inventor3DTool -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $path }).Count -gt 0 }
+          # exe は窓のアプリなので、& では終わりを待たない（$LASTEXITCODE も前の命令のまま）。待って終了コードを返す
+          function Publish([string]$zip) {
+            $p = Start-Process -FilePath $exe -ArgumentList @('--publish-zip', "`"$zip`"", "`"$share`"") -Wait -PassThru -NoNewWindow -RedirectStandardOutput "$root\publish.txt"
+            Get-Content "$root\publish.txt" -Encoding utf8 | Write-Host
+            return $p.ExitCode
+          }
+          $env:INVENTOR_TOOL_INSTALL_ROOT = $homeApp
+          $v1 = "$base-ci1"; $v2 = "$base-ci2"
+          if ((Publish (Make-Zip $v1)) -ne 0) { Write-Host "置き場に $v1 を置けません"; exit 11 }
+          Start-Process -FilePath "$share\Inventor3DTool.exe"
+          $installed = Wait-For { (Version-Of $homeApp) -eq $v1 -and (Running "$homeApp\Inventor3DTool.exe") } 120
+          Write-Host "置き場の入口から入れた: $installed（版 $(Version-Of $homeApp)）"
+          Get-Process Inventor3DTool -ErrorAction SilentlyContinue | Stop-Process -Force
+          Start-Sleep -Seconds 2
+          if ((Publish (Make-Zip $v2)) -ne 0) { Write-Host "置き場に $v2 を置けません"; exit 12 }
+          Start-Process -FilePath "$homeApp\Inventor3DTool.exe"
+          $updated = Wait-For { (Version-Of $homeApp) -eq $v2 -and (Test-Path "$homeApp\.update\$v1.old\Inventor3DTool.exe") -and (Running "$homeApp\Inventor3DTool.exe") } 120
+          Write-Host "起動でそろえた: $updated（版 $(Version-Of $homeApp)・前の exe は .update\$v1.old へ）"
+          Get-Process Inventor3DTool -ErrorAction SilentlyContinue | Stop-Process -Force
+          Get-Content "$env:LOCALAPPDATA\Inventor3DTool\logs\desktop.log" -Tail 30 -Encoding utf8 -ErrorAction SilentlyContinue
+          if (-not $installed) { exit 13 }
+          if (-not $updated) { exit 14 }
+          exit 0
+
       # 置く物をまとめる: exe・自己診断の結果・作った元の指紋（publish が比べる）
       - name: 成果物をまとめる
         if: always()
@@ -117,7 +169,7 @@ jobs:
           if (Test-Path "$env:RUNNER_TEMP\selftest.json") { Copy-Item "$env:RUNNER_TEMP\selftest.json" $out }
           "desktop:$(git rev-parse HEAD:desktop) icon:$(git rev-parse HEAD:program/tools/app_icon.py)" | Set-Content -NoNewline -Encoding ascii "$out\source.txt"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: Inventor3DTool-windows
@@ -132,10 +184,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: main
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: Inventor3DTool-windows
           path: built

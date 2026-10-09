@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inventor 3Dツール — 版をそろえています</title>
+<!--
+  起動のとき、配る版にそろえている間に出す画面（exe に入る。program フォルダがまだ無い新しい PC でも出せる）。
+  窓（main.rs）が {{ want }}（そろえる版）・{{ have }}（今の版）・{{ log }}（記録の場所）を埋める。
+  進み具合は /__update/progress（update::Progress）を 0.3 秒ごとに見る。色は fail.html・app.css と同じ。
+-->
+<style>
+ :root {
+  --bg: #e8ecf0; --panel: #f8fafc; --ink: #16202b; --muted: #566272; --rule: #cdd5de; --track: #dde3ea;
+  --accent: #1a62c4; --critical: #b3261e; --critical-soft: rgba(179, 38, 30, 0.08);
+ }
+ @media (prefers-color-scheme: dark) {
+  :root { --bg: #141a21; --panel: #1a2129; --ink: #e5eaf0; --muted: #98a4b2; --rule: #2e3a47; --track: #26303b; --accent: #5e9dff; --critical: #ff8a80; --critical-soft: rgba(255, 138, 128, 0.1); }
+ }
+ * { box-sizing: border-box; }
+ html, body { height: 100%; }
+ body { margin: 0; display: grid; place-items: center; background: var(--bg); color: var(--ink); font: 14px/1.7 "Yu Gothic UI", "Meiryo", system-ui, sans-serif; }
+ .card { width: min(92vw, 560px); background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; padding: 24px 28px; display: grid; gap: 12px; }
+ h1 { margin: 0; font-size: 18px; }
+ .versions { margin: 0; color: var(--muted); font-variant-numeric: tabular-nums; }
+ .versions b { color: var(--ink); }
+ .bar { height: 8px; border-radius: 99px; background: var(--track); overflow: hidden; }
+ .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.2s; }
+ .step { margin: 0; font-variant-numeric: tabular-nums; }
+ .note { margin: 0; color: var(--muted); font-size: 12.5px; }
+ .card.failed h1 { color: var(--critical); }
+ pre { margin: 0; padding: 12px 14px; border-radius: 8px; background: var(--critical-soft); border: 1px solid var(--rule);
+       white-space: pre-wrap; word-break: break-all; font: 12.5px/1.6 Consolas, "Cascadia Mono", monospace; }
+ a.button { justify-self: start; padding: 8px 16px; border-radius: 8px; background: var(--accent); color: #fff; text-decoration: none; font-weight: 600; }
+ [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<section class="card" id="card" aria-live="polite" aria-labelledby="title">
+  <h1 id="title">版をそろえています</h1>
+  <p class="versions">今の版 <b>{{ have }}</b> → 配っている版 <b>{{ want }}</b></p>
+  <div class="bar" role="progressbar" aria-label="進み具合" aria-valuemin="0" aria-valuemax="100"><i id="bar"></i></div>
+  <p class="step" id="step">置き場から写しています…</p>
+  <pre id="error" hidden></pre>
+  <a class="button" id="go" href="/" hidden>いまの版のまま開く</a>
+  <p class="note" id="note">写し終えて中身を確かめてから入れ替え、開き直します（そろえるのは起動のときだけ。数十秒かかることがあります）。</p>
+  <p class="note" id="log" hidden>記録: {{ log }}</p>
+</section>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const STEPS = { stage: "置き場から写して、中身を確かめています", swap: "入れ替えています" };
+  async function poll() {
+    let p = {};
+    try { p = await (await fetch("/__update/progress", { cache: "no-store" })).json(); } catch { /* 開き直す途中 */ }
+    const pct = p.total ? Math.round((100 * (p.done ?? 0)) / p.total) : 0;
+    $("bar").style.width = `${p.state === "done" || p.stage === "swap" ? 100 : pct}%`;
+    $("bar").parentElement.setAttribute("aria-valuenow", String(pct));
+    if (p.state === "failed") {
+      $("card").classList.add("failed");
+      $("title").textContent = "版をそろえられませんでした";
+      $("step").textContent = "いまの版で使えます。次に開いたときに、もう一度そろえます。";
+      $("error").textContent = p.error ?? "";
+      for (const id of ["error", "go", "log"]) $(id).hidden = false;
+      $("note").hidden = true;
+      return;
+    }
+    $("step").textContent = p.stage === "swap" ? STEPS.swap : `${STEPS.stage}… ${p.done ?? 0} / ${p.total ?? "?"} ファイル`;
+    if (p.state === "done") $("step").textContent = "そろえました。開き直しています…";
+    setTimeout(poll, 300);
+  }
+  poll();
+</script>
+</body>
+</html>

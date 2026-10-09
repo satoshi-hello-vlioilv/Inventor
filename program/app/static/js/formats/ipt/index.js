@@ -3,14 +3,14 @@
 //   report … ファイル構造と形状要約（セグメント・SAB の版と単位・ボディごとの要約）
 //   scene  … three.js ビューアに渡す形状データ
 
-import { summarize } from "./brep.js";
+import { summarize } from "../acis/brep.js";
 import { openIpt } from "./container.js";
 import { materialOf } from "./properties.js";
-import { findBlocks, parseSab } from "./sab.js";
+import { findBlocks, parseSab } from "../acis/sab.js";
 import { buildScene } from "./scene.js";
 
 export { CfbError } from "./cfb.js";
-export { SabError } from "./sab.js";
+export { SabError } from "../acis/sab.js";
 
 /** 全セグメント中の SAB ブロックを { segment, doc } で列挙する。 */
 export function shapes(ipt) {

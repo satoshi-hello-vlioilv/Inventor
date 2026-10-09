@@ -156,6 +156,52 @@ export function describeAssembly(scene, volumes = []) {
   };
 }
 
+/**
+ * 組立の構成の木: 出現の道筋（instances[].path。親の組立から順に「名前:番号」）から木を作る。
+ * 同じ名前で中身も同じ兄弟は 1 行にまとめ、数（×n）と全ての出現の id を持つ（目で消すと、まとめた全てが消える）。
+ * @param {object} scene  組立の場面（parts・instances）
+ * @param {object[]} groups  describeAssembly の部品の行（部品の行の説明を写す）
+ * @returns {{ nodes: object[], depth: number }}  node: { key, name, count, ids, part（部品の番号。組立なら null）, group, children }。
+ *   depth … 木の深さ（1 ならサブ組立の無い組立）
+ */
+export function describeStructure(scene, groups) {
+  const byPart = new Map(groups.map((g) => [g.index, g]));
+  const root = { children: new Map() };
+  for (const inst of scene.instances) {
+    const path = inst.path?.length ? inst.path : [`${inst.name}`];
+    let node = root;
+    path.forEach((seg, i) => {
+      if (!node.children.has(seg)) node.children.set(seg, { name: seg.replace(/:\d+$/, ""), children: new Map(), ids: [], part: null });
+      node = node.children.get(seg);
+      node.ids.push(inst.id);
+      if (i === path.length - 1) node.part = inst.part;
+    });
+  }
+  const shape = (n) => `${n.name}|${n.part ?? ""}[${[...n.children.values()].map(shape).sort().join(",")}]`;
+  let depth = 0;
+  // 同じ形の兄弟の集まり（members）の子を、形ごとにまとめた行にする（数は親 1 つあたり）
+  const build = (members, prefix, level) => {
+    depth = Math.max(depth, level);
+    const byShape = new Map();
+    for (const m of members) {
+      for (const c of m.children.values()) {
+        const k = shape(c);
+        if (!byShape.has(k)) byShape.set(k, []);
+        byShape.get(k).push(c);
+      }
+    }
+    return [...byShape.values()].map((list, i) => {
+      const [first] = list, key = `${prefix}/${i}`, leaf = !first.children.size;
+      return {
+        key, name: first.name, count: list.length / members.length, ids: list.flatMap((c) => c.ids),
+        part: leaf ? first.part : null, group: leaf ? byPart.get(first.part) ?? null : null,
+        children: leaf ? [] : build(list, key, level + 1),
+      };
+    });
+  };
+  return { nodes: build([root], "", 1), depth };
+}
+
 // ---- 三角形メッシュの場面（3D の PDF の 3D）-----------------------------------------
 /**
  * 部品の行（一覧の順）・強調の対応（群の id → 行と説明文）・外形寸法（全ての部品の置いた後の位置を囲む）。

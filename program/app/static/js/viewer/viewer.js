@@ -8,6 +8,7 @@ import { edgeSegments, faceGeometry, meshVolume, partGeometry } from "./tessella
 
 export const VIEWS = { iso: [1, 1, 1], top: [0, 1, 1e-4], front: [0, 0, 1], right: [1, 0, 0] };
 const TRANSITION_MS = 380;
+const FIT_FILL = 0.85; // 全体表示で、形が画面（縦・横）に占める割合の上限（上のツールバー・下の案内に掛からない余白）
 const reduceMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 const token = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
@@ -15,7 +16,7 @@ const EDGE_ANGLE_DEG = 25; // 取り込んだメッシュで稜線として描�
 const FOCUS_TONES = new Set(["warn", "bad", "run"]); // 目を向ける印（不一致・失敗・作成中）。あれば、ほかの部品を透かす
 const GHOST_OPACITY = 0.12;
 // 面・部品の色の種類 → 色の名前（CSS の変数）。ok〜run は作った結果の印（mark）
-const TONE_TOKEN = { exact: "--steel", approx: "--approx", ok: "--ok", warn: "--warn", bad: "--critical", run: "--accent" };
+const TONE_TOKEN = { exact: "--steel", approx: "--approx", ok: "--mark-ok", warn: "--warn", bad: "--critical", run: "--accent" }; // --mark-ok は 3D の形の一致の色（画面の文字の --ok と分ける）
 
 export class Viewer {
   /**
@@ -33,10 +34,14 @@ export class Viewer {
 
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(28, 1, 0.1, 1e6);
-    this.scene.add(this.camera, new THREE.HemisphereLight(0xffffff, 0x8a939e, 1.6));
-    const key = new THREE.DirectionalLight(0xffffff, 1.8);
-    key.position.set(1.5, 2.5, 3);
-    this.camera.add(key); // 光源をカメラに固定し、どの向きから見ても陰影が読めるようにする
+    // 光: 空と地の光（全体）・主の光（右上の前）・補いの光（左の前。面の向きの差を出す）。強さは CSS のトークン（--light-*）
+    this.ambient = new THREE.HemisphereLight(0xffffff, 0x8a939e, 1.6);
+    this.scene.add(this.camera, this.ambient);
+    this.key = new THREE.DirectionalLight(0xffffff, 1.8);
+    this.key.position.set(1.5, 2.5, 3);
+    this.fill = new THREE.DirectionalLight(0xffffff, 0);
+    this.fill.position.set(-2.5, 0.5, 1.5);
+    this.camera.add(this.key, this.fill); // 光源をカメラに固定し、どの向きから見ても陰影が読めるようにする
 
     this.controls = new OrbitControls(this.camera, canvas);
     this.controls.addEventListener("change", () => this.requestRender());
@@ -46,6 +51,7 @@ export class Viewer {
     this.materials = new Map(); // 面・部品の id → { material, tone }
     this.edgeMaterial = new THREE.LineBasicMaterial();
     this.highlighted = new Set();
+    this.hidden = new Set(); // 消した部品の id（構成の木の目）
     this.marks = new Map(); // 面・部品の id → 印の色の種類（作った結果。元の色の代わりに塗る）
     this.focus = false; // 目を向ける印があるか（あれば、それだけを不透明にし、ほかの部品を薄く透かす）
     this.edgesVisible = true;
@@ -67,9 +73,10 @@ export class Viewer {
    * scene.meshes    … 三角形メッシュ（部品ごとの groups 付き。HTML から取り出したもの・3D の PDF。groups の color はファイルの色）
    * scene.view      … 最初の視点 { direction（注視点 → カメラ）, up（画面の上）}（3D の PDF の既定の視点）。up に最も近い軸が
    *                    表示の上（+Y）になるようにモデルを回し、その軸の周りに回転させる。無ければ等角
+   * @param {{ keepView?: boolean }} options  keepView … 視点を変えない（同じ形を直して描き直すとき）
    * @returns {{ volume?: number, volumes?: number[] }}  体積（mm³）。組立は部品ごと
    */
-  show(sceneData) {
+  show(sceneData, { keepView = false } = {}) {
     this.clear();
     let stats = {};
     if (sceneData.meshes) this.#showMeshes(sceneData.meshes);
@@ -80,7 +87,7 @@ export class Viewer {
     this.bounds.setFromObject(this.model);
     this.applyColors();
     // 表示の切り替え（HTML ⇄ ほか）で 3D の場所の大きさが変わった直後でも、新しい大きさで全体を収める
-    if (this.fitted) {
+    if (this.fitted && !keepView) {
       this.#syncSize();
       this.setView(this.home, false);
     }
@@ -185,11 +192,18 @@ export class Viewer {
     this.materials.clear();
     this.surfaces = [];
     this.highlighted.clear();
+    this.hidden.clear();
     this.marks.clear();
     this.focus = false;
     this.model.quaternion.identity();
     this.home = VIEWS.iso;
     this.requestRender();
+  }
+
+  /** 部品を消す（id の集まり。空なら全て見せる）。消した部品はカーソルでも拾わない */
+  setHidden(ids) {
+    this.hidden = new Set(ids);
+    this.applyColors();
   }
 
   highlight(ids) {
@@ -227,7 +241,7 @@ export class Viewer {
     const from = camera.position.clone().sub(controls.target).normalize();
     const fromTarget = controls.target.clone();
     const fromDistance = camera.position.distanceTo(controls.target);
-    const toDistance = this.#fitDistance();
+    const toDistance = this.#fitDistance(to);
     const started = performance.now();
     const id = ++this.tween;
     const step = (now) => {
@@ -257,6 +271,7 @@ export class Viewer {
       const mark = this.marks.get(id);
       const base = mark ? tones[mark] ?? tones.exact : color ?? tones[tone] ?? tones.exact;
       material.color.copy(this.highlighted.has(id) ? base.clone().lerp(accent, 0.65) : base);
+      material.visible = !this.hidden.has(id);
       const ghost = this.#ghosted(id);
       if (material.transparent !== ghost) {
         Object.assign(material, { transparent: ghost, opacity: ghost ? GHOST_OPACITY : 1, depthWrite: !ghost, needsUpdate: true });
@@ -265,9 +280,13 @@ export class Viewer {
     for (const child of this.model.children) {
       if (!child.isLineSegments) continue;
       const id = child.userData.id; // 配置ごとの稜線だけが id を持つ（部品の面の稜線は透かさない）
-      child.visible = this.edgesVisible && !(id !== undefined && this.#ghosted(id));
+      child.visible = this.edgesVisible && !(id !== undefined && (this.#ghosted(id) || this.hidden.has(id)));
     }
     this.edgeMaterial.color.set(token("--edge"));
+    const light = (name, fallback) => Number.parseFloat(token(name)) || fallback;
+    this.ambient.intensity = light("--light-ambient", 1.6);
+    this.key.intensity = light("--light-key", 1.8);
+    this.fill.intensity = Number.parseFloat(token("--light-fill")) || 0;
     this.requestRender();
   }
 
@@ -281,10 +300,28 @@ export class Viewer {
     });
   }
 
-  #fitDistance() {
-    const radius = Math.max(this.bounds.isEmpty() ? 1 : this.bounds.getSize(new THREE.Vector3()).length() / 2, 1e-3);
-    const { fov, aspect } = this.camera;
-    return (radius / Math.sin(THREE.MathUtils.degToRad(fov / 2))) * (aspect < 1 ? 1.35 / aspect : 1.15);
+  /**
+   * 向き direction（注視点 → カメラ）から見て、外形の箱の 8 つの角が画面の FIT_FILL の内に収まる距離。
+   * 外接球で測ると、細長い形（組立の軸など）が画面の半分ほどにしか広がらないので、画面に写る大きさで測る。
+   */
+  #fitDistance(direction) {
+    if (this.bounds.isEmpty()) return 10;
+    const back = direction.clone().normalize();
+    let right = this.camera.up.clone().cross(back);
+    if (right.lengthSq() < 1e-8) right = new THREE.Vector3(0, 0, -1).cross(back); // 真上・真下から見るとき
+    right.normalize();
+    const up = back.clone().cross(right);
+    const tanV = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) * FIT_FILL;
+    const tanH = tanV * this.camera.aspect;
+    const center = this.bounds.getCenter(new THREE.Vector3());
+    const { min, max } = this.bounds;
+    let distance = 1e-3;
+    for (const x of [min.x, max.x]) for (const y of [min.y, max.y]) for (const z of [min.z, max.z]) {
+      const p = new THREE.Vector3(x, y, z).sub(center);
+      const depth = p.dot(back); // カメラに近い側が正
+      distance = Math.max(distance, depth + Math.abs(p.dot(right)) / tanH, depth + Math.abs(p.dot(up)) / tanV);
+    }
+    return distance;
   }
 
   #drawGizmo() {
@@ -349,8 +386,9 @@ export class Viewer {
       requestAnimationFrame(() => {
         pending = false;
         raycaster.setFromCamera(pointer, this.camera);
-        const hit = raycaster.intersectObjects(this.surfaces, false)[0];
-        this.onHover(hit ? hit.object.userData.ids[hit.face.materialIndex ?? 0] ?? null : null);
+        const idOf = (h) => h.object.userData.ids[h.face.materialIndex ?? 0] ?? null;
+        const hit = raycaster.intersectObjects(this.surfaces, false).find((h) => !this.hidden.has(idOf(h))); // 消した部品は飛ばす
+        this.onHover(hit ? idOf(hit) : null);
       });
     });
     this.canvas.addEventListener("pointerleave", () => this.onHover(null));

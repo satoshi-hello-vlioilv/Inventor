@@ -52,7 +52,9 @@ export async function launch() {
       await routeThree(context);
       const page = await context.newPage();
       page.on("pageerror", (e) => console.warn(`[${theme}] page error: ${e.message}`));
-      await dev("env?ready=1&inventor=1&python=1");
+      await dev("env?ready=1&inventor=1&python=1"); // 模擬の状態を既定に戻す（前のテーマで変えた物を持ち越さない）
+      await dev("shortcut?desktop=ok&start=missing");
+      await dev("update?role=developer&reachable=1&news=0");
       await page.goto(base);
       await page.waitForSelector("button.sample-row", { state: "attached", timeout: 15000 });
       await sleep(600);
@@ -125,11 +127,14 @@ export const STATES = [
   ["library", openLibrary, "#start-open"],
   ["ipt", async (p) => { await openSample(p, IPT); }, "[data-next]"],
   ["asm", async (p) => { await openSample(p, IAM); }, "[data-next]"],
+  // 入れ子の組立（サブ組立 2 種類 × 2 と、直下の部品）。構成の木の見え方を撮る
+  ["nested", async (p) => { await openSample(p, "Assembly_XY2.stp"); }, "[data-next]"],
   // 図面（2D）。図形にカーソルを合わせた様子（読み出し・強調）も撮る: 図面の上を格子状に動かし、読み出しが出た所で止める
   ["drawing", async (p) => { await openSample(p, DRAWING); await hoverDrawing(p); }, "[data-next], #open"],
   ["layout", async (p) => { await p.click("#layout-tabs button:nth-child(2)"); await sleep(600); await hoverDrawing(p); }, "[data-next], #open"],
   // PDF: ページの多い図面（ページ送り）・3D を含む PDF（主役の場所のタブ: 3D → 図面）
   ["pages", async (p) => { await openFile(p, await manyPages()); }, "[data-next], #open"],
+  ["pages-pop", async (p) => { await p.click("#layout-tabs .pager-now"); await p.waitForSelector("#page-pop:not([hidden])"); await sleep(200); }, "#page-pop [aria-current=\"true\"]"],
   ["pdf3d", async (p) => { await openSample(p, PDF3D); }, "[data-next], #open"],
   ["pdf3d-sheet", async (p) => { await p.click('#view-tab-list [data-view="sheet"]'); await sleep(600); }, "[data-next], #open"],
   ["html", async (p) => {
@@ -151,7 +156,37 @@ export const STATES = [
   // 作り直して、不一致 2 つ・失敗 1 つが混じった結果（例外の見せ方を確かめる）
   ["mixed", async (p, dev) => { await dev("mix?mismatch=4,11&failed=19"); await startJob(p); await dev("step?n=100"); await sleep(1800); await dev("mix"); },
     "[data-next], #build-open"],
+  // 設定（右の引き出し）: 開発者が開いた様子・一般の利用者が開いた様子。起動のときのショートカットの問い（デスクトップに無いとき）
+  ["settings", async (p) => { await openSettings(p); }, "#settings-body .primary, #settings-close"],
+  ["settings-user", async (p, dev) => { await dev("update?role=user"); await p.click("#settings-close"); await openSettings(p); }, "#settings-close"],
+  // 起動でそろえた後の「変わったこと」（右下）と、設定の要点の下で読める様子
+  ["news", async (p, dev) => {
+    await dev("update?role=developer&news=1"); await p.reload();
+    await p.waitForSelector("#news:not([hidden])"); if (await p.$("#start[open]")) await p.keyboard.press("Escape");
+  }, "#news-close"],
+  ["offer", async (p, dev) => {
+    await dev("update?role=developer&news=0"); await dev("shortcut?desktop=missing");
+    await p.reload(); await p.waitForSelector("#shortcut-offer:not([hidden])");
+    if (await p.$("#start[open]")) await p.keyboard.press("Escape");
+  }, "#shortcut-offer-make"],
+  // 変換データの寸法を直す（穴・面取り・直せない斜めの辺のある刃）。前の状態の問い・知らせは閉じる
+  ["specedit", async (p, dev) => {
+    await dev("shortcut?desktop=ok"); await p.reload(); await sleep(600);
+    if (await p.$("#start[open]")) await p.keyboard.press("Escape");
+    await openFile(p, FIXTURE("blade"));
+  }, "[data-next], #build"],
+  // 寸法を直す欄（部品の行を押し、直径を 240 → 250 に）。欄の無い版では、変換データの一覧のまま
+  ["dimedit", async (p) => {
+    await p.click("#parts li button"); await sleep(400);
+    if (await p.$("#dim-D0\\.0")) { await p.fill("#dim-D0\\.0", "250"); await p.press("#dim-D0\\.0", "Enter"); await sleep(800); }
+  }, "[data-next], #build"],
 ];
+
+async function openSettings(p) {
+  await p.click("#show-settings");
+  await p.waitForSelector("#settings-body .st-section table, #settings-body .st-section .st-lead");
+  await sleep(300);
+}
 
 /** 状態を順に進め、各状態で visit(名前, 次に押すべきもの) を呼ぶ（only を渡せば、その状態だけ） */
 export async function walk(page, dev, visit, only = null) {
@@ -210,7 +245,7 @@ export function measure(nextSelector) {
     for (const [r, g, b, a] of layers.reverse()) base = [r * a + base[0] * (1 - a), g * a + base[1] * (1 - a), b * a + base[2] * (1 - a)];
     return base;
   }
-  const controls = [...document.querySelectorAll("button, a[href], input:not([type=hidden]), select, summary, [role=button]")].filter(visible);
+  const controls = [...document.querySelectorAll("button, a[href], input:not([type=hidden]), select, summary, [role=button], [role=treeitem]")].filter(visible);
   const seen = controls.filter((el) => inView(el.getBoundingClientRect()));
   const dialog = document.querySelector("dialog[open]");
   const scope = (el) => !dialog || dialog.contains(el);

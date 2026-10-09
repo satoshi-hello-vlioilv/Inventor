@@ -203,8 +203,19 @@ function offsetLeft(loop, dist) {
     return j0 && j1 ? extent(i, j0, j1, at) : -1;
   };
 
+  // 部分 alive を距離 at ずらした輪郭（継ぎ目が無ければ null）
+  const outlineAt = (alive, at) => {
+    const m = alive.length;
+    const joints = alive.map((i, q) => junction(i, alive[(q + 1) % m], at));
+    if (joints.some((p) => !p)) return null;
+    return alive.map((i, q) => {
+      const s = loop[i], a = joints[(q - 1 + m) % m], b = joints[q];
+      return s.type === "line" ? { type: "line", a, b, source: i } : { type: "arc", a, b, center: s.center, ccw: s.ccw, source: i };
+    });
+  };
+
   let alive = loop.map((_, i) => i);
-  const events = [];
+  const events = [], stages = [];
   for (;;) {
     const m = alive.length;
     if (m < 2) return null;
@@ -212,11 +223,9 @@ function offsetLeft(loop, dist) {
     if (joints.some((p) => !p)) return null;
     const gone = alive.map((i, q) => q).filter((q) => extent(alive[q], joints[(q - 1 + m) % m], joints[q], dist) <= 0);
     if (!gone.length) {
-      const out = alive.map((i, q) => {
-        const s = loop[i], a = joints[(q - 1 + m) % m], b = joints[q];
-        return s.type === "line" ? { type: "line", a, b } : { type: "arc", a, b, center: s.center, ccw: s.ccw };
-      });
-      return { loop: out, events };
+      stages.push({ alive, from: events.at(-1) ?? 0, to: dist });
+      const out = outlineAt(alive, dist).map(({ source, ...s }) => s);
+      return { loop: out, events, stages, outlineAt };
     }
     // 最も早く消える部分を二分法で探して取り除く
     const from = events.at(-1) ?? 0;
@@ -231,6 +240,7 @@ function offsetLeft(loop, dist) {
       }
       if (!first || hi < first.at) first = { q, at: hi };
     }
+    stages.push({ alive, from: events.at(-1) ?? 0, to: first.at });
     alive = alive.filter((_, q) => q !== first.q);
     events.push(first.at);
   }
@@ -242,12 +252,17 @@ export const reverseLoop = (loop) =>
 
 /**
  * 断面のループを材料側へ dist だけずらす（面取り後の端面の輪郭）。外周なら内側、穴なら外側が材料。
- * @returns {{ loop: object[], events: number[] } | null} events は途中で消えた部分の距離（昇順）。形が崩れるなら null
+ * @returns {{ loop: object[], events: number[], stages: object[], outlineAt: Function } | null}
+ *   events … 途中で消えた部分の距離（昇順）。形が崩れるなら null
+ *   stages … 消える事象で区切った距離の区間 [{ alive: 残る部分の番号, from, to }]（区間の中では、部分ごとに滑らかにずれる）
+ *   outlineAt(alive, at) … 部分 alive を距離 at ずらした輪郭（部分ごとに元の番号 source。区間の終わりでは、消える部分の長さが 0）。
+ *     ループの向きが材料を左に見る向きでなければ、元のループを逆にしたものの番号（呼ぶ側で向きをそろえておけば、元の番号）
  */
 export function offsetIntoMaterial(loop, dist, isHole) {
   if (loop.length === 1 && loop[0].type === "circle") {
-    const radius = loop[0].radius + (isHole ? dist : -dist);
-    return radius > 0 ? { loop: [{ ...loop[0], radius }], events: [] } : null;
+    const circleAt = (at) => ({ ...loop[0], radius: loop[0].radius + (isHole ? at : -at) });
+    const outlineAt = (alive, at) => [{ ...circleAt(at), source: 0 }];
+    return circleAt(dist).radius > 0 ? { loop: [circleAt(dist)], events: [], stages: [{ alive: [0], from: 0, to: dist }], outlineAt } : null;
   }
   const ccw = loopIntegrals(loop).area > 0;
   return offsetLeft(ccw !== isHole ? loop : reverseLoop(loop), dist);

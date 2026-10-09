@@ -53,10 +53,8 @@ describe("書き出した STEP をアプリで読み戻す", { skip: !python && 
       for (const [i, part] of parts.entries()) {
         const expected = spec.parts.find((p) => p.name === part.name) ?? spec.parts[i];
         const { volume, unsupported } = partGeometry(part.bodies);
-        // 表示（三角形分割）は球面に未対応（極の扱いが要る）。STEP の球面そのものは OpenCascade で確かめている（test_step.py）
-        const spheres = part.bodies.flatMap((b) => b.faces).filter((f) => f.type === "sphere").length;
-        assert.equal(unsupported, spheres, `${expected.name}: 球面のほかに表示できない面がある`);
-        if (spheres) continue;
+        // 全ての面を表示できる（球面は立体射影で分割する。体積の一致が、球面の向き・面の側の確かめになる）
+        assert.equal(unsupported, 0, `${expected.name}: 表示できない面がある`);
         assert.ok(Math.abs(volume - expected.expect.volume) / expected.expect.volume <= CHORD, `${expected.name}: 体積 ${volume} / 期待値 ${expected.expect.volume}`);
       }
     });

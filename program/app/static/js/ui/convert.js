@@ -2,6 +2,7 @@
 // Inventor の無い PC で取り込んだときのために、変換データ（.inventor.json）として保存・コピーできる（Inventor のある PC で開いて作る）。
 
 import { formatSpec } from "../convert/inventor.js";
+import { saveFile } from "../desktop.js";
 import { setBuildSpec } from "./build.js";
 import { updateFlow } from "./flow.js";
 
@@ -35,13 +36,16 @@ export function setSpec(next, sourceName = "") {
   setBuildSpec(kinds ? spec : null);
 }
 
-$("save-spec").addEventListener("click", () => {
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(new Blob([formatSpec(spec)], { type: "application/json" }));
-  link.download = fileName;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
-  note(`${fileName} を保存しました（ダウンロードに現れない場合は「コピー」を使ってください）`);
+/** いまの変換データを、保存の窓で選んだ場所へ書く → 保存した場所（やめたら null） */
+export const saveSpec = () => saveFile({ name: fileName, title: "変換データを保存", filter: { label: "変換データ", extensions: ["json"] }, content: formatSpec(spec) });
+
+$("save-spec").addEventListener("click", async () => {
+  try {
+    const path = await saveSpec();
+    if (path) note(`${path} に保存しました`);
+  } catch (error) {
+    note(`保存できませんでした: ${error.message}（「コピー」で写すこともできます）`);
+  }
 });
 
 $("copy-spec").addEventListener("click", async () => {

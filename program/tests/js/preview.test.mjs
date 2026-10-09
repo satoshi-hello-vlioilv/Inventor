@@ -7,7 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, test } from "node:test";
 import { expectedProperties, readSpec } from "../../app/static/js/convert/inventor.js";
-import { describeSpec, partGeometry, previewScene } from "../../app/static/js/convert/preview.js";
+import { describeSpec, partGeometry, previewScene, solidMesh } from "../../app/static/js/convert/preview.js";
 import { ROOT } from "./helpers.mjs";
 
 const FIXTURES = path.join(ROOT, "tests/fixtures/builder");
@@ -50,6 +50,28 @@ function inspect(geometry) {
   return { volume, open, duplicated, against, triangles: idx.length / 3 };
 }
 
+/** 閉じた三角形 { positions, triangles }（頂点を共有）の体積・表面積と、辺の使われ方 */
+function meshFacts({ positions, triangles }) {
+  const at = (i) => [positions[3 * i], positions[3 * i + 1], positions[3 * i + 2]];
+  const directed = new Map();
+  let volume = 0, area = 0;
+  for (let t = 0; t < triangles.length; t += 3) {
+    const v = [triangles[t], triangles[t + 1], triangles[t + 2]];
+    const [a, b, c] = v.map(at);
+    volume += (a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0]) + a[2] * (b[0] * c[1] - b[1] * c[0])) / 6;
+    const u = b.map((x, k) => x - a[k]), w = c.map((x, k) => x - a[k]);
+    area += Math.hypot(u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]) / 2;
+    for (let i = 0; i < 3; i++) directed.set(`${v[i]}>${v[(i + 1) % 3]}`, (directed.get(`${v[i]}>${v[(i + 1) % 3]}`) ?? 0) + 1);
+  }
+  let open = 0, duplicated = 0;
+  for (const [key, n] of directed) {
+    const [x, y] = key.split(">");
+    if (n > 1) duplicated += 1;
+    if (!directed.has(`${y}>${x}`)) open += 1;
+  }
+  return { volume, area, open, duplicated };
+}
+
 /** Z の範囲（押し出しは ±長さ/2、回転は ±同じ値 = どちらも XY 平面に対して対称。ビルダーの「対称」と同じ） */
 function zRange(geometry) {
   const pos = geometry.getAttribute("position");
@@ -57,8 +79,9 @@ function zRange(geometry) {
   return [Math.min(...zs), Math.max(...zs)];
 }
 
-/** 面取りを除いた期待値（表示は面取りを描かない）。近似の部品は三角形の体積 */
-const expectedVolume = (part) => expectedProperties(part.kind === "mesh" ? part : { kind: part.kind, loops: part.sketch.loops, revolve: part.revolve, extrude: part.extrude }).volume;
+/** 面取りを含めた厳密な期待値（表示も面取りを描く）。近似の部品は三角形の体積 */
+const expectedVolume = (part) => expectedProperties(part.kind === "mesh" ? part
+  : { kind: part.kind, loops: part.sketch.loops, revolve: part.revolve, extrude: part.extrude, chamfers: part.chamfers }).volume;
 
 describe("変換データの部品の形", () => {
   for (const name of fixtures) {
@@ -100,6 +123,34 @@ describe("変換データの部品の形", () => {
   });
 });
 
+describe("面取りの形と、閉じた三角形（solidMesh）", () => {
+  test("分け方を細かくすると、体積・表面積が厳密な値に近づく（面取りで消える辺と穴の縁の面取りのある blade・回転体・扇形）", () => {
+    for (const [name, key] of [["blade.inventor.json", "p01"], ["spacer-t50.inventor.json", "p01"], ["reel.inventor.json", "p12"]]) {
+      const part = load(name).parts.find((p) => p.key === key);
+      const exact = expectedProperties({ kind: part.kind, loops: part.sketch.loops, revolve: part.revolve, extrude: part.extrude, chamfers: part.chamfers });
+      const errors = [64, 1024].map((steps) => {
+        const r = meshFacts(solidMesh(part, { steps }));
+        assert.deepEqual([r.open, r.duplicated], [0, 0], `${name} ${steps}: 閉じていない`);
+        return [Math.abs(r.volume - exact.volume) / exact.volume, Math.abs(r.area - exact.area) / exact.area];
+      });
+      assert.ok(errors[1][0] < 2e-5 && errors[1][1] < 2e-5, `${name}: 1024 分割の差 ${errors[1]}`);
+      assert.ok(errors[1][0] <= errors[0][0] + 1e-12, `${name}: 細かくしても近づかない ${errors.join(" / ")}`);
+    }
+  });
+
+  test("面取りの深さだけ、端面の輪郭が材料側へ入る（押し出しの両端は ±長さ/2 のまま）", () => {
+    const square = [[0, 0], [40, 0], [40, 20], [0, 20]].map((a, i, all) => ({ type: "line", a, b: all[(i + 1) % 4] }));
+    const part = { kind: "extrude", extrude: { distance: 10 }, sketch: { loops: [square] }, chamfers: [{ loop: 0, side: "+Z", distance: 2 }] };
+    const mesh = solidMesh(part);
+    const top = [];
+    for (let i = 0; i < mesh.positions.length; i += 3) if (mesh.positions[i + 2] === 5) top.push([mesh.positions[i], mesh.positions[i + 1]]);
+    assert.deepEqual(top.map((p) => p.join(",")).sort(), ["2,18", "2,2", "38,18", "38,2"]);
+    const r = meshFacts(mesh);
+    const exact = 40 * 20 * 10 - (2 * 2 * (40 + 20) * 2) / 2 + (4 * 2 ** 3) / 3; // 4 辺の三角柱 − 角の重なり（四角錐 4 つ分）
+    assert.ok(Math.abs(r.volume - exact) < 1e-9, `${r.volume} / ${exact}`);
+  });
+});
+
 describe("置き方と説明", () => {
   test("配置ごとに 1 つ、変換データの原点と軸で置く（番号は説明と同じ）", () => {
     const spec = load("reel.inventor.json");
@@ -116,11 +167,11 @@ describe("置き方と説明", () => {
     assert.deepEqual(d.groups.flatMap((g) => g.ids), scene.instances.map((i) => i.id), "3D の配置の番号とパネルの行が対応する");
   });
 
-  test("面取りは説明に書き、形に描いていないことを添える", () => {
+  test("面取りは説明に書き、形にも描く（断りの注記は出さない）", () => {
     const [group] = describeSpec(load("blade.inventor.json")).groups;
     assert.equal(group.label, "押し出し");
     assert.match(group.sub, /面取り C1（穴の縁・両面）/);
-    assert.match(group.note, /描いていません/);
+    assert.equal(group.note, undefined);
     const [revolve] = describeSpec(load("spacer-t50.inventor.json")).groups;
     assert.match(revolve.main, /^φ\d+\.\d{3} × \d+\.\d{3}$/);
   });

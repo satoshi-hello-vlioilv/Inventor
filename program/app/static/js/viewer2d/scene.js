@@ -9,7 +9,7 @@
 //     regions: [{ item, rings }]（模様のハッチング・画像の外形。描かないが、内側を指せるように索引に入れる）
 //     items:   [{ handle, type, layer, entity }]（指せる図形。レイアウトに直に置かれた図形の単位。ブロック参照は中身ごと 1 つ）
 //     extents: { min: [x, y], max: [x, y] } | null（放射線・構築線を除く）
-//     layers:  Map<画層, 図形の数>（このレイアウトに出る画層）
+//     layers:  Map<画層, 図形の数>（このレイアウトに出る画層。ブロックの中の図形も、画層 0 以外はその画層に数える）
 //     broken:  値が壊れていて描けなかった図形の数（飛ばして、残りを描く）
 //     unsupported: まだ描かない図形の種類 → 数（PDF はページごと。ほかは図面全体）
 //     ordered: 描く順序に意味がある（PDF。描く側は z の順に描く）・exact: 色を地に合わせて補正しない（PDF）・paper: 紙の外形（PDF のページ）
@@ -20,6 +20,8 @@
 
 import { IDENTITY, apply, multiply, rotationZ, scaling, translation } from "../core/matrix.js";
 import { bulgePoints, flattenSubpath, interpolateFit, neutralSpline, ocsAxes, toOcs, toWcs } from "../formats/cad2d/curves.js";
+import { acisShape } from "../formats/acis/index.js";
+import { insertMatrices } from "../formats/cad2d/placement.js";
 import { sampleCurve } from "../model/curves.js";
 import { ACI, rgbHex } from "./colors.js";
 import { mtextLines, singleLine } from "./text.js";
@@ -365,24 +367,13 @@ export function buildScene(drawing, layout, { hidden = new Set(), shown = new Se
   function insert(e, layer, ctx, item, depth) {
     const block = blocks.get(nameKey(e.block));
     if (!block || depth > MAX_DEPTH) return;
-    const axes = ocsAxes(e.extrusion);
-    const ocs = axes
-      ? [axes[0][0], axes[1][0], axes[2][0], 0, axes[0][1], axes[1][1], axes[2][1], 0, axes[0][2], axes[1][2], axes[2][2], 0, 0, 0, 0, 1]
-      : IDENTITY;
-    const base = block.base ?? [0, 0, 0];
-    const [sx, sy, sz] = e.scale ?? [1, 1, 1];
     const inner = {
       layer: layer, color: color(e.color, layer, ctx), linetype: linetypeName(e, layer, ctx), lineweight: lineweight(e, layer, ctx),
     };
-    for (let r = 0; r < Math.max(1, e.rows ?? 1); r++) {
-      for (let c = 0; c < Math.max(1, e.columns ?? 1); c++) {
-        const cell = [(e.columnSpacing ?? 0) * c, (e.rowSpacing ?? 0) * r, 0];
-        const local = multiply(multiply(multiply(multiply(translation(e.p ?? [0, 0, 0]), rotationZ(e.rotation ?? 0)), translation(cell)),
-          scaling([sx || 1, sy || 1, sz || 1])), translation(base.map((v) => -v)));
-        const m = multiply(ctx.m, multiply(ocs, local));
-        const sub = { ...inner, m, scale: scaleOf(m), item: ctx.item };
-        for (const child of block.entities) draw(child, sub, item, depth + 1, true);
-      }
+    for (const local of insertMatrices(e, block)) {
+      const m = multiply(ctx.m, local);
+      const sub = { ...inner, m, scale: scaleOf(m), item: ctx.item };
+      for (const child of block.entities) draw(child, sub, item, depth + 1, true);
     }
     for (const a of e.attribs ?? []) {
       if ((a.flags ?? 0) & 1) continue; // 見えない属性
@@ -453,6 +444,9 @@ export function buildScene(drawing, layout, { hidden = new Set(), shown = new Se
   /** 図形 1 つを描く。値が壊れていて描けない図形（大きさが数でない円など）は飛ばして数え、図面の残りは描く */
   function draw(e, ctx, item, depth = 0, inBlock = false) {
     const mark = e.clip ? marks() : null;
+    // ブロック（SXF の部分図・寸法の中身など）の中の図形も、その画層に数える（画層の一覧で表示・非表示を切り替えられるように）。
+    // 画層 0 の図形は置く側の画層を引き継ぐので数えない
+    if (inBlock && e.layer && e.layer !== "0" && e.type !== "INSERT") usedLayers.set(e.layer, (usedLayers.get(e.layer) ?? 0) + 1);
     try {
       drawEntity(e, ctx, item, depth, inBlock);
     } catch {
@@ -538,6 +532,13 @@ export function buildScene(drawing, layout, { hidden = new Set(), shown = new Se
         return;
       }
       case "LEADER": return leader(e, layer, ctx, item);
+      case "ACIS": { // 3D ソリッドなど: 稜線を上から見て描く（AutoCAD の 2D ワイヤフレームと同じ）。読めない形は読み取りが数えてある
+        const shape = acisShape(e.acis);
+        if (shape.error) return;
+        const st = style(e, layer, ctx), toWorld = place(ctx, null);
+        for (const body of shape.bodies) for (const edge of body.edges) stroke(st, item, edge.map(toWorld));
+        return;
+      }
       case "RAY": case "XLINE": {
         const d = e.direction ?? [1, 0, 0], p = e.p ?? [0, 0, 0];
         const from = e.type === "XLINE" ? p.map((v, k) => v - d[k] * INFINITE) : p;

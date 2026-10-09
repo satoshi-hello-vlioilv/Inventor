@@ -54,6 +54,15 @@ class Layout(unittest.TestCase):
         self.assertIn(f"built/{EXE}", workflow, "CI が置く exe の名前")
         self.assertIn(f"{EXE} program/{APP_ID}.build.json", workflow.replace("'", ""), "CI は exe を最上位、作った元の控えを program に置く")
 
+    def test_the_app_version_is_readable_by_the_window(self):
+        """版の管理（desktop/src/update.rs）は program/version.json の version で版を見分ける（ZIP から置く・各 PC がそろえる）"""
+        import json
+        version = json.loads((tests.ROOT / "version.json").read_text(encoding="utf-8"))["version"]
+        self.assertRegex(version, r"^[0-9][0-9A-Za-z.\-]{0,40}$", "フォルダの名前にできる版の番号")
+        self.assertEqual(rust_const("VERSION_FILE"), "program/version.json")
+        update_rs = (DESKTOP / "src" / "update.rs").read_text(encoding="utf-8")
+        self.assertIn('DEFAULT_DIR: &str = r"C:\\boxdrive\\Box\\', update_rs, "既定の置き場は Box Drive（利用者の指定）")
+
     def test_page_has_one_token_slot_and_plain_paths(self):
         page = (tests.ROOT / "app" / "index.html").read_text(encoding="utf-8")
         self.assertEqual(page.count("{{ token }}"), 1, "合言葉の差し込み口（desktop/src/router.rs の index）")

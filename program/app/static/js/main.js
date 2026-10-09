@@ -1,7 +1,7 @@
 // アプリの入口: 受け取ったファイルを読み（formats/open.js）、3D（viewer/）と右の欄（ui/panel.js）に表示し、両者を連動させる。
 // 次にすること（主のボタン 1 つ）は ui/flow.js が決め、段階の帯（ui/steps.js）と行動ドックに出す（docs/ui.md）。
 //   .ipt・.iam・.stp … モデル（部品・組立）として読み、表示する
-//   .dwg・.dxf・.pdf・.jww … 2D の図面として読み（formats/cad2d）、Canvas に描く（viewer2d/）。レイアウト（PDF はページ）の切り替え・画層の表示・
+//   .dwg・.dxf・.pdf・.jww・.sfc・.p21 … 2D の図面として読み（formats/cad2d）、Canvas に描く（viewer2d/）。レイアウト（PDF はページ）の切り替え・画層の表示・
 //                      図形の読み出し。3D を含む PDF は、主役の場所のタブで 3D（formats/model3d.js → viewer/）に切り替える
 //   .html            … 隔離した iframe で動かし、three.js の形状を取り出して認識し（convert/recognize）、変換データを作る
 //   .json            … 変換データ（.inventor.json）。作る形を 3D で示し（convert/preview.js）、「Inventor で作る」で作る
@@ -16,17 +16,21 @@ import { read3d } from "./formats/model3d.js";
 import { ACCEPT, FORMATS, FORMAT_NAMES, OPENABLE, detectFormat, explainError, partOf, readModel } from "./formats/open.js";
 import { buildDisplayMeshes, describeRecognition } from "./html/describe.js";
 import { SourceFrame } from "./html/frame.js";
-import { setSpec } from "./ui/convert.js";
+import { History } from "./edit/history.js";
+import { saveSpec, setSpec } from "./ui/convert.js";
+import { DimensionEditor } from "./ui/dimedit.js";
 import { onFlow, setNext, updateFlow } from "./ui/flow.js";
 import "./ui/steps.js";
 import { claimLaunch, listSamples, onLaunch } from "./desktop.js";
 import { PartLibrary, acceptFiles } from "./ui/files.js";
 import { initBuild } from "./ui/build.js";
 import { setupUnit } from "./ui/units.js";
+import { initSettings, offerShortcut, showNews } from "./ui/settings.js";
 import { selectViewTab, setViewTabs } from "./ui/viewtabs.js";
-import { renderAsmPanel, renderDrawingPanel, renderHeader, renderHtmlPanel, renderIptPanel, renderModel3dPanel, renderSpecPanel, setPanelMode } from "./ui/panel.js";
+import { renderAsmPanel, renderAsmStructure, renderDrawingPanel, renderHeader, renderHtmlPanel, renderIptPanel, renderModel3dPanel, renderSpecPanel, setPanelMode } from "./ui/panel.js";
 import { startDialog } from "./ui/start.js";
-import { describeAssembly, describeBody, describeMeshes } from "./viewer/describe.js";
+import { hiddenIds } from "./ui/tree.js";
+import { describeAssembly, describeBody, describeMeshes, describeStructure } from "./viewer/describe.js";
 import { VIEWS, Viewer } from "./viewer/viewer.js";
 import { describeDrawing, describeItem } from "./viewer2d/describe.js";
 import { buildScene } from "./viewer2d/scene.js";
@@ -61,7 +65,9 @@ function highlight(ids, text, groupKey) {
   viewer?.highlight(ids);
   readoutChip.textContent = text ?? idleText;
   readout.classList.toggle("is-live", Boolean(text));
-  for (const [key, row] of current?.rows ?? []) row.classList.toggle("is-active", key === groupKey);
+  // 同じ行が複数の key で引けることがある（組立の木: 行の key と部品表の key）ので、行ごとに 1 回だけ付け外しする
+  const active = current?.rows?.get(groupKey);
+  for (const row of new Set(current?.rows?.values() ?? [])) row.classList.toggle("is-active", row === active);
 }
 
 function onHover(id) {
@@ -105,6 +111,7 @@ const showNotice = (message) => showMessage("notice", message);
 
 /** 表示モード: empty（何も開いていない）・ipt（部品）・asm（組立）・html・spec（変換データ）。 */
 function setMode(mode) {
+  dimEditor.close();
   $("app").classList.toggle("is-html", mode === "html");
   $("app").classList.toggle("is-empty", mode === "empty");
   $("app").classList.toggle("is-drawing", mode === "drawing");
@@ -164,7 +171,14 @@ function showAssembly(model, header) {
     onMissing: () => $("file-input").click(),
   });
   current = { info: describe.info, rows };
-  assembly = { ...assembly, model, header };
+  // 構成の木（サブ組立があれば最初から木で見せる）。開閉・消した行は、部品を開いて戻っても保つ
+  const structure = describeStructure(model.scene, describe.groups);
+  const same = assembly?.model === model && assembly.tree;
+  const tree = same ? assembly.tree : {
+    open: new Set(branchKeys(structure.nodes)), hidden: new Set(), view: structure.depth > 1 ? "tree" : "kinds",
+  };
+  assembly = { ...assembly, model, header, structure, tree, bomRows: rows };
+  renderStructure();
   highlight([]);
   // 見つからない部品があれば、次にすることは「部品を加える」（行動ドック）。Content Center の標準部品だけなら、
   // この PC では .ipt を用意できないことが多いので、ボタンは控えめにし、主の行動にしない（欄の説明で用意の仕方を示す）
@@ -174,6 +188,28 @@ function showAssembly(model, header) {
   $("add-missing").textContent = `見つからない部品を加える（${describe.missing.length} 種類）`;
   setNext("view", addable ? $("add-missing") : null);
 }
+
+/** 構成の木を描き直し、消した部品を 3D から消す（開閉・目・見方の切り替えのたび） */
+function renderStructure() {
+  const { structure, tree, bomRows } = assembly;
+  const rows = renderAsmStructure(structure, tree, {
+    onEnter: (node) => highlight(node.ids, node.text, node.key),
+    onLeave: () => highlight([]),
+    onPick: (node) => node.group && !node.group.missing && openAssemblyPart(node.group.index),
+    onChange: renderStructure,
+  });
+  current = { ...current, rows: rows ?? bomRows };
+  viewer?.setHidden(hiddenIds(structure.nodes, tree));
+}
+
+const branchKeys = (nodes) => nodes.flatMap((n) => (n.children.length ? [n.key, ...branchKeys(n.children)] : []));
+
+$("bom-view").addEventListener("click", (event) => {
+  const view = event.target.closest("button")?.dataset.bomView;
+  if (!view || !assembly?.tree || view === assembly.tree.view) return;
+  assembly.tree.view = view;
+  renderStructure();
+});
 
 /** 組立の中の部品を 1 つだけ開く（部品と同じ表示。「組立に戻る」で戻る） */
 function openAssemblyPart(index) {
@@ -229,7 +265,7 @@ async function loadModel(bytes, name, isSample) {
   }
 }
 
-// ---- 図面（.dwg・.dxf・.pdf・.jww）-------------------------------------------------------
+// ---- 図面（.dwg・.dxf・.pdf・.jww・.sfc・.p21）-------------------------------------------------------
 /** 図面を表示する（最初のレイアウト = モデル）。3D を含む PDF は、主役の場所のタブで 図面 ⇄ 3D を切り替える（最初は 3D） */
 function showDrawing(model, header) {
   setMode("drawing");
@@ -264,7 +300,9 @@ function showDrawingView(key) {
   }
 }
 
-/** 3D の PDF の 3D を表示する（読むのは初めて開いたときの 1 回だけ） */
+const FORMAT3D = { ACIS: "ACIS（3D ソリッド）" };
+
+/** 3D の PDF の 3D・図面の 3D ソリッドを表示する（読むのは初めて開いたときの 1 回だけ） */
 function show3d(index) {
   const entry = sheet.model.drawing.models3d[index];
   if (!sheet.shown3d.has(index)) {
@@ -278,7 +316,7 @@ function show3d(index) {
   const shown = sheet.shown3d.get(index);
   viewer?.show({ meshes: shown.meshes ?? [], view: shown.view });
   const describe = shown.meshes ? describeMeshes(shown) : null;
-  const rows = renderModel3dPanel({ format: entry.format, describe, error: shown.error, warnings: shown.warnings }, rowHandlers((g) => g.ids));
+  const rows = renderModel3dPanel({ format: FORMAT3D[entry.format] ?? entry.format, describe, error: shown.error, warnings: shown.warnings, units: shown.units }, rowHandlers((g) => g.ids));
   current = describe && { info: describe.info, rows };
   highlight([]);
 }
@@ -310,7 +348,8 @@ function renderSheet(fit) {
 }
 
 /** レイアウト（PDF はページ）の切り替え。1 つだけなら出さない。8 つまではタブ（名前が見え、1 回で移れる）、
- *  それより多ければページ送り（‹ 何番目 / 全部 ▾ ›。中央を押すと一覧から選ぶ。PageUp・PageDown でも）。docs/ui.md §11 */
+ *  それより多ければページ送り（‹ 何番目 / 全部 ▾ ›。中央を押すと番号の升目の吹き出しが開き、1 回で移れる。PageUp・PageDown でも）。
+ *  docs/ui.md §11 */
 const TABS_UP_TO = 8;
 const layoutName = (l) => (l.model ? "モデル" : l.name);
 
@@ -339,19 +378,54 @@ function renderLayoutTabs() {
       button.addEventListener("click", () => showLayout(sheet.layout + delta));
       return button;
     };
-    // 中央: いまの番号と全部の数（見た目）の上に、透明な選択の一覧を重ねる（押すと一覧が開く）
-    const now = document.createElement("label");
+    // 中央: いまの番号と全部の数。押すと、その下に番号の升目の吹き出しが開く（全てのページが 1 目で見え、1 回で移れる）
+    const now = document.createElement("button");
+    now.type = "button";
     now.className = "pager-now";
     now.title = "押すとページを選ぶ（PageUp・PageDown で前・次）";
-    const select = document.createElement("select");
-    select.setAttribute("aria-label", "ページ");
-    select.append(...layouts.map((l, i) => new Option(`${layoutName(l)}（${i + 1} / ${layouts.length}）`, String(i))));
-    select.addEventListener("change", () => showLayout(Number(select.value)));
-    now.append(document.createElement("span"), select);
+    now.setAttribute("aria-haspopup", "dialog");
+    now.setAttribute("aria-expanded", "false");
+    now.append(document.createElement("span"));
+    now.addEventListener("click", () => togglePagePop(!pagePop.hidden ? false : true));
     group.replaceChildren(step("‹", "前のページ（PageUp）", -1), now, step("›", "次のページ（PageDown）", 1));
+    pagePop.replaceChildren(...layouts.map((l, i) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = String(i + 1);
+      button.title = layoutName(l);
+      button.addEventListener("click", () => {
+        togglePagePop(false);
+        showLayout(i);
+      });
+      return button;
+    }));
   }
+  togglePagePop(false);
   syncLayoutTabs();
 }
+
+/** ページの番号の升目の吹き出し（ページ送りの中央の下）。開くと、いまのページに焦点を置く。Esc・外を押すと閉じる */
+const pagePop = $("page-pop");
+function togglePagePop(open) {
+  const now = $("layout-tabs").querySelector(".pager-now");
+  if (open && now) {
+    const stage = $("stage").getBoundingClientRect();
+    const at = now.getBoundingClientRect();
+    pagePop.style.left = `${Math.max(12, at.left - stage.left)}px`;
+    pagePop.style.top = `${at.bottom - stage.top + 6}px`;
+  }
+  pagePop.hidden = !(open && now);
+  now?.setAttribute("aria-expanded", String(!pagePop.hidden));
+  if (!pagePop.hidden) pagePop.querySelector('[aria-current="true"]')?.focus();
+}
+addEventListener("pointerdown", (event) => {
+  if (!pagePop.hidden && !pagePop.contains(event.target) && !event.target.closest(".pager-now")) togglePagePop(false);
+});
+pagePop.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  togglePagePop(false);
+  $("layout-tabs").querySelector(".pager-now")?.focus();
+});
 
 /** タブ・ページ送りを、いまのレイアウトに合わせる（作り直さないので、押したボタンの焦点はそのまま） */
 function syncLayoutTabs() {
@@ -364,7 +438,7 @@ function syncLayoutTabs() {
   for (const button of group.querySelectorAll(".pager-step")) button.disabled = !layouts[sheet.layout + Number(button.dataset.delta)];
   group.querySelector(".pager-now span").replaceChildren(layoutName(layouts[sheet.layout]),
     Object.assign(document.createElement("small"), { textContent: ` / ${layouts.length}` }));
-  group.querySelector("select").value = String(sheet.layout);
+  [...pagePop.children].forEach((button, i) => button.setAttribute("aria-current", String(i === sheet.layout)));
 }
 
 /** レイアウト（ページ）を切り替える */
@@ -492,6 +566,52 @@ function loadHtml(text, name, isSample = false) {
 }
 
 // ---- 変換データ（.inventor.json）-----------------------------------------------------
+let openSpec = null; // 開いている変換データ { spec（直した後）, original（開いたとき）, name }
+const specEdits = new History({ onChange: () => dimEditor.refresh() }); // 寸法の直しの取り消し・やり直し
+const dimEditor = new DimensionEditor({
+  history: specEdits,
+  getSpec: () => openSpec.spec,
+  commit: (spec) => showSpec(spec, { keepView: true }),
+});
+
+/** 変換データを 3D・部品の一覧・作る仕事へ出す（開いたとき・寸法を直したとき） */
+function showSpec(spec, { keepView = false } = {}) {
+  openSpec.spec = spec;
+  const describe = describeSpec(spec);
+  viewer?.show(previewScene(spec), { keepView });
+  const rows = renderSpecPanel({ describe }, {
+    ...rowHandlers((g) => g.ids),
+    onClick: (g) => dimEditor.open(spec.parts.findIndex((p) => p.key === g.key), openSpec.original),
+  });
+  current = { info: describe.partInfo, rows };
+  specParts = describe.groups;
+  highlight([]);
+  setSpec(spec, openSpec.name);
+}
+
+$("dim-save").addEventListener("click", async () => {
+  const note = (text) => ($("dim-save-note").textContent = text);
+  try {
+    const path = await saveSpec();
+    if (path) {
+      specEdits.markSaved();
+      note(`${path} に保存しました`);
+    }
+  } catch (error) {
+    note(`保存できませんでした: ${error.message}`);
+  }
+});
+
+// Ctrl+Z・Ctrl+Y（Ctrl+Shift+Z）で寸法の直しを取り消す・やり直す（数の欄の中は、欄の文字の取り消し）
+addEventListener("keydown", (event) => {
+  if (!dimEditor.isOpen || !(event.ctrlKey || event.metaKey) || event.target.closest?.("input, textarea, select")) return;
+  const key = event.key.toLowerCase();
+  if (key === "z" && !event.shiftKey) specEdits.undo();
+  else if (key === "y" || (key === "z" && event.shiftKey)) specEdits.redo();
+  else return;
+  event.preventDefault();
+});
+
 function loadSpec(text, name, isSample = false) {
   let spec;
   try {
@@ -506,13 +626,10 @@ function loadSpec(text, name, isSample = false) {
   const { file, captured_at: at } = spec.source;
   const when = at && !Number.isNaN(Date.parse(at)) ? new Date(at).toLocaleString("ja-JP") : null;
   renderHeader({ eyebrow: "変換データ", name, meta: [file && `${file} から取り込み`, when].filter(Boolean).join(" · "), isSample, thumbnailUrl: null });
-  const describe = describeSpec(spec);
-  viewer?.show(previewScene(spec));
-  const rows = renderSpecPanel({ describe }, rowHandlers((g) => g.ids));
-  current = { info: describe.partInfo, rows };
-  specParts = describe.groups;
-  highlight([]);
-  setSpec(spec, name);
+  openSpec = { spec, original: spec, name };
+  specEdits.clear();
+  $("dim-save-note").textContent = "";
+  showSpec(spec);
 }
 
 async function load(bytes, name, isSample = false) {
@@ -649,5 +766,8 @@ async function takeLaunch(launch) {
 
 setMode("empty");
 initBuild(); // 保存先と、作っている途中の仕事（画面を開き直したとき）を読む
+initSettings();
 onLaunch(async (claim) => takeLaunch(await claim.catch(noServer(LAUNCH))));
 await takeLaunch(await launchReady); // 何も受け取っていなければ、3D の場所に始め方が見えている
+showNews(); // 起動でそろえた後なら、その版で変わったことを右下に 1 度だけ
+offerShortcut(); // デスクトップにショートカットが無ければ、右下で尋ねる（開いた物を見る邪魔をしないよう、開き終えてから）

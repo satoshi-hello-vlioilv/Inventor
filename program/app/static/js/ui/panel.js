@@ -3,13 +3,14 @@
 //   asm  … 組立（.iam・STEP）: 外形寸法・部品表・構成・見つからない部品（次にすることのボタンは行動ドック）
 //   html … three.js の HTML: 照合の結果・単位・作る部品・除外したもの
 //   spec … 変換データ（.inventor.json）: ファイルの情報・照合の結果・作る部品
-//   drawing … 2D の図面（.dwg・.dxf・.pdf・.jww）: ファイルの情報・図面（形式・大きさ・レイアウト）・画層（押すと表示・非表示）・図形の内訳
+//   drawing … 2D の図面（.dwg・.dxf・.pdf・.jww・.sfc・.p21）: ファイルの情報・図面（形式・大きさ・レイアウト）・画層（押すと表示・非表示）・図形の内訳
 //   model3d … 3D の PDF の 3D（主役の場所のタブで図面と切り替える）: 3D の情報（形式・部品・面・大きさ）・部品の一覧
 
 import { AXES, fmt, fmtMass, fmtSize } from "../viewer/describe.js";
 import { ACI, rgbHex } from "../viewer2d/colors.js";
 import { layerScales } from "../formats/cad2d/model.js";
 import { length, scaleText } from "../viewer2d/describe.js";
+import { renderTree } from "./tree.js";
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, className, text) => {
@@ -141,6 +142,47 @@ export function renderIptPanel({ report, scene, describe, properties = {}, volum
   return rows;
 }
 
+/** 部品の行の説明（寸法・材質・質量。見つからない部品はファイル名） */
+const partSub = (g) => (g.missing ? `ファイル ${g.file ?? "?"}`
+  : [g.size ? fmtSize(g.size) : null, g.material, g.mass !== null ? `約 ${fmtMass(g.mass)}` : null].filter(Boolean).join(" · "));
+
+/**
+ * 組立の部品表の見方（構成（木）⇄ 部品の種類ごと）と、構成の木（ui/tree.js）。
+ * @param {{ nodes, depth }} structure  describeStructure の結果
+ * @param {{ open, hidden, view }} state  開閉・消した行・見方（呼ぶ側が持つ）
+ * @param {{ onEnter, onLeave, onPick, onChange }} handlers
+ * @returns {Map<string, HTMLElement>} 行の key → 行（部品の行は、部品表と同じ key「part:番号」でも引ける: 3D から強調するため。
+ *   閉じた組立の中の部品は、その組立の行）
+ */
+export function renderAsmStructure(structure, state, handlers) {
+  const tree = state.view === "tree";
+  $("bom-view").hidden = false;
+  for (const button of $("bom-view").querySelectorAll("button")) button.setAttribute("aria-selected", String(button.dataset.bomView === state.view));
+  $("asm-tree").hidden = !tree;
+  $("bom").hidden = tree;
+  if (!tree) return null;
+  const decorate = (nodes) => nodes.map((n) => {
+    const name = n.group?.name ?? n.name; // 部品の行は部品表と同じ名前（同じ部品を別の名前で見せない）
+    return {
+      ...n,
+      name,
+      sub: n.children.length ? `サブ組立 · 中の部品 ${n.children.length} 種類` : n.group ? partSub(n.group) : "",
+      text: `${name} × ${n.count}`,
+      children: decorate(n.children),
+    };
+  });
+  const nodes = decorate(structure.nodes);
+  const rows = renderTree($("asm-tree"), nodes, state, handlers);
+  // 閉じた組立の中の部品は、見えている一番近い親の行で示す
+  const byPart = (list, shown) => list.forEach((n) => {
+    const row = rows.get(n.key) ?? shown;
+    if (n.group && !rows.has(n.group.key)) rows.set(n.group.key, row);
+    byPart(n.children, row);
+  });
+  byPart(structure.nodes, null);
+  return rows;
+}
+
 /**
  * 組立の表示（.iam・STEP）。
  * @param {{ describe: object, scene: object }} data  describe は describeAssembly の結果
@@ -161,7 +203,7 @@ export function renderAsmPanel({ describe, scene }, handlers) {
     kind: String(g.number).padStart(2, "0"),
     dim: g.name,
     count: g.count,
-    sub: g.missing ? `ファイル ${g.file ?? "?"}` : [g.size ? fmtSize(g.size) : null, g.material, g.mass !== null ? `約 ${fmtMass(g.mass)}` : null].filter(Boolean).join(" · "),
+    sub: partSub(g),
     note: g.missing ? "部品ファイルが見つかりません" : null,
     tone: g.missing ? "missing" : null,
     title: g.missing ? g.path ?? g.file : "押すと、この部品を開きます",
@@ -199,6 +241,7 @@ export function renderAsmPanel({ describe, scene }, handlers) {
  */
 export function renderHtmlPanel({ describe }, handlers) {
   const { counts } = describe;
+  $("parts-note").textContent = "mm";
   renderTally("tally", [
     ["exact", "正確", counts.exact, "回転体・押し出しとして寸法を復元"],
     ["approx", "近似", counts.approx, "三角形のまま（円は多角形）"],
@@ -225,8 +268,9 @@ export function renderSpecPanel({ describe }, handlers) {
   if (counts.approx) tally.push(["approx", "うち近似", `${counts.approx} 種類`, "三角形のまま作る部品（円は多角形）"]);
   if (counts.skipped) tally.push(["approx", "作らない", `${counts.skipped} 個`, "取り込んだときに近似（三角形のまま）だった部品（版 2 までの変換データ）"]);
   renderTally("spec-tally", tally);
+  $("parts-note").textContent = "mm · 行を押すと寸法を直せます";
   return renderRows("parts", describe.groups,
-    (g) => ({ kind: g.label, dim: g.main, count: g.ids.length, sub: g.sub, note: g.note, tone: g.tone, title: g.name }), handlers,
+    (g) => ({ kind: g.label, dim: g.main, count: g.ids.length, sub: g.sub, note: g.note, tone: g.tone, title: `${g.name}（押すと寸法を直せます）` }), handlers,
     "作れる部品がありません");
 }
 
@@ -234,10 +278,10 @@ export function renderSpecPanel({ describe }, handlers) {
 const layerColor = (color) => (color?.rgb !== undefined ? rgbHex(color.rgb) : ACI[Math.abs(color?.index ?? 7)] ?? null);
 
 // レイアウトの呼び方（形式ごと。無ければ「レイアウト」）
-const LAYOUT_LABEL = { pdf: "ページ", jww: "用紙" };
+const LAYOUT_LABEL = { pdf: "ページ", jww: "用紙", sxf: "用紙" };
 
 /**
- * 図面（.dwg・.dxf・.pdf・.jww）。画層は、このレイアウトに図形があるものを数の多い順に。図形の無い画層は数だけ添える。
+ * 図面（.dwg・.dxf・.pdf・.jww・.sfc・.p21）。画層は、このレイアウトに図形があるものを数の多い順に。図形の無い画層は数だけ添える。
  * @param {{ drawing, describe, layout, visible: (name) => boolean, display: (color) => string }} data
  *   display … 図面の色 → 描く色（地に合わせた補正。見本を図面と同じ色にする）
  * @param {{ onToggle: (name) => void, onEnter: (name) => void, onLeave: () => void }} handlers
@@ -253,6 +297,7 @@ export function renderDrawingPanel({ drawing, describe, layout, visible, display
     ["大きさ", describe.extents ? `${length(w)} × ${length(h)}${units ? ` ${units}` : ""}` : "—"],
     [LAYOUT_LABEL[drawing.format] ?? "レイアウト", `${layout.model ? "モデル" : layout.name}${drawing.layouts.length > 1 ? `（全 ${drawing.layouts.length}）` : ""}`],
     ...(scales.length ? [["縮尺", `${scales.map((k) => scaleText(1 / k)).join("・")}（指した図形の長さは実寸）`]] : []),
+    ...(drawing.figureScales ? [["部分図の縮尺", drawing.figureScales.map((k) => scaleText(1 / k)).join("・")]] : []),
   ]);
 
   const used = describe.layers.filter((l) => l.count > 0).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, "ja"));
@@ -296,7 +341,8 @@ export function renderDrawingPanel({ drawing, describe, layout, visible, display
  *   describe … viewer/describe.js の describeMeshes の結果（読めなかったときは null と error）
  * @returns {Map<string, HTMLElement>} 部品のキー → 行
  */
-export function renderModel3dPanel({ format, describe, error = "", warnings = [] }, handlers) {
+export function renderModel3dPanel({ format, describe, error = "", warnings = [], units = null }, handlers) {
+  $("model3d-units").textContent = units ? `大きさは ${units}` : "大きさはファイルの単位"; // 図面の 3D ソリッドは mm に直してある
   definitionList("model3d-info", [
     ["形式", format],
     ["部品", describe ? `${describe.groups.length}` : "—"],

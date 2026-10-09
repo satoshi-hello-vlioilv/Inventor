@@ -1,6 +1,6 @@
 # Inventor 3Dツール
 
-Autodesk Inventor の部品（.ipt）・組立（.iam）、STEP（.stp）、2D の図面（.dwg・.dxf・.pdf・.jww。PDF の 3D も）と、three.js で作った 3D モデル（.html）を
+Autodesk Inventor の部品（.ipt）・組立（.iam）、STEP（.stp）、2D の図面（.dwg・.dxf・.pdf・.jww・.sfc・.p21。PDF の 3D も）と、three.js で作った 3D モデル（.html）を
 ブラウザで表示・解析し、three.js のモデルを STEP（.stp。Inventor 不要）と Inventor の部品（.ipt）・組立（.iam）に変換する 1 つのアプリ。
 
 Windows のデスクトップアプリ（`Inventor3DTool.exe`。Tauri・Rust の窓が画面（HTML・JavaScript・CSS）を出す）。WaveLog と同じ作りと配り方
@@ -25,7 +25,7 @@ Windows のデスクトップアプリ（`Inventor3DTool.exe`。Tauri・Rust の
 | 操作 | 動き |
 |---|---|
 | `Inventor3DTool.exe` をダブルクリック | アプリを開く（2 つめは開かず、開いている窓を前に出す） |
-| .ipt・.iam・.stp・.dwg・.dxf・.pdf・.jww・.html・.inventor.json を `Inventor3DTool.exe` にドロップ（「プログラムから開く」でもよい） | そのファイルをアプリで開く（複数なら 1 つの窓にまとめ、見出しバーの「受け取った n 件」から切り替える）。開いている間にドロップしても、同じ窓で開く。.iam は同じフォルダの .ipt も部品として使い、組み立てて表示する |
+| .ipt・.iam・.stp・.dwg・.dxf・.pdf・.jww・.sfc・.p21・.html・.inventor.json を `Inventor3DTool.exe` にドロップ（「プログラムから開く」でもよい） | そのファイルをアプリで開く（複数なら 1 つの窓にまとめ、見出しバーの「受け取った n 件」から切り替える）。開いている間にドロップしても、同じ窓で開く。.iam は同じフォルダの .ipt も部品として使い、組み立てて表示する |
 | 行動ドック（右下）の **STEP を作る** | 取り込んだ形（または開いた変換データ）から、STEP（.stp）を作る。Inventor もライブラリも使わない（下の「CAD ファイルを作る」） |
 | 行動ドック（右下）の **Inventor で作る** | STEP に加えて、Inventor で部品（.ipt）と組立（.iam）を作り、部品ごとに体積・表面積を照合する |
 
@@ -40,7 +40,7 @@ Windows のデスクトップアプリ（`Inventor3DTool.exe`。Tauri・Rust の
 | 場所 | 中身 |
 |---|---|
 | 見出しバー（上端） | いま開いているもの（種類と名前）・**サンプル・受け取ったファイル**・**ファイルを開く** |
-| 3D（主役） | 何も開いていなければ、ここが始め方（ドロップの受け口・**ファイルを選ぶ**・**サンプルで試す**）になる。HTML のときは左に元のページが並ぶ。図面（.dwg・.dxf・.pdf・.jww）のときは 2D の図面になり、左上でレイアウト（モデル・紙。PDF はページ。9 つ以上ならページ送り）を切り替える。3D を含む PDF は、上の中央のタブで「図面」と「3D」を切り替える |
+| 3D（主役） | 何も開いていなければ、ここが始め方（ドロップの受け口・**ファイルを選ぶ**・**サンプルで試す**）になる。HTML のときは左に元のページが並ぶ。図面（.dwg・.dxf・.pdf・.jww・.sfc・.p21）のときは 2D の図面になり、左上でレイアウト（モデル・紙。PDF はページ。9 つ以上ならページ送り）を切り替える。3D を含む PDF は、上の中央のタブで「図面」と「3D」を切り替える |
 | 右の欄 | 上から **段階の帯**（HTML・変換データのとき）→ 中身（寸法・部品表・単位・照合の結果など）→ **行動ドック**（右下） |
 
 - **塗りの青いボタンは、いつも 1 つだけ**。それがその画面で次にすること（何も開いていない → ファイルを選ぶ、組立の部品が足りない →
@@ -180,6 +180,8 @@ three.js・fzstd（Zstandard の展開）・Delaunator と Constrainautor（面�
 - **Jw_cad（.jww）**: Jw_cad の図面を、Jw_cad なしで表示する（版 600・700 で確かめた）。用紙の上に、画層グループ・画層の名前、Jw_cad の画面の色・線種、
   文字・寸法・ブロック・ソリッドを描く。指した図形の長さは画層グループの縮尺を掛けた**実寸**で出す。補助線（印刷しない線）は専用の画層にまとめ、
   画層の一覧から隠せる
+- **SXF（.sfc・.p21）**: 国土交通省の電子納品の図面（SXF Ver.3.x）を表示する。SFC と P21 のどちらも読み、用紙・部分図（縮尺）・画層・色・線種・
+  寸法・引出線・ハッチング・表題欄を描く。同じ図面の SFC と P21 は、線・文字・矢印まで一致することを確かめた
 - **.html（three.js）**: 元のページを隔離した枠の中で動かし、表示中の 3D モデルを取り出す（インスタンス描画を含む）。シーンの単位を
   実寸（mm）に直し、開いた面は縫い合わせ・縁を塞いで立体にし、部品ごとに「回転体」「押し出し（端面の縁の等距離面取りを含む）」
   「近似（三角形のまま）」に分類して寸法を復元する
@@ -196,7 +198,7 @@ three.js・fzstd（Zstandard の展開）・Delaunator と Constrainautor（面�
 | [`program/samples/ipt/`](program/samples/ipt) | .ipt（部品）。アプリのサンプルと解析の評価に使う（詳しくは中の README） |
 | [`program/samples/iam/`](program/samples/iam) | .iam（組立）。参照する部品は samples/ipt のものを使って組み立てる |
 | [`program/samples/stp/`](program/samples/stp) | STEP（.stp・.step）。同じ部品の .ipt・同じ組立の .iam との照合にも使う |
-| [`program/samples/dwg/`](program/samples/dwg) | 図面（.dwg・.dxf・.pdf・.jww）。サンプルの部品 A1 の部品図・ネットの無料の素材（DWG・回路図や画層の PDF・3D の PDF・Jw_cad の線色と線種・塗り） |
+| [`program/samples/dwg/`](program/samples/dwg) | 図面（.dwg・.dxf・.pdf・.jww・.sfc・.p21）。サンプルの部品 A1 の部品図（DXF・SXF）・ネットの無料の素材（DWG・回路図や画層の PDF・3D の PDF・Jw_cad の線色と線種・塗り） |
 | [`program/samples/html/`](program/samples/html) | 形状認識の検証に使う three.js の HTML（アプリのサンプルにもなる） |
 
 ## 開発

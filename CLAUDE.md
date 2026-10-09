@@ -38,6 +38,12 @@ npm test
   `cargo clippy --target x86_64-pc-windows-msvc --all-targets -- -D warnings` も通す（Linux の確かめでは、その部分をコンパイルしない）
 - Windows の本物の WebView2 での自己診断は CI（`.github/workflows/desktop.yml`）が行う。手元で同じ手順を試すときは [docs/desktop.md](docs/desktop.md) §7
 
+## アプリを変えたら、版（program/version.json）を上げる
+
+各 PC は、置き場の配る版（`program/version.json` の `version`）と自分の版を比べてそろえる。置き場は同じ番号の版を受け付けない
+（もう写した PC と中身が食い違うため）。main へ入れる PR で `program/` か exe を変えたら、`version` を上げる
+（小さな直し → 3 つめ、機能の追加 → 2 つめ。例 2.1.0 → 2.1.1・2.2.0）。仕組みは [docs/desktop.md](docs/desktop.md) §8
+
 ## レビューの指摘は、まとめて 1 回で push する
 
 レビューの指摘を直すときは、指摘ごとに push しない。全ての指摘を直し、上の確かめを全て通してから、まとめて 1 回 push する。

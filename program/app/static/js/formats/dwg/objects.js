@@ -58,6 +58,7 @@ export function readObject(data, offset, ctx) {
   skipExtendedData(r);
   o.object = object;
   o.start = start;
+  o.end = end;
   const reader = READERS[kind];
   try {
     if (isEntity) readEntityCommon(o);
@@ -465,6 +466,48 @@ function readPoint(o) {
   object.p = xyz(r);
   object.thickness = r.bt();
   object.extrusion = r.be();
+}
+
+// ---- 3D の立体・リージョン・ボディ（ACIS の形のデータ。仕様書 20.4.40）----------------------------------------
+// 形は ACIS（Spatial 社の立体の核）の SAT（文字）か SAB（バイナリ）で持つ。R2013+ はオブジェクトの中に無く、
+// 「AcDs」の節（立体のデータの置き場）にハンドルで引いて置く（sections.js の readAcDs）。形そのものは acis/ が読む。
+const ACIS_ENDS = ["End-of-ACIS-data", "End-of-ASM-data", "\x0e\x03End\x0e\x02of\x0e\x04ACIS\x0d\x04data", "\x0e\x03End\x0e\x02of\x0e\x03ASM\x0d\x04data"]
+  .map((m) => Uint8Array.from(m, (c) => c.charCodeAt(0)));
+
+/** バイト列 data の中の、印 marker の終わりの位置（無ければ -1） */
+function endOf(data, marker) {
+  search: for (let i = 0; i + marker.length <= data.length; i++) {
+    for (let j = 0; j < marker.length; j++) if (data[i + j] !== marker[j]) continue search;
+    return i + marker.length;
+  }
+  return -1;
+}
+
+/** ACIS のデータ: 版 1 は SAT の文字を区切りごとに（0x21〜0x9E の文字は 0x9F − 値で隠してある）、版 2 は SAT か SAB がそのまま */
+function readAcisData(o) {
+  const { r } = o;
+  r.bit();
+  const version = r.bs();
+  if (version === 1) {
+    const parts = [];
+    for (let n = r.bl(); n > 0; n = r.bl()) parts.push(r.read(n).map((b) => (b > 0x20 && b < 0x9f ? 0x9f - b : b)));
+    const out = new Uint8Array(parts.reduce((s, p) => s + p.length, 0));
+    parts.reduce((at, p) => (out.set(p, at), at + p.length), 0);
+    return out.length ? out : null;
+  }
+  if (version !== 2) return null;
+  const data = r.read(Math.max(0, (o.end - r.pos) >> 3));
+  const cut = Math.min(...ACIS_ENDS.map((m) => endOf(data, m)).filter((i) => i >= 0));
+  return Number.isFinite(cut) ? data.subarray(0, cut) : data;
+}
+
+/** 3DSOLID・REGION・BODY・面（PLANESURFACE など）の共通: ACIS のデータ（R2013+ は AcDs の節にあるので null） */
+function readModelerGeometry(o) {
+  if (o.version >= R2013) {
+    o.object.acis = null;
+    return;
+  }
+  o.object.acis = o.r.bit() ? null : readAcisData(o);
 }
 
 function readFace3d(o) {
@@ -905,6 +948,9 @@ const READERS = {
   LWPOLYLINE: readLwpolyline, HATCH: readHatch, VIEWPORT: readViewport,
   BLOCK_HEADER: readBlockHeader, LAYER: readLayer, STYLE: readStyle, LTYPE: readLtype, LAYOUT: readLayout, DICTIONARY: readDictionary,
   DBCOLOR: readDbColor,
+  "3DSOLID": readModelerGeometry, REGION: readModelerGeometry, BODY: readModelerGeometry,
+  PLANESURFACE: readModelerGeometry, EXTRUDEDSURFACE: readModelerGeometry, LOFTEDSURFACE: readModelerGeometry,
+  REVOLVEDSURFACE: readModelerGeometry, SWEPTSURFACE: readModelerGeometry, NURBSURFACE: readModelerGeometry,
   ENDBLK: () => {}, SEQEND: () => {},
 };
 for (const kind of Object.keys(DIMENSION_POINTS)) READERS[kind] = readDimension;
