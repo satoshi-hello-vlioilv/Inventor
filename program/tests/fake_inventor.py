@@ -11,6 +11,8 @@
     - 面取りは、選ばれた稜線が「どのループの・どちらの端面の縁か」を調べ、ループの全ての稜線がそろっている場合だけ
       体積・表面積に反映する（一部だけの選択・端面以外の稜線は失敗）。削られる量は ipt_build.chamfer の折れ線の方法
       （JS 版の厳密式とは独立）で、代替オブジェクト自身の折れ線から求める
+    - スケッチの拘束・寸法・パラメータ（fake_constraints）: 今の形に合わない拘束・重なる拘束を断り、自由度を数える。
+      フィーチャの値に式（パラメータの名前）を渡せる
 """
 from __future__ import annotations
 
@@ -18,11 +20,13 @@ import math
 from pathlib import Path
 
 from ipt_build.chamfer import chamfer as polygon_chamfer
+from tests.fake_constraints import ConstraintSystem, FixedLine, FixedPoint, Parameters
 
 K_PART_DOCUMENT = 12290
 K_ASSEMBLY_DOCUMENT = 12291
 K_JOIN = 20481
 K_SYMMETRIC = 20995
+K_HORIZONTAL_DIM, K_VERTICAL_DIM, K_ALIGNED_DIM = 19201, 19202, 19203
 SAMPLES_PER_TURN = 4096
 MM_PER_CM = 10.0  # Inventor の内部の長さは cm
 
@@ -92,13 +96,21 @@ class SketchArc:
     """常に反時計回りで保持する（時計回りで作られたら始点と終点を入れ替える）。"""
 
     def __init__(self, center: Point2d, start, end, ccw: bool):
-        self.center = center
+        self.CenterSketchPoint = _as_sketch_point(center)
         self.StartSketchPoint, self.EndSketchPoint = (start, end) if ccw else (end, start)
+
+    @property
+    def center(self) -> Point2d:
+        return self.CenterSketchPoint.Geometry
 
 
 class SketchCircle:
     def __init__(self, center: Point2d, radius: float):
-        self.center, self.radius = center, radius
+        self.CenterSketchPoint, self.radius = _as_sketch_point(center), radius
+
+    @property
+    def center(self) -> Point2d:
+        return self.CenterSketchPoint.Geometry
 
 
 class Collection(list):
@@ -121,9 +133,11 @@ class Loop:
 
 
 class Sketch:
-    def __init__(self, plane):
+    def __init__(self, plane, parameters: Parameters | None = None):
         self.plane = plane
         self.entities: list = []
+        self.system = ConstraintSystem(self, parameters or Parameters())
+        self.GeometricConstraints, self.DimensionConstraints = self.system.Geometric, self.system.Dimensions
         outer = self
 
         class Lines:
@@ -149,6 +163,13 @@ class Sketch:
                 return Profile(outer.loops())
 
         self.SketchLines, self.SketchArcs, self.SketchCircles, self.Profiles = Lines(), Arcs(), Circles(), Profiles()
+
+    def AddByProjectingEntity(self, entity):  # noqa: N802 — 原点の作業点・作業軸だけ
+        if entity.name == "origin":
+            return FixedPoint(0.0, 0.0)
+        if entity.name in ("X", "Y"):
+            return FixedLine((1, 0) if entity.name == "X" else (0, 1))
+        raise FakeComError(f"{entity.name} は投影できません（この代替は原点と X・Y 軸だけ）")
 
     def loops(self) -> list[Loop]:
         """端点を共有する線をたどって閉じたループにする。"""
@@ -279,6 +300,7 @@ class Features:
         mass = definition.MassProperties
         log = self.log
         owner = definition
+        value = lambda v: definition.Parameters.evaluate(v)  # noqa: E731 — 数（cm・ラジアン）か式（パラメータの名前）
 
         class Revolves:
             def AddFull(self, profile, axis, operation):  # noqa: N802
@@ -286,6 +308,8 @@ class Features:
                 self._solid(profile, 2 * math.pi)
 
             def AddByAngle(self, profile, axis, angle, direction, operation):  # noqa: N802
+                owner.expressions.append(("revolve-angle", angle))
+                angle = value(angle)
                 log.append(("revolve-angle", axis.name, angle, direction, operation))
                 self._solid(profile, angle)
 
@@ -302,7 +326,8 @@ class Features:
                 self.profile, self.operation, self.distance, self.direction = profile, operation, None, None
 
             def SetDistanceExtent(self, distance, direction):  # noqa: N802
-                self.distance, self.direction = distance, direction
+                owner.expressions.append(("extrude", distance))
+                self.distance, self.direction = value(distance), direction
 
         class Extrudes:
             def CreateExtrudeDefinition(self, profile, operation):  # noqa: N802
@@ -319,6 +344,8 @@ class Features:
 
         class Chamfers:
             def AddUsingDistance(self, edges, distance):  # noqa: N802
+                owner.expressions.append(("chamfer", distance))
+                distance = value(distance)
                 body = owner.SurfaceBodies.Item(1)
                 groups: dict[tuple[int, int], set[int]] = {}
                 for edge in edges:
@@ -356,11 +383,14 @@ class PartDefinition:
         self.SurfaceBodies = Collection()
         self.WorkPlanes = Collection(Named(n) for n in ("YZ", "XZ", "XY"))
         self.WorkAxes = Collection(Named(n) for n in ("X", "Y", "Z"))
+        self.WorkPoints = Collection([Named("origin")])
+        self.Parameters = Parameters()
+        self.expressions: list = []  # フィーチャに渡した値（数か式）
         outer = self
 
         class Sketches:
             def Add(self, plane):  # noqa: N802
-                sketch = Sketch(plane.name)
+                sketch = Sketch(plane.name, outer.Parameters)
                 outer.sketches.append(sketch)
                 return sketch
 

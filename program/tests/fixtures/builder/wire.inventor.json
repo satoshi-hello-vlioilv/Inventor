@@ -1,6 +1,6 @@
 {
  "format": "inventor-builder",
- "version": 3,
+ "version": 4,
  "units": "mm",
  "source": {
   "file": "メッセンジャーワイヤー方式.html",
@@ -129,7 +129,220 @@
      "y": [0, 0, -1],
      "z": [0, 1, 0]
     }
-   ]
+   ],
+   "parametric": {
+    "params": [
+     {
+      "name": "L0_0",
+      "value": 30.614674,
+      "unit": "mm",
+      "comment": "外周の斜めの辺"
+     },
+     {
+      "name": "L0_1",
+      "value": 30.614674,
+      "unit": "mm",
+      "comment": "外周の斜めの辺"
+     },
+     {
+      "name": "L0_2",
+      "value": 30.614674,
+      "unit": "mm",
+      "comment": "外周の斜めの辺"
+     },
+     {
+      "name": "L0_3",
+      "value": 30.614674,
+      "unit": "mm",
+      "comment": "外周の斜めの辺"
+     },
+     {
+      "name": "L0_4",
+      "value": 30.614674,
+      "unit": "mm",
+      "comment": "外周の斜めの辺"
+     },
+     {
+      "name": "L0_5",
+      "value": 30.614674,
+      "unit": "mm",
+      "comment": "外周の斜めの辺"
+     },
+     {
+      "name": "t",
+      "value": 500,
+      "unit": "mm",
+      "comment": "厚さ（押し出しの長さ。XY 平面に対して対称）"
+     }
+    ],
+    "constraints": [
+     {
+      "type": "parallel",
+      "segs": [
+       [0, 0],
+       [0, 4]
+      ]
+     },
+     {
+      "type": "parallel",
+      "segs": [
+       [0, 1],
+       [0, 5]
+      ]
+     },
+     {
+      "type": "parallel",
+      "segs": [
+       [0, 2],
+       [0, 6]
+      ]
+     },
+     {
+      "type": "parallel",
+      "segs": [
+       [0, 3],
+       [0, 7]
+      ]
+     },
+     {
+      "type": "onAxis",
+      "axis": "y",
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      }
+     }
+    ],
+    "dimensions": [
+     {
+      "type": "angle",
+      "segs": [
+       [0, 0],
+       [0, 7]
+      ],
+      "value": 45.000006100713414,
+      "name": "A0_0",
+      "text": [6.271502, -37.402258],
+      "driven": false
+     },
+     {
+      "type": "angle",
+      "segs": [
+       [0, 1],
+       [0, 0]
+      ],
+      "value": 44.99999389928658,
+      "name": "A0_1",
+      "text": [30.882012, -22.012768],
+      "driven": false
+     },
+     {
+      "type": "angle",
+      "segs": [
+       [0, 2],
+       [0, 1]
+      ],
+      "value": 45.000006100713414,
+      "name": "A0_2",
+      "text": [37.402258, 6.271502],
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 0],
+      "value": 30.61467391408571,
+      "text": [16.739877, -40.413637],
+      "expression": "L0_0",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 1],
+      "value": 30.61467391408571,
+      "text": [40.413637, -16.739877],
+      "expression": "L0_1",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 2],
+      "value": 30.61467391408571,
+      "text": [40.413637, 16.739877],
+      "expression": "L0_2",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 3],
+      "value": 30.61467391408571,
+      "text": [16.739877, 40.413637],
+      "expression": "L0_3",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 4],
+      "value": 30.61467391408571,
+      "text": [-16.739877, 40.413637],
+      "expression": "L0_4",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 5],
+      "value": 30.61467391408571,
+      "text": [-40.413637, 16.739877],
+      "expression": "L0_5",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 6],
+      "value": 30.61467391408571,
+      "text": [-40.413637, -16.739877],
+      "driven": true
+     },
+     {
+      "type": "length",
+      "seg": [0, 7],
+      "value": 30.61467391408571,
+      "text": [-16.739877, -40.413637],
+      "driven": true
+     },
+     {
+      "type": "y",
+      "sign": -1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 40,
+      "text": [-6.788225, -40],
+      "name": "P0Y",
+      "driven": false
+     },
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 1,
+       "end": "a"
+      },
+      "value": 28.28427,
+      "text": [28.28427, -35.072495],
+      "name": "Q0_1X",
+      "driven": false
+     }
+    ],
+    "features": {
+     "chamfers": [],
+     "distance": "t"
+    },
+    "free": 0
+   }
   },
   {
    "key": "p02",
@@ -183,7 +396,97 @@
      "y": [0, 1, 0],
      "z": [-1, 0, 0]
     }
-   ]
+   ],
+   "parametric": {
+    "params": [
+     {
+      "name": "D0_1",
+      "value": 600,
+      "unit": "mm",
+      "comment": "断面の直径"
+     },
+     {
+      "name": "L0_1",
+      "value": 12960,
+      "unit": "mm",
+      "comment": "断面の軸方向の辺"
+     }
+    ],
+    "constraints": [
+     {
+      "type": "horizontal",
+      "seg": [0, 0]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 1]
+     },
+     {
+      "type": "horizontal",
+      "seg": [0, 2]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 3]
+     },
+     {
+      "type": "onAxis",
+      "axis": "y",
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      }
+     }
+    ],
+    "dimensions": [
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 1,
+       "end": "a"
+      },
+      "value": 300,
+      "text": [300, -777.808305],
+      "expression": "D0_1 / 2",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 1],
+      "value": 12960,
+      "text": [-477.808305, 0],
+      "expression": "L0_1",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 3],
+      "value": 12960,
+      "text": [777.808305, 0],
+      "driven": true
+     },
+     {
+      "type": "y",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 6480,
+      "text": [-777.808305, 6480],
+      "name": "P0Y",
+      "driven": false
+     }
+    ],
+    "features": {
+     "chamfers": []
+    },
+    "free": 0
+   }
   },
   {
    "key": "p03",
@@ -223,7 +526,68 @@
      "y": [0, 1, 0],
      "z": [-1, 0, 0]
     }
-   ]
+   ],
+   "parametric": {
+    "params": [],
+    "constraints": [
+     {
+      "type": "vertical",
+      "seg": [0, 1]
+     },
+     {
+      "type": "onAxis",
+      "axis": "y",
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      }
+     },
+     {
+      "type": "onAxis",
+      "axis": "y",
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "center"
+      }
+     }
+    ],
+    "dimensions": [
+     {
+      "type": "radius",
+      "seg": [0, 0],
+      "value": 350,
+      "text": [0, 392],
+      "name": "R0_0",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 1],
+      "value": 700,
+      "text": [42, 0],
+      "driven": true
+     },
+     {
+      "type": "y",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 350,
+      "text": [-42, 350],
+      "name": "P0Y",
+      "driven": false
+     }
+    ],
+    "features": {
+     "chamfers": []
+    },
+    "free": 0
+   }
   },
   {
    "key": "p04",

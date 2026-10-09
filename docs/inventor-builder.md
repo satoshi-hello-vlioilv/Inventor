@@ -125,10 +125,11 @@ STEP を作るには **Python**（3.10 以上。この PC の Python。[README](
 | 押し出し | XY 平面のスケッチに断面（外周と穴）を描き、Z 方向に XY 平面に対して**対称**に押し出す |
 | 面取り（押し出しのみ） | 押し出した端面（Z = ±長さ/2 の平らな面）の稜線のうち、指定したループの上にあるものを選び、等距離の面取りをかける。同じ大きさの面取りは 1 つのフィーチャにまとめる |
 | 組立 | 各部品を、取り込んだシーンと同じ位置・向きで配置する（同じ形の部品は 1 つの .ipt を使い回す） |
+| 直せる部品（版 4） | 断面に幾何拘束（水平・垂直・平行・接線・原点の軸の上）と寸法拘束を付けて完全拘束にし、寸法・押し出しの長さ `t`・回転の角度 `a`・面取り `C0` … を名前つきの値（ユーザー パラメータ）の式にする。名前つきの値があれば、面取りは面取りごとに 1 つのフィーチャ。付けられない拘束・寸法があっても形は作る。選び方と確かめ方は [editing.md](editing.md) §4 |
 
 - 断面の直線・円弧は、隣どうしで端点を共有させて描く（隙間のない閉じた断面にするため）
 - 部品の iProperties に、部品番号（ファイル名と同じ）と説明（種類・面取り・断面の構成）を入れる
-- 変換データの版は 3（近似の部品の三角形 `mesh`・注意 `notes` を追加。版 2 で面取りを追加）。ビルダーは版 1〜3 を読める。
+- 変換データの版は 4（拘束・寸法・名前つきの値の計画 `parametric` を追加。版 3 で近似の部品の三角形 `mesh`・注意 `notes`、版 2 で面取りを追加）。ビルダーは版 1〜4 を読める。
   古いビルダーは新しい版を「対応していない版」として拒否する（黙って部品を省くことはない）
 - 近似の部品の体積・表面積の期待値は、三角形から計算する（閉じた立体なので体積が決まる）
 
@@ -183,6 +184,10 @@ STEP は、自作の読み取り（`tests/step_check.py`）・形状カーネル
   （最大の差 0.00087 mm³ は、表面が平均 0.00000013 mm ずれた分に当たり、STEP に書いた精度 0.00001 mm より十分小さい）
 
 **まだ実物で確かめていないこと**
+- 直せる部品（版 4）の API: `Parameters.UserParameters.AddByExpression`・`Sketch.GeometricConstraints`（`AddHorizontal`・`AddVertical`・`AddParallel`・
+  `AddTangent`・`AddCoincident`）・`Sketch.DimensionConstraints`（`AddDiameter`・`AddRadius`・`AddTwoPointDistance`・`AddTwoLineAngle`）・
+  `Sketch.AddByProjectingEntity`・寸法の向きの列挙値（`kHorizontalDim` 19201・`kVerticalDim` 19202・`kAlignedDim` 19203）・フィーチャの値に式（文字列）を渡すこと。
+  付けられないものは数で作るので形は変わらない。付けられたかは `build-report.json` の部品ごとの `parametric`（`failed` に理由）で分かる
 - 組立の配置（`Matrix.SetCoordinateSystem`）の向きが、元の HTML と同じになること（置けることは確かめた。向きは目で見て確かめる）
 - 面取り（上の試した形には面取りが無い）: 面取りに使う API（`Face.Edges`・`Edge.PointOnEdge`・`TransientObjects.CreateEdgeCollection`・
   `ChamferFeatures.AddUsingDistance`）の名前と引数、角の形（期待値は CAD の標準の留め継ぎ。丸刃では違っても相対 1e-5 程度の見込みで、許容差 1e-4 の範囲内）、

@@ -1,6 +1,6 @@
 {
  "format": "inventor-builder",
- "version": 3,
+ "version": 4,
  "units": "mm",
  "source": {
   "file": "spool_reel_assembly_v2.html",
@@ -55,7 +55,93 @@
      "y": [1, 0, 0],
      "z": [0, -1, 0]
     }
-   ]
+   ],
+   "parametric": {
+    "params": [
+     {
+      "name": "D0_1",
+      "value": 56,
+      "unit": "mm",
+      "comment": "断面の直径"
+     },
+     {
+      "name": "L0_1",
+      "value": 65,
+      "unit": "mm",
+      "comment": "断面の軸方向の辺"
+     }
+    ],
+    "constraints": [
+     {
+      "type": "horizontal",
+      "seg": [0, 0]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 1]
+     },
+     {
+      "type": "horizontal",
+      "seg": [0, 2]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 3]
+     },
+     {
+      "type": "onAxis",
+      "axis": "y",
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      }
+     },
+     {
+      "type": "onAxis",
+      "axis": "x",
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      }
+     }
+    ],
+    "dimensions": [
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 1,
+       "end": "a"
+      },
+      "value": 28,
+      "text": [28, -36.746457],
+      "expression": "D0_1 / 2",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 1],
+      "value": 65,
+      "text": [23.753543, -32.5],
+      "expression": "L0_1",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 3],
+      "value": 65,
+      "text": [4.246457, -32.5],
+      "driven": true
+     }
+    ],
+    "features": {
+     "chamfers": []
+    },
+    "free": 0
+   }
   },
   {
    "key": "p02",
@@ -103,7 +189,97 @@
      "y": [1, 0, 0],
      "z": [0, -1, 0]
     }
-   ]
+   ],
+   "parametric": {
+    "params": [
+     {
+      "name": "D0_1",
+      "value": 220,
+      "unit": "mm",
+      "comment": "断面の直径"
+     },
+     {
+      "name": "L0_1",
+      "value": 160,
+      "unit": "mm",
+      "comment": "断面の軸方向の辺"
+     }
+    ],
+    "constraints": [
+     {
+      "type": "horizontal",
+      "seg": [0, 0]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 1]
+     },
+     {
+      "type": "horizontal",
+      "seg": [0, 2]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 3]
+     },
+     {
+      "type": "onAxis",
+      "axis": "y",
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      }
+     }
+    ],
+    "dimensions": [
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 1,
+       "end": "a"
+      },
+      "value": 110,
+      "text": [110, 68.350107],
+      "expression": "D0_1 / 2",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 1],
+      "value": 160,
+      "text": [98.350107, 80],
+      "expression": "L0_1",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 3],
+      "value": 160,
+      "text": [11.649893, 80],
+      "driven": true
+     },
+     {
+      "type": "y",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 160,
+      "text": [-11.649893, 160],
+      "name": "P0Y",
+      "driven": false
+     }
+    ],
+    "features": {
+     "chamfers": []
+    },
+    "free": 0
+   }
   },
   {
    "key": "p03",
@@ -151,7 +327,97 @@
      "y": [1, 0, 0],
      "z": [0, -1, 0]
     }
-   ]
+   ],
+   "parametric": {
+    "params": [
+     {
+      "name": "D0_1",
+      "value": 250,
+      "unit": "mm",
+      "comment": "断面の直径"
+     },
+     {
+      "name": "L0_1",
+      "value": 70,
+      "unit": "mm",
+      "comment": "断面の軸方向の辺"
+     }
+    ],
+    "constraints": [
+     {
+      "type": "horizontal",
+      "seg": [0, 0]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 1]
+     },
+     {
+      "type": "horizontal",
+      "seg": [0, 2]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 3]
+     },
+     {
+      "type": "onAxis",
+      "axis": "y",
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      }
+     }
+    ],
+    "dimensions": [
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 1,
+       "end": "a"
+      },
+      "value": 125,
+      "text": [125, 186.404071],
+      "expression": "D0_1 / 2",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 1],
+      "value": 70,
+      "text": [116.404071, 195],
+      "expression": "L0_1",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 3],
+      "value": 70,
+      "text": [8.595929, 195],
+      "driven": true
+     },
+     {
+      "type": "y",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 230,
+      "text": [-8.595929, 230],
+      "name": "P0Y",
+      "driven": false
+     }
+    ],
+    "features": {
+     "chamfers": []
+    },
+    "free": 0
+   }
   },
   {
    "key": "p04",
@@ -199,7 +465,97 @@
      "y": [1, 0, 0],
      "z": [0, -1, 0]
     }
-   ]
+   ],
+   "parametric": {
+    "params": [
+     {
+      "name": "D0_1",
+      "value": 160,
+      "unit": "mm",
+      "comment": "断面の直径"
+     },
+     {
+      "name": "L0_1",
+      "value": 1710,
+      "unit": "mm",
+      "comment": "断面の軸方向の辺"
+     }
+    ],
+    "constraints": [
+     {
+      "type": "horizontal",
+      "seg": [0, 0]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 1]
+     },
+     {
+      "type": "horizontal",
+      "seg": [0, 2]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 3]
+     },
+     {
+      "type": "onAxis",
+      "axis": "y",
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      }
+     }
+    ],
+    "dimensions": [
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 1,
+       "end": "a"
+      },
+      "value": 80,
+      "text": [80, 982.287781],
+      "expression": "D0_1 / 2",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 1],
+      "value": 1710,
+      "text": [-22.712219, 1085],
+      "expression": "L0_1",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 3],
+      "value": 1710,
+      "text": [102.712219, 1085],
+      "driven": true
+     },
+     {
+      "type": "y",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 1940,
+      "text": [-102.712219, 1940],
+      "name": "P0Y",
+      "driven": false
+     }
+    ],
+    "features": {
+     "chamfers": []
+    },
+    "free": 0
+   }
   },
   {
    "key": "p05",
@@ -247,7 +603,91 @@
      "y": [1, 0, 0],
      "z": [0, -1, 0]
     }
-   ]
+   ],
+   "parametric": {
+    "params": [],
+    "constraints": [
+     {
+      "type": "horizontal",
+      "seg": [0, 0]
+     },
+     {
+      "type": "horizontal",
+      "seg": [0, 2]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 3]
+     },
+     {
+      "type": "onAxis",
+      "axis": "y",
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      }
+     }
+    ],
+    "dimensions": [
+     {
+      "type": "angle",
+      "segs": [
+       [0, 1],
+       [0, 0]
+      ],
+      "value": -115.34617594194671,
+      "name": "A0_1",
+      "text": [120.967345, 2026.486617],
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 1],
+      "value": 105.11898020814318,
+      "text": [93.986617, 1991.532655],
+      "name": "L0_1",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 3],
+      "value": 95,
+      "text": [9.420191, 1987.5],
+      "driven": true
+     },
+     {
+      "type": "y",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 2035,
+      "text": [-9.420191, 2035],
+      "name": "P0Y",
+      "driven": false
+     },
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 1,
+       "end": "a"
+      },
+      "value": 125,
+      "text": [125, 2025.579809],
+      "name": "Q0_1X",
+      "driven": false
+     }
+    ],
+    "features": {
+     "chamfers": []
+    },
+    "free": 0
+   }
   },
   {
    "key": "p06",
@@ -295,7 +735,97 @@
      "y": [1, 0, 0],
      "z": [0, -1, 0]
     }
-   ]
+   ],
+   "parametric": {
+    "params": [
+     {
+      "name": "D0_1",
+      "value": 250,
+      "unit": "mm",
+      "comment": "断面の直径"
+     },
+     {
+      "name": "L0_1",
+      "value": 60,
+      "unit": "mm",
+      "comment": "断面の軸方向の辺"
+     }
+    ],
+    "constraints": [
+     {
+      "type": "horizontal",
+      "seg": [0, 0]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 1]
+     },
+     {
+      "type": "horizontal",
+      "seg": [0, 2]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 3]
+     },
+     {
+      "type": "onAxis",
+      "axis": "y",
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      }
+     }
+    ],
+    "dimensions": [
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 1,
+       "end": "a"
+      },
+      "value": 125,
+      "text": [125, 2056.680745],
+      "expression": "D0_1 / 2",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 1],
+      "value": 60,
+      "text": [116.680745, 2065],
+      "expression": "L0_1",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 3],
+      "value": 60,
+      "text": [8.319255, 2065],
+      "driven": true
+     },
+     {
+      "type": "y",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 2095,
+      "text": [-8.319255, 2095],
+      "name": "P0Y",
+      "driven": false
+     }
+    ],
+    "features": {
+     "chamfers": []
+    },
+    "free": 0
+   }
   },
   {
    "key": "p07",
@@ -343,7 +873,91 @@
      "y": [1, 0, 0],
      "z": [0, -1, 0]
     }
-   ]
+   ],
+   "parametric": {
+    "params": [],
+    "constraints": [
+     {
+      "type": "horizontal",
+      "seg": [0, 0]
+     },
+     {
+      "type": "horizontal",
+      "seg": [0, 2]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 3]
+     },
+     {
+      "type": "onAxis",
+      "axis": "y",
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      }
+     }
+    ],
+    "dimensions": [
+     {
+      "type": "angle",
+      "segs": [
+       [0, 1],
+       [0, 0]
+      ],
+      "value": -178.8542371618249,
+      "name": "A0_1",
+      "text": [164.501928, 2095.790039],
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 1],
+      "value": 50.00999900019995,
+      "text": [149.790039, 2105.998072],
+      "name": "L0_1",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 3],
+      "value": 1,
+      "text": [10.500171, 2095.5],
+      "driven": true
+     },
+     {
+      "type": "y",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 2096,
+      "text": [-10.500171, 2096],
+      "name": "P0Y",
+      "driven": false
+     },
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 1,
+       "end": "a"
+      },
+      "value": 175,
+      "text": [175, 2085.499829],
+      "name": "Q0_1X",
+      "driven": false
+     }
+    ],
+    "features": {
+     "chamfers": []
+    },
+    "free": 0
+   }
   },
   {
    "key": "p08",
@@ -391,7 +1005,97 @@
      "y": [1, 0, 0],
      "z": [0, -1, 0]
     }
-   ]
+   ],
+   "parametric": {
+    "params": [
+     {
+      "name": "D0_1",
+      "value": 350,
+      "unit": "mm",
+      "comment": "断面の直径"
+     },
+     {
+      "name": "L0_1",
+      "value": 160,
+      "unit": "mm",
+      "comment": "断面の軸方向の辺"
+     }
+    ],
+    "constraints": [
+     {
+      "type": "horizontal",
+      "seg": [0, 0]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 1]
+     },
+     {
+      "type": "horizontal",
+      "seg": [0, 2]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 3]
+     },
+     {
+      "type": "onAxis",
+      "axis": "y",
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      }
+     }
+    ],
+    "dimensions": [
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 1,
+       "end": "a"
+      },
+      "value": 175,
+      "text": [175, 2160.772913],
+      "expression": "D0_1 / 2",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 1],
+      "value": 160,
+      "text": [160.772913, 2175],
+      "expression": "L0_1",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 3],
+      "value": 160,
+      "text": [14.227087, 2175],
+      "driven": true
+     },
+     {
+      "type": "y",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 2255,
+      "text": [-14.227087, 2255],
+      "name": "P0Y",
+      "driven": false
+     }
+    ],
+    "features": {
+     "chamfers": []
+    },
+    "free": 0
+   }
   },
   {
    "key": "p09",
@@ -439,7 +1143,91 @@
      "y": [1, 0, 0],
      "z": [0, -1, 0]
     }
-   ]
+   ],
+   "parametric": {
+    "params": [],
+    "constraints": [
+     {
+      "type": "horizontal",
+      "seg": [0, 0]
+     },
+     {
+      "type": "horizontal",
+      "seg": [0, 2]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 3]
+     },
+     {
+      "type": "onAxis",
+      "axis": "y",
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      }
+     }
+    ],
+    "dimensions": [
+     {
+      "type": "angle",
+      "segs": [
+       [0, 1],
+       [0, 0]
+      ],
+      "value": -131.18592516570965,
+      "name": "A0_1",
+      "text": [201.553668, 2245.347049],
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 1],
+      "value": 53.15072906367325,
+      "text": [182.847049, 2243.446332],
+      "name": "L0_1",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 3],
+      "value": 40,
+      "text": [12.826535, 2235],
+      "driven": true
+     },
+     {
+      "type": "y",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 2255,
+      "text": [-12.826535, 2255],
+      "name": "P0Y",
+      "driven": false
+     },
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 1,
+       "end": "a"
+      },
+      "value": 210,
+      "text": [210, 2242.173465],
+      "name": "Q0_1X",
+      "driven": false
+     }
+    ],
+    "features": {
+     "chamfers": []
+    },
+    "free": 0
+   }
   },
   {
    "key": "p10",
@@ -487,7 +1275,97 @@
      "y": [1, 0, 0],
      "z": [0, -1, 0]
     }
-   ]
+   ],
+   "parametric": {
+    "params": [
+     {
+      "name": "D0_1",
+      "value": 420,
+      "unit": "mm",
+      "comment": "断面の直径"
+     },
+     {
+      "name": "L0_1",
+      "value": 365,
+      "unit": "mm",
+      "comment": "断面の軸方向の辺"
+     }
+    ],
+    "constraints": [
+     {
+      "type": "horizontal",
+      "seg": [0, 0]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 1]
+     },
+     {
+      "type": "horizontal",
+      "seg": [0, 2]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 3]
+     },
+     {
+      "type": "onAxis",
+      "axis": "y",
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      }
+     }
+    ],
+    "dimensions": [
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 1,
+       "end": "a"
+      },
+      "value": 210,
+      "text": [210, 2412.234015],
+      "expression": "D0_1 / 2",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 1],
+      "value": 365,
+      "text": [184.734015, 2437.5],
+      "expression": "L0_1",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 3],
+      "value": 365,
+      "text": [25.265985, 2437.5],
+      "driven": true
+     },
+     {
+      "type": "y",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 2620,
+      "text": [-25.265985, 2620],
+      "name": "P0Y",
+      "driven": false
+     }
+    ],
+    "features": {
+     "chamfers": []
+    },
+    "free": 0
+   }
   },
   {
    "key": "p11",
@@ -587,7 +1465,162 @@
      "y": [0, 1, 0],
      "z": [1, 0, 0]
     }
-   ]
+   ],
+   "parametric": {
+    "params": [
+     {
+      "name": "L0_0",
+      "value": 13,
+      "unit": "mm",
+      "comment": "外周の斜めの辺"
+     },
+     {
+      "name": "L0_1",
+      "value": 13,
+      "unit": "mm",
+      "comment": "外周の縦の辺"
+     },
+     {
+      "name": "L0_2",
+      "value": 13,
+      "unit": "mm",
+      "comment": "外周の斜めの辺"
+     },
+     {
+      "name": "L0_3",
+      "value": 13,
+      "unit": "mm",
+      "comment": "外周の斜めの辺"
+     },
+     {
+      "name": "t",
+      "value": 24,
+      "unit": "mm",
+      "comment": "厚さ（押し出しの長さ。XY 平面に対して対称）"
+     }
+    ],
+    "constraints": [
+     {
+      "type": "vertical",
+      "seg": [0, 1]
+     },
+     {
+      "type": "parallel",
+      "segs": [
+       [0, 0],
+       [0, 3]
+      ]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 4]
+     },
+     {
+      "type": "parallel",
+      "segs": [
+       [0, 2],
+       [0, 5]
+      ]
+     },
+     {
+      "type": "onAxis",
+      "axis": "y",
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      }
+     }
+    ],
+    "dimensions": [
+     {
+      "type": "angle",
+      "segs": [
+       [0, 0],
+       [0, 5]
+      ],
+      "value": 60.0000010983059,
+      "name": "A0_0",
+      "text": [1.787204, -11.968157],
+      "driven": false
+     },
+     {
+      "type": "angle",
+      "segs": [
+       [0, 1],
+       [0, 0]
+      ],
+      "value": 59.999999450847056,
+      "name": "A0_1",
+      "text": [11.25833, -4.436314],
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 0],
+      "value": 12.99999978418846,
+      "text": [6.661008, -11.537204],
+      "expression": "L0_0",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 1],
+      "value": 13,
+      "text": [13.322016, 0],
+      "expression": "L0_1",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 2],
+      "value": 12.99999978418846,
+      "text": [6.661008, 11.537204],
+      "expression": "L0_2",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 3],
+      "value": 12.99999978418846,
+      "text": [-6.661008, 11.537204],
+      "expression": "L0_3",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 4],
+      "value": 13,
+      "text": [-13.322016, 0],
+      "driven": true
+     },
+     {
+      "type": "length",
+      "seg": [0, 5],
+      "value": 12.99999978418846,
+      "text": [-6.661008, -11.537204],
+      "driven": true
+     },
+     {
+      "type": "y",
+      "sign": -1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 13,
+      "text": [-2.063686, -13],
+      "name": "P0Y",
+      "driven": false
+     }
+    ],
+    "features": {
+     "chamfers": [],
+     "distance": "t"
+    },
+    "free": 0
+   }
   },
   {
    "key": "p12",
@@ -653,7 +1686,114 @@
      "y": [1, 0, 0],
      "z": [0, 0, 1]
     }
-   ]
+   ],
+   "parametric": {
+    "params": [
+     {
+      "name": "D0_0",
+      "value": 172,
+      "unit": "mm",
+      "comment": "断面の直径"
+     },
+     {
+      "name": "D0_2",
+      "value": 158,
+      "unit": "mm",
+      "comment": "断面の直径"
+     },
+     {
+      "name": "L0_0",
+      "value": 1650,
+      "unit": "mm",
+      "comment": "断面の軸方向の辺"
+     },
+     {
+      "name": "a",
+      "value": 84.27042,
+      "unit": "deg",
+      "comment": "回転の角度（XY 平面に対して対称）"
+     }
+    ],
+    "constraints": [
+     {
+      "type": "vertical",
+      "seg": [0, 0]
+     },
+     {
+      "type": "horizontal",
+      "seg": [0, 1]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 2]
+     },
+     {
+      "type": "horizontal",
+      "seg": [0, 3]
+     }
+    ],
+    "dimensions": [
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 86,
+      "text": [86, 985.999109],
+      "expression": "D0_0 / 2",
+      "driven": false
+     },
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 2,
+       "end": "a"
+      },
+      "value": 79,
+      "text": [79, 985.999109],
+      "expression": "D0_2 / 2",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 0],
+      "value": 1650,
+      "text": [185.000891, 1085],
+      "expression": "L0_0",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 2],
+      "value": 1650,
+      "text": [-20.000891, 1085],
+      "driven": true
+     },
+     {
+      "type": "y",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 260,
+      "text": [-13.000891, 260],
+      "name": "P0Y",
+      "driven": false
+     }
+    ],
+    "features": {
+     "chamfers": [],
+     "angle": "a"
+    },
+    "free": 0
+   }
   },
   {
    "key": "p13",
@@ -719,7 +1859,109 @@
      "y": [1, 0, 0],
      "z": [0, 0, 1]
     }
-   ]
+   ],
+   "parametric": {
+    "params": [
+     {
+      "name": "D0_2",
+      "value": 158,
+      "unit": "mm",
+      "comment": "断面の直径"
+     },
+     {
+      "name": "a",
+      "value": 84.270421,
+      "unit": "deg",
+      "comment": "回転の角度（XY 平面に対して対称）"
+     }
+    ],
+    "constraints": [
+     {
+      "type": "horizontal",
+      "seg": [0, 1]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 2]
+     },
+     {
+      "type": "horizontal",
+      "seg": [0, 3]
+     }
+    ],
+    "dimensions": [
+     {
+      "type": "angle",
+      "segs": [
+       [0, 0],
+       [0, 3]
+      ],
+      "value": 102.99999996467643,
+      "name": "A0_0",
+      "text": [232.461066, 275.328808],
+      "driven": false
+     },
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 2,
+       "end": "a"
+      },
+      "value": 79,
+      "text": [79, 349.267982],
+      "expression": "D0_2 / 2",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 0],
+      "value": 215.52386260593605,
+      "text": [227.087648, 368.538934],
+      "name": "L0_0",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 2],
+      "value": 210,
+      "text": [63.267982, 365],
+      "driven": true
+     },
+     {
+      "type": "y",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 260,
+      "text": [220.267982, 260],
+      "name": "P0Y",
+      "driven": false
+     },
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 236,
+      "text": [236, 244.267982],
+      "name": "Q0_0X",
+      "driven": false
+     }
+    ],
+    "features": {
+     "chamfers": [],
+     "angle": "a"
+    },
+    "free": 0
+   }
   },
   {
    "key": "p14",
@@ -785,7 +2027,109 @@
      "y": [1, 0, 0],
      "z": [0, 0, 1]
     }
-   ]
+   ],
+   "parametric": {
+    "params": [
+     {
+      "name": "D0_2",
+      "value": 160,
+      "unit": "mm",
+      "comment": "断面の直径"
+     },
+     {
+      "name": "a",
+      "value": 78.540842,
+      "unit": "deg",
+      "comment": "回転の角度（XY 平面に対して対称）"
+     }
+    ],
+    "constraints": [
+     {
+      "type": "horizontal",
+      "seg": [0, 1]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 2]
+     },
+     {
+      "type": "horizontal",
+      "seg": [0, 3]
+     }
+    ],
+    "dimensions": [
+     {
+      "type": "angle",
+      "segs": [
+       [0, 0],
+       [0, 3]
+      ],
+      "value": 103.0000004827378,
+      "name": "A0_0",
+      "text": [229.247509, 297.91121],
+      "driven": false
+     },
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 2,
+       "end": "a"
+      },
+      "value": 80,
+      "text": [80, 351.749172],
+      "expression": "D0_2 / 2",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 0],
+      "value": 164.2086575663529,
+      "text": [226.670051, 367.980788],
+      "name": "L0_0",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 2],
+      "value": 160,
+      "text": [66.749172, 365],
+      "driven": true
+     },
+     {
+      "type": "y",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 285,
+      "text": [218.977469, 285],
+      "name": "P0Y",
+      "driven": false
+     },
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 232.228297,
+      "text": [232.228297, 271.749172],
+      "name": "Q0_0X",
+      "driven": false
+     }
+    ],
+    "features": {
+     "chamfers": [],
+     "angle": "a"
+    },
+    "free": 0
+   }
   },
   {
    "key": "p15",
@@ -851,7 +2195,109 @@
      "y": [1, 0, 0],
      "z": [0, 0, 1]
     }
-   ]
+   ],
+   "parametric": {
+    "params": [
+     {
+      "name": "D0_2",
+      "value": 158,
+      "unit": "mm",
+      "comment": "断面の直径"
+     },
+     {
+      "name": "a",
+      "value": 84.270421,
+      "unit": "deg",
+      "comment": "回転の角度（XY 平面に対して対称）"
+     }
+    ],
+    "constraints": [
+     {
+      "type": "horizontal",
+      "seg": [0, 1]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 2]
+     },
+     {
+      "type": "horizontal",
+      "seg": [0, 3]
+     }
+    ],
+    "dimensions": [
+     {
+      "type": "angle",
+      "segs": [
+       [0, 0],
+       [0, 3]
+      ],
+      "value": 102.99999996467643,
+      "name": "A0_0",
+      "text": [232.461066, 635.328808],
+      "driven": false
+     },
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 2,
+       "end": "a"
+      },
+      "value": 79,
+      "text": [79, 709.267982],
+      "expression": "D0_2 / 2",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 0],
+      "value": 215.52386260593605,
+      "text": [227.087648, 728.538934],
+      "name": "L0_0",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 2],
+      "value": 210,
+      "text": [63.267982, 725],
+      "driven": true
+     },
+     {
+      "type": "y",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 620,
+      "text": [220.267982, 620],
+      "name": "P0Y",
+      "driven": false
+     },
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 236,
+      "text": [236, 604.267982],
+      "name": "Q0_0X",
+      "driven": false
+     }
+    ],
+    "features": {
+     "chamfers": [],
+     "angle": "a"
+    },
+    "free": 0
+   }
   },
   {
    "key": "p16",
@@ -917,7 +2363,109 @@
      "y": [1, 0, 0],
      "z": [0, 0, 1]
     }
-   ]
+   ],
+   "parametric": {
+    "params": [
+     {
+      "name": "D0_2",
+      "value": 160,
+      "unit": "mm",
+      "comment": "断面の直径"
+     },
+     {
+      "name": "a",
+      "value": 78.540842,
+      "unit": "deg",
+      "comment": "回転の角度（XY 平面に対して対称）"
+     }
+    ],
+    "constraints": [
+     {
+      "type": "horizontal",
+      "seg": [0, 1]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 2]
+     },
+     {
+      "type": "horizontal",
+      "seg": [0, 3]
+     }
+    ],
+    "dimensions": [
+     {
+      "type": "angle",
+      "segs": [
+       [0, 0],
+       [0, 3]
+      ],
+      "value": 103.0000004827378,
+      "name": "A0_0",
+      "text": [229.247509, 657.91121],
+      "driven": false
+     },
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 2,
+       "end": "a"
+      },
+      "value": 80,
+      "text": [80, 711.749172],
+      "expression": "D0_2 / 2",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 0],
+      "value": 164.2086575663529,
+      "text": [226.670051, 727.980788],
+      "name": "L0_0",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 2],
+      "value": 160,
+      "text": [66.749172, 725],
+      "driven": true
+     },
+     {
+      "type": "y",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 645,
+      "text": [218.977469, 645],
+      "name": "P0Y",
+      "driven": false
+     },
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 232.228297,
+      "text": [232.228297, 631.749172],
+      "name": "Q0_0X",
+      "driven": false
+     }
+    ],
+    "features": {
+     "chamfers": [],
+     "angle": "a"
+    },
+    "free": 0
+   }
   },
   {
    "key": "p17",
@@ -983,7 +2531,109 @@
      "y": [1, 0, 0],
      "z": [0, 0, 1]
     }
-   ]
+   ],
+   "parametric": {
+    "params": [
+     {
+      "name": "D0_2",
+      "value": 158,
+      "unit": "mm",
+      "comment": "断面の直径"
+     },
+     {
+      "name": "a",
+      "value": 84.270421,
+      "unit": "deg",
+      "comment": "回転の角度（XY 平面に対して対称）"
+     }
+    ],
+    "constraints": [
+     {
+      "type": "horizontal",
+      "seg": [0, 1]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 2]
+     },
+     {
+      "type": "horizontal",
+      "seg": [0, 3]
+     }
+    ],
+    "dimensions": [
+     {
+      "type": "angle",
+      "segs": [
+       [0, 0],
+       [0, 3]
+      ],
+      "value": 102.99999996467643,
+      "name": "A0_0",
+      "text": [232.461066, 995.328808],
+      "driven": false
+     },
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 2,
+       "end": "a"
+      },
+      "value": 79,
+      "text": [79, 1069.267982],
+      "expression": "D0_2 / 2",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 0],
+      "value": 215.52386260593605,
+      "text": [227.087648, 1088.538934],
+      "name": "L0_0",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 2],
+      "value": 210,
+      "text": [63.267982, 1085],
+      "driven": true
+     },
+     {
+      "type": "y",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 980,
+      "text": [220.267982, 980],
+      "name": "P0Y",
+      "driven": false
+     },
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 236,
+      "text": [236, 964.267982],
+      "name": "Q0_0X",
+      "driven": false
+     }
+    ],
+    "features": {
+     "chamfers": [],
+     "angle": "a"
+    },
+    "free": 0
+   }
   },
   {
    "key": "p18",
@@ -1049,7 +2699,109 @@
      "y": [1, 0, 0],
      "z": [0, 0, 1]
     }
-   ]
+   ],
+   "parametric": {
+    "params": [
+     {
+      "name": "D0_2",
+      "value": 160,
+      "unit": "mm",
+      "comment": "断面の直径"
+     },
+     {
+      "name": "a",
+      "value": 78.540842,
+      "unit": "deg",
+      "comment": "回転の角度（XY 平面に対して対称）"
+     }
+    ],
+    "constraints": [
+     {
+      "type": "horizontal",
+      "seg": [0, 1]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 2]
+     },
+     {
+      "type": "horizontal",
+      "seg": [0, 3]
+     }
+    ],
+    "dimensions": [
+     {
+      "type": "angle",
+      "segs": [
+       [0, 0],
+       [0, 3]
+      ],
+      "value": 103.0000004827378,
+      "name": "A0_0",
+      "text": [229.247509, 1017.91121],
+      "driven": false
+     },
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 2,
+       "end": "a"
+      },
+      "value": 80,
+      "text": [80, 1071.749172],
+      "expression": "D0_2 / 2",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 0],
+      "value": 164.2086575663529,
+      "text": [226.670051, 1087.980788],
+      "name": "L0_0",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 2],
+      "value": 160,
+      "text": [66.749172, 1085],
+      "driven": true
+     },
+     {
+      "type": "y",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 1005,
+      "text": [218.977469, 1005],
+      "name": "P0Y",
+      "driven": false
+     },
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 232.228297,
+      "text": [232.228297, 991.749172],
+      "name": "Q0_0X",
+      "driven": false
+     }
+    ],
+    "features": {
+     "chamfers": [],
+     "angle": "a"
+    },
+    "free": 0
+   }
   },
   {
    "key": "p19",
@@ -1115,7 +2867,109 @@
      "y": [1, 0, 0],
      "z": [0, 0, 1]
     }
-   ]
+   ],
+   "parametric": {
+    "params": [
+     {
+      "name": "D0_2",
+      "value": 158,
+      "unit": "mm",
+      "comment": "断面の直径"
+     },
+     {
+      "name": "a",
+      "value": 84.270421,
+      "unit": "deg",
+      "comment": "回転の角度（XY 平面に対して対称）"
+     }
+    ],
+    "constraints": [
+     {
+      "type": "horizontal",
+      "seg": [0, 1]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 2]
+     },
+     {
+      "type": "horizontal",
+      "seg": [0, 3]
+     }
+    ],
+    "dimensions": [
+     {
+      "type": "angle",
+      "segs": [
+       [0, 0],
+       [0, 3]
+      ],
+      "value": 102.99999996467643,
+      "name": "A0_0",
+      "text": [232.461066, 1355.328808],
+      "driven": false
+     },
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 2,
+       "end": "a"
+      },
+      "value": 79,
+      "text": [79, 1429.267982],
+      "expression": "D0_2 / 2",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 0],
+      "value": 215.52386260593605,
+      "text": [227.087648, 1448.538934],
+      "name": "L0_0",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 2],
+      "value": 210,
+      "text": [63.267982, 1445],
+      "driven": true
+     },
+     {
+      "type": "y",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 1340,
+      "text": [220.267982, 1340],
+      "name": "P0Y",
+      "driven": false
+     },
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 236,
+      "text": [236, 1324.267982],
+      "name": "Q0_0X",
+      "driven": false
+     }
+    ],
+    "features": {
+     "chamfers": [],
+     "angle": "a"
+    },
+    "free": 0
+   }
   },
   {
    "key": "p20",
@@ -1181,7 +3035,109 @@
      "y": [1, 0, 0],
      "z": [0, 0, 1]
     }
-   ]
+   ],
+   "parametric": {
+    "params": [
+     {
+      "name": "D0_2",
+      "value": 160,
+      "unit": "mm",
+      "comment": "断面の直径"
+     },
+     {
+      "name": "a",
+      "value": 78.540842,
+      "unit": "deg",
+      "comment": "回転の角度（XY 平面に対して対称）"
+     }
+    ],
+    "constraints": [
+     {
+      "type": "horizontal",
+      "seg": [0, 1]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 2]
+     },
+     {
+      "type": "horizontal",
+      "seg": [0, 3]
+     }
+    ],
+    "dimensions": [
+     {
+      "type": "angle",
+      "segs": [
+       [0, 0],
+       [0, 3]
+      ],
+      "value": 103.0000004827378,
+      "name": "A0_0",
+      "text": [229.247509, 1377.91121],
+      "driven": false
+     },
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 2,
+       "end": "a"
+      },
+      "value": 80,
+      "text": [80, 1431.749172],
+      "expression": "D0_2 / 2",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 0],
+      "value": 164.2086575663529,
+      "text": [226.670051, 1447.980788],
+      "name": "L0_0",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 2],
+      "value": 160,
+      "text": [66.749172, 1445],
+      "driven": true
+     },
+     {
+      "type": "y",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 1365,
+      "text": [218.977469, 1365],
+      "name": "P0Y",
+      "driven": false
+     },
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 232.228297,
+      "text": [232.228297, 1351.749172],
+      "name": "Q0_0X",
+      "driven": false
+     }
+    ],
+    "features": {
+     "chamfers": [],
+     "angle": "a"
+    },
+    "free": 0
+   }
   },
   {
    "key": "p21",
@@ -1247,7 +3203,109 @@
      "y": [1, 0, 0],
      "z": [0, 0, 1]
     }
-   ]
+   ],
+   "parametric": {
+    "params": [
+     {
+      "name": "D0_2",
+      "value": 158,
+      "unit": "mm",
+      "comment": "断面の直径"
+     },
+     {
+      "name": "a",
+      "value": 84.270421,
+      "unit": "deg",
+      "comment": "回転の角度（XY 平面に対して対称）"
+     }
+    ],
+    "constraints": [
+     {
+      "type": "horizontal",
+      "seg": [0, 1]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 2]
+     },
+     {
+      "type": "horizontal",
+      "seg": [0, 3]
+     }
+    ],
+    "dimensions": [
+     {
+      "type": "angle",
+      "segs": [
+       [0, 0],
+       [0, 3]
+      ],
+      "value": 102.99999996467643,
+      "name": "A0_0",
+      "text": [232.461066, 1715.328808],
+      "driven": false
+     },
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 2,
+       "end": "a"
+      },
+      "value": 79,
+      "text": [79, 1789.267982],
+      "expression": "D0_2 / 2",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 0],
+      "value": 215.52386260593605,
+      "text": [227.087648, 1808.538934],
+      "name": "L0_0",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 2],
+      "value": 210,
+      "text": [63.267982, 1805],
+      "driven": true
+     },
+     {
+      "type": "y",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 1700,
+      "text": [220.267982, 1700],
+      "name": "P0Y",
+      "driven": false
+     },
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 236,
+      "text": [236, 1684.267982],
+      "name": "Q0_0X",
+      "driven": false
+     }
+    ],
+    "features": {
+     "chamfers": [],
+     "angle": "a"
+    },
+    "free": 0
+   }
   },
   {
    "key": "p22",
@@ -1313,7 +3371,109 @@
      "y": [1, 0, 0],
      "z": [0, 0, 1]
     }
-   ]
+   ],
+   "parametric": {
+    "params": [
+     {
+      "name": "D0_2",
+      "value": 160,
+      "unit": "mm",
+      "comment": "断面の直径"
+     },
+     {
+      "name": "a",
+      "value": 78.540842,
+      "unit": "deg",
+      "comment": "回転の角度（XY 平面に対して対称）"
+     }
+    ],
+    "constraints": [
+     {
+      "type": "horizontal",
+      "seg": [0, 1]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 2]
+     },
+     {
+      "type": "horizontal",
+      "seg": [0, 3]
+     }
+    ],
+    "dimensions": [
+     {
+      "type": "angle",
+      "segs": [
+       [0, 0],
+       [0, 3]
+      ],
+      "value": 103.0000004827378,
+      "name": "A0_0",
+      "text": [229.247509, 1737.91121],
+      "driven": false
+     },
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 2,
+       "end": "a"
+      },
+      "value": 80,
+      "text": [80, 1791.749172],
+      "expression": "D0_2 / 2",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 0],
+      "value": 164.2086575663529,
+      "text": [226.670051, 1807.980788],
+      "name": "L0_0",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 2],
+      "value": 160,
+      "text": [66.749172, 1805],
+      "driven": true
+     },
+     {
+      "type": "y",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 1725,
+      "text": [218.977469, 1725],
+      "name": "P0Y",
+      "driven": false
+     },
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 232.228297,
+      "text": [232.228297, 1711.749172],
+      "name": "Q0_0X",
+      "driven": false
+     }
+    ],
+    "features": {
+     "chamfers": [],
+     "angle": "a"
+    },
+    "free": 0
+   }
   },
   {
    "key": "p23",
@@ -1379,7 +3539,114 @@
      "y": [1, 0, 0],
      "z": [0, 0, 1]
     }
-   ]
+   ],
+   "parametric": {
+    "params": [
+     {
+      "name": "D0_0",
+      "value": 508,
+      "unit": "mm",
+      "comment": "断面の直径"
+     },
+     {
+      "name": "D0_2",
+      "value": 472,
+      "unit": "mm",
+      "comment": "断面の直径"
+     },
+     {
+      "name": "L0_0",
+      "value": 1710,
+      "unit": "mm",
+      "comment": "断面の軸方向の辺"
+     },
+     {
+      "name": "a",
+      "value": 83.23278,
+      "unit": "deg",
+      "comment": "回転の角度（XY 平面に対して対称）"
+     }
+    ],
+    "constraints": [
+     {
+      "type": "vertical",
+      "seg": [0, 0]
+     },
+     {
+      "type": "horizontal",
+      "seg": [0, 1]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 2]
+     },
+     {
+      "type": "horizontal",
+      "seg": [0, 3]
+     }
+    ],
+    "dimensions": [
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 254,
+      "text": [254, 982.394316],
+      "expression": "D0_0 / 2",
+      "driven": false
+     },
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 2,
+       "end": "a"
+      },
+      "value": 236,
+      "text": [236, 982.394316],
+      "expression": "D0_2 / 2",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 0],
+      "value": 1710,
+      "text": [356.605684, 1085],
+      "expression": "L0_0",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 2],
+      "value": 1710,
+      "text": [133.394316, 1085],
+      "driven": true
+     },
+     {
+      "type": "y",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 230,
+      "text": [151.394316, 230],
+      "name": "P0Y",
+      "driven": false
+     }
+    ],
+    "features": {
+     "chamfers": [],
+     "angle": "a"
+    },
+    "free": 0
+   }
   },
   {
    "key": "p24",
@@ -3773,7 +6040,110 @@
      "y": [1, 0, 0],
      "z": [0, -0.747608126, -0.664140113]
     }
-   ]
+   ],
+   "parametric": {
+    "params": [
+     {
+      "name": "L0_0",
+      "value": 15,
+      "unit": "mm",
+      "comment": "外周の横の辺"
+     },
+     {
+      "name": "L0_1",
+      "value": 30,
+      "unit": "mm",
+      "comment": "外周の縦の辺"
+     },
+     {
+      "name": "t",
+      "value": 40,
+      "unit": "mm",
+      "comment": "厚さ（押し出しの長さ。XY 平面に対して対称）"
+     }
+    ],
+    "constraints": [
+     {
+      "type": "horizontal",
+      "seg": [0, 0]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 1]
+     },
+     {
+      "type": "horizontal",
+      "seg": [0, 2]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 3]
+     }
+    ],
+    "dimensions": [
+     {
+      "type": "length",
+      "seg": [0, 0],
+      "value": 15,
+      "text": [0, -17.012461],
+      "expression": "L0_0",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 1],
+      "value": 30,
+      "text": [9.512461, 0],
+      "expression": "L0_1",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 2],
+      "value": 15,
+      "text": [0, 17.012461],
+      "driven": true
+     },
+     {
+      "type": "length",
+      "seg": [0, 3],
+      "value": 30,
+      "text": [-9.512461, 0],
+      "driven": true
+     },
+     {
+      "type": "x",
+      "sign": -1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 7.5,
+      "text": [-7.5, -17.012461],
+      "name": "P0X",
+      "driven": false
+     },
+     {
+      "type": "y",
+      "sign": -1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 15,
+      "text": [-9.512461, -15],
+      "name": "P0Y",
+      "driven": false
+     }
+    ],
+    "features": {
+     "chamfers": [],
+     "distance": "t"
+    },
+    "free": 0
+   }
   },
   {
    "key": "p25",
@@ -3821,7 +6191,110 @@
      "y": [0, 1, 0],
      "z": [1, 0, 0]
     }
-   ]
+   ],
+   "parametric": {
+    "params": [
+     {
+      "name": "L0_0",
+      "value": 12,
+      "unit": "mm",
+      "comment": "外周の縦の辺"
+     },
+     {
+      "name": "L0_1",
+      "value": 24,
+      "unit": "mm",
+      "comment": "外周の横の辺"
+     },
+     {
+      "name": "t",
+      "value": 1740,
+      "unit": "mm",
+      "comment": "厚さ（押し出しの長さ。XY 平面に対して対称）"
+     }
+    ],
+    "constraints": [
+     {
+      "type": "vertical",
+      "seg": [0, 0]
+     },
+     {
+      "type": "horizontal",
+      "seg": [0, 1]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 2]
+     },
+     {
+      "type": "horizontal",
+      "seg": [0, 3]
+     }
+    ],
+    "dimensions": [
+     {
+      "type": "length",
+      "seg": [0, 0],
+      "value": 12,
+      "text": [-13.609969, 0],
+      "expression": "L0_0",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 1],
+      "value": 24,
+      "text": [0, -7.609969],
+      "expression": "L0_1",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 2],
+      "value": 12,
+      "text": [13.609969, 0],
+      "driven": true
+     },
+     {
+      "type": "length",
+      "seg": [0, 3],
+      "value": 24,
+      "text": [0, 7.609969],
+      "driven": true
+     },
+     {
+      "type": "x",
+      "sign": -1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 12,
+      "text": [-12, 4.390031],
+      "name": "P0X",
+      "driven": false
+     },
+     {
+      "type": "y",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 6,
+      "text": [-13.609969, 6],
+      "name": "P0Y",
+      "driven": false
+     }
+    ],
+    "features": {
+     "chamfers": [],
+     "distance": "t"
+    },
+    "free": 0
+   }
   }
  ],
  "skipped": []

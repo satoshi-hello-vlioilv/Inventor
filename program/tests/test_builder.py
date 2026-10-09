@@ -54,7 +54,9 @@ class BuildPartsTest(unittest.TestCase):
             [entry] = definition.log
             part = r.part
             if part.kind == "extrude":
-                self.assertEqual(entry, ("extrude", part.distance / 10, K_SYMMETRIC, K_JOIN))
+                self.assertEqual(entry[0], "extrude")
+                self.assertAlmostEqual(entry[1], part.distance / 10, places=12)  # 名前つきの値（mm の式）を Inventor が cm に
+                self.assertEqual(entry[2:], (K_SYMMETRIC, K_JOIN))
             elif part.full_revolve:
                 self.assertEqual(entry, ("revolve-full", "Y", K_JOIN))
             else:
@@ -74,11 +76,15 @@ class BuildPartsTest(unittest.TestCase):
         self.assertTrue(r.ok)
 
     def test_a_missing_unit_conversion_is_caught_by_the_check(self):
-        # 評価関数の確認: 描くときの mm → cm の換算が抜けると、体積の照合で不一致になること
-        with mock.patch.object(inventor_module, "cm", lambda v: v):
-            _, results = self.build("finger")
-        self.assertFalse(results[0].ok)
-        self.assertAlmostEqual(results[0].volume_diff, 10**3 - 1, places=6)
+        # 評価関数の確認: 描くときの mm → cm の換算が抜けると、体積の照合で不一致になること。
+        # 名前つきの値の無い部品は断面と厚さの両方が 10 倍（体積 1000 倍）。名前つきの値の厚さは mm の式なので、断面だけ（100 倍）
+        [part] = spec_of("finger").parts
+        for plan, ratio in ((None, 10**3), (part.parametric, 10**2)):
+            app = FakeInventor()
+            with self.subTest(plan=bool(plan)), tempfile.TemporaryDirectory() as tmp, mock.patch.object(inventor_module, "cm", lambda v: v):
+                result = Builder(app).build_part(replace(part, parametric=plan), Path(tmp))
+                self.assertFalse(result.ok)
+                self.assertAlmostEqual(result.volume_diff, ratio - 1, places=6)
 
     def test_every_part_extent_matches_the_conversion_data(self):
         # 外接箱の照合: 代替オブジェクトが断面の折れ線から求めた箱と、変換データから計算した箱が一致すること
@@ -114,6 +120,127 @@ class BuildPartsTest(unittest.TestCase):
         self.assertTrue(all(d.closed for d in app.documents))
 
 
+class ParametricTest(unittest.TestCase):
+    """Inventor で直せる部品（変換データの版 4 の parametric）。代替オブジェクトは、拘束・寸法をアプリとは別の式で確かめる
+    （今の形に合わない・ほかと重なる拘束を断る。自由度を数える。寸法の式の値が今の寸法と同じか）"""
+
+    def build(self, part, app=None):
+        app = app or FakeInventor()
+        with tempfile.TemporaryDirectory() as tmp:
+            result = Builder(app).build_part(part, Path(tmp))
+        return app.documents[-1].ComponentDefinition, result
+
+    def test_every_sketch_is_fully_constrained_with_the_named_values(self):
+        for name in NAMES:
+            for part in spec_of(name).parts:
+                plan = part.parametric
+                if part.kind == "mesh":
+                    self.assertIsNone(plan)
+                    continue
+                with self.subTest(name=name, part=part.key):
+                    definition, result = self.build(part)
+                    self.assertTrue(result.ok, result.error)
+                    self.assertEqual(result.parametric["failed"], [])
+                    [sketch] = definition.sketches
+                    self.assertEqual(sketch.system.free_degrees(), 0, "完全拘束（代替オブジェクトの式で数えた自由度）")
+                    self.assertEqual([(p.Name, p.Comment) for p in definition.Parameters.user], [(p["name"], p["comment"]) for p in plan.params])
+                    for p, planned in zip(definition.Parameters.user, plan.params):
+                        self.assertAlmostEqual(p.Value, planned["value"] * (0.1 if planned["unit"] == "mm" else math.pi / 180), places=12)
+                    driving = [d for d in plan.dimensions if not d["driven"]]
+                    self.assertEqual(result.parametric | {"failed": None}, {"params": len(plan.params), "constraints": len(plan.constraints),
+                                     "dimensions": len(driving), "driven": len(plan.dimensions) - len(driving), "free": 0, "failed": None})
+                    expressions = [p.Expression for p in definition.Parameters.model if p.Expression]
+                    self.assertEqual(expressions, [d["expression"] for d in driving if d.get("expression")])
+                    names = {p.Name for p in definition.Parameters.model}
+                    self.assertTrue({d["name"] for d in driving if d.get("name")} <= names)
+
+    def test_features_take_the_named_values(self):
+        definition, _ = self.build(spec_of("plate-holes").parts[0])
+        self.assertEqual(definition.expressions, [("extrude", "t")])
+        self.assertIn("D1_0", [p.Expression for p in definition.Parameters.model])
+        partial = next(p for p in spec_of("reel").parts if p.kind == "revolve" and not p.full_revolve)
+        definition, _ = self.build(partial)
+        self.assertEqual(definition.expressions, [("revolve-angle", "a")])
+
+    def test_shape_is_built_even_if_some_constraints_cannot_be_added(self):
+        # 実物の Inventor で付けられない寸法があっても（API の違いなど）、形はそのまま作り、数と理由を知らせる
+        from tests.fake_constraints import ConstraintSystem
+
+        part = spec_of("finger").parts[0]
+        original = ConstraintSystem.__init__
+
+        def without_angles(self, sketch, parameters):
+            original(self, sketch, parameters)
+
+            def refuse(*_):
+                raise FakeComError("角度の寸法は付けられません")
+
+            self.Dimensions.AddTwoLineAngle = refuse
+
+        with mock.patch.object(ConstraintSystem, "__init__", without_angles):
+            definition, result = self.build(part)
+        self.assertTrue(result.ok)
+        self.assertEqual(len(result.parametric["failed"]), 2)
+        self.assertIn("寸法・拘束のうち 2 個を付けられませんでした", result.notes[0])
+        self.assertEqual(definition.sketches[0].system.free_degrees(), 2)
+
+    def test_named_values_that_cannot_be_made_fall_back_to_numbers(self):
+        part = spec_of("plate-holes").parts[0]
+        app = FakeInventor()
+        with mock.patch("tests.fake_constraints.Parameters.check_name", side_effect=FakeComError("名前を付けられません")):
+            definition, result = self.build(part, app)
+        self.assertTrue(result.ok)
+        self.assertEqual(definition.expressions, [("extrude", 0.2)])
+        self.assertEqual(result.parametric["params"], 0)
+
+    def test_old_conversion_data_is_built_without_named_values(self):
+        definition, result = self.build(replace(spec_of("plate-holes").parts[0], parametric=None))
+        self.assertTrue(result.ok)
+        self.assertIsNone(result.parametric)
+        self.assertEqual(definition.Parameters.user, [])
+        self.assertEqual(definition.sketches[0].system.equations, [])
+
+
+class FakeConstraintTest(unittest.TestCase):
+    """評価関数（代替オブジェクトの拘束の式）の確認: 重なる拘束・今の形に合わない拘束・値の違う式を断り、自由度を正しく数える"""
+
+    def rectangle(self):
+        app = FakeInventor()
+        definition = app.Documents.Add(12290, "Standard.ipt").ComponentDefinition
+        sketch = definition.Sketches.Add(definition.WorkPlanes.Item(3))
+        tg = app.TransientGeometry
+        corners = [tg.CreatePoint2d(*p) for p in ((0, 0), (2, 0), (2, 1), (0, 1))]
+        lines, first = [], None
+        for i in range(4):
+            start = lines[-1].EndSketchPoint if lines else corners[0]
+            end = first if i == 3 else corners[i + 1]
+            lines.append(sketch.SketchLines.AddByTwoPoints(start, end))
+            first = first or lines[0].StartSketchPoint
+        return definition, sketch, lines
+
+    def test_counts_degrees_of_freedom_and_refuses_redundant_or_wrong_constraints(self):
+        from tests.fake_inventor import K_ALIGNED_DIM
+
+        definition, sketch, lines = self.rectangle()
+        self.assertEqual(sketch.system.free_degrees(), 8)
+        gc, dc = sketch.GeometricConstraints, sketch.DimensionConstraints
+        for line, add in zip(lines, (gc.AddHorizontal, gc.AddVertical, gc.AddHorizontal, gc.AddVertical)):
+            add(line)
+        self.assertEqual(sketch.system.free_degrees(), 4)
+        text = None  # 寸法の文字の位置（代替オブジェクトは使わない）
+        dc.AddTwoPointDistance(lines[0].StartSketchPoint, lines[0].EndSketchPoint, K_ALIGNED_DIM, text)
+        with self.assertRaisesRegex(FakeComError, "多すぎます"):  # 向かいの辺の長さは、もう決まっている
+            dc.AddTwoPointDistance(lines[2].StartSketchPoint, lines[2].EndSketchPoint, K_ALIGNED_DIM, text)
+        driven = dc.AddTwoPointDistance(lines[2].StartSketchPoint, lines[2].EndSketchPoint, K_ALIGNED_DIM, text, True)
+        self.assertTrue(driven.Driven)
+        self.assertEqual(sketch.system.free_degrees(), 3)
+        with self.assertRaisesRegex(FakeComError, "今の形に合いません"):
+            gc.AddVertical(lines[0])
+        definition.Parameters.UserParameters.AddByExpression("W", "25 mm", "mm")
+        with self.assertRaisesRegex(FakeComError, "今の寸法"):  # 縦の辺は 10 mm（1 cm）。25 mm の式は形を変える
+            dc.AddTwoPointDistance(lines[1].StartSketchPoint, lines[1].EndSketchPoint, K_ALIGNED_DIM, text).Parameter.Expression = "W"
+
+
 class ChamferTest(unittest.TestCase):
     """丸刃: 外周 φ240・内径 φ200＋キー溝を厚み 5 で押し出し、穴の縁の両面に C1。"""
 
@@ -124,15 +251,21 @@ class ChamferTest(unittest.TestCase):
             result = Builder(app).build_part(part, Path(tmp))
         return app, part, result
 
-    def test_chamfers_the_hole_edges_on_both_caps_in_one_feature_in_cm(self):
+    def test_chamfers_the_hole_edges_on_both_caps_one_feature_per_named_value(self):
+        # 名前つきの値（C0・C1）があれば、面取りごとに 1 つのフィーチャ（Inventor で別々に直せる）。無ければ同じ大きさを 1 つにまとめる
         app, part, result = self.build()
         self.assertIsNone(result.error)
         self.assertTrue(result.ok, f"体積 {result.volume_diff:+.2e} / 表面積 {result.area_diff:+.2e}")
-        log = app.documents[0].ComponentDefinition.log
-        self.assertEqual(log[0], ("extrude", 0.5, K_SYMMETRIC, K_JOIN))
+        definition = app.documents[0].ComponentDefinition
+        self.assertEqual(definition.log[0], ("extrude", 0.5, K_SYMMETRIC, K_JOIN))
         # 代替オブジェクトのループ番号は「円 → 線をたどったループ」の順（外周の円が 0、穴が 1）
-        self.assertEqual(log[1], ("chamfer", 0.1, [(1, -1), (1, 1)]))
+        self.assertEqual(definition.log[1:], [("chamfer", 0.1, [(1, -1)]), ("chamfer", 0.1, [(1, 1)])])
+        self.assertEqual(definition.expressions, [("extrude", "t"), ("chamfer", "C0"), ("chamfer", "C1")])
         self.assertEqual([(c.loop, c.side, c.distance) for c in part.chamfers], [(1, -1, 1.0), (1, 1, 1.0)])
+        app = FakeInventor()
+        with tempfile.TemporaryDirectory() as tmp:
+            Builder(app).build_part(replace(part, parametric=None), Path(tmp))
+        self.assertEqual(app.documents[0].ComponentDefinition.log[1:], [("chamfer", 0.1, [(1, -1), (1, 1)])])
 
     def test_selects_every_edge_of_the_loop_on_the_cap_and_nothing_else(self):
         app = FakeInventor()
@@ -148,7 +281,7 @@ class ChamferTest(unittest.TestCase):
 
     def test_the_chamfer_changes_volume_and_area_as_expected(self):
         # 評価関数の確認: 面取りを作らないと、削られるはずの材料が残り、体積の照合で不一致になること
-        with mock.patch.object(Builder, "add_chamfers", lambda self, definition, part: None):
+        with mock.patch.object(Builder, "add_chamfers", lambda self, definition, part, values=None: None):
             _, part, result = self.build()
         self.assertFalse(result.ok)
         self.assertGreater(result.volume_diff, 1e-3)
@@ -158,7 +291,7 @@ class ChamferTest(unittest.TestCase):
         # 大きさごとに、その時点のボディから稜線を選び直さないと、2 つ目の面取りで失敗する
         app = FakeInventor()
         [blade] = spec_of("blade").parts
-        part = replace(blade, chamfers=(*blade.chamfers, Chamfer(loop=0, side=1, distance=2.0)))
+        part = replace(blade, chamfers=(*blade.chamfers, Chamfer(loop=0, side=1, distance=2.0)), parametric=None)
         with tempfile.TemporaryDirectory() as tmp:
             result = Builder(app).build_part(part, Path(tmp))
         self.assertIsNone(result.error)
@@ -373,7 +506,7 @@ class SpecTest(unittest.TestCase):
         thick["parts"][0]["chamfers"][0]["distance"] = 2.5
         wrong_side = json.loads(json.dumps(blade))
         wrong_side["parts"][0]["chamfers"][0]["side"] = "Z"
-        for label, data in {"revolve": revolve, "thick": thick, "side": wrong_side, "version": {**blade, "version": 4}}.items():
+        for label, data in {"revolve": revolve, "thick": thick, "side": wrong_side, "version": {**blade, "version": 5}}.items():
             with self.subTest(label=label), self.assertRaises(SpecError):
                 load_spec(self.write(data))
 
@@ -437,11 +570,11 @@ class EventsTest(unittest.TestCase):
         self.assertEqual([e["good"] for e in events if e["event"] == "part"], list(range(1, 26)), "部品ごとに 1 つずつ進む")
 
     def test_mismatch_is_reported_with_the_difference(self):
-        with mock.patch.object(inventor_module, "cm", lambda v: v):  # 単位換算の誤り → 不一致
+        with mock.patch.object(inventor_module, "cm", lambda v: v):  # 単位換算の誤り → 不一致（断面が 10 倍。厚さは名前つきの値の mm の式）
             code, events = self.run_events(FIXTURES / "finger.inventor.json", lambda: FakeInventor())
         self.assertEqual(code, 1)
         self.assertEqual(events[-1]["parts"][0]["verdict"], "mismatch")
-        self.assertAlmostEqual(events[-1]["parts"][0]["volume_diff"], 10**3 - 1, places=6)
+        self.assertAlmostEqual(events[-1]["parts"][0]["volume_diff"], 10**2 - 1, places=6)
 
     def test_errors_are_one_event_with_the_reason(self):
         tmp = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8")
