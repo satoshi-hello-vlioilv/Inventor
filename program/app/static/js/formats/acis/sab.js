@@ -1,4 +1,4 @@
-// SAB 層: Autodesk ShapeManager (ASM) / ACIS のバイナリ形状データを読む。
+// SAB 層: Autodesk ShapeManager (ASM) / ACIS のバイナリ形状データを読む（.ipt・DWG の 3D ソリッドで共用）。
 
 const MAGICS = ["ASM BinaryFile4", "ACIS BinaryFile"].map((s) => [...s].map((c) => c.charCodeAt(0)));
 const MAGIC_LENGTH = 15;

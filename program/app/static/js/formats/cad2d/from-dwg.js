@@ -2,8 +2,10 @@
 // ハンドルの参照を名前にし（画層・線種・文字スタイル・ブロック）、子の図形（ポリラインの頂点・ブロック参照の属性）を親に付け、
 // ブロックごとの図形の並びとレイアウトを作る。
 
+import { acisShape } from "../acis/index.js";
 import { readDwgObjects, VERSION_NAME } from "../dwg/index.js";
 import { completeSpline } from "./curves.js";
+import { solids3d } from "./solids3d.js";
 import { cadText, createDrawing, normalizeLayouts, unitsOf } from "./model.js";
 
 const VERTEX = /^VERTEX_/;
@@ -15,6 +17,9 @@ const ENTITY = {
   DIMENSION_ORDINATE: "DIMENSION", DIMENSION_LINEAR: "DIMENSION", DIMENSION_ALIGNED: "DIMENSION", DIMENSION_ANG3PT: "DIMENSION",
   DIMENSION_ANG2LN: "DIMENSION", DIMENSION_RADIUS: "DIMENSION", DIMENSION_DIAMETER: "DIMENSION",
   HATCH: "HATCH", SOLID: "SOLID", TRACE: "SOLID", "3DFACE": "3DFACE", LEADER: "LEADER", RAY: "RAY", XLINE: "XLINE", VIEWPORT: "VIEWPORT",
+  // ACIS の形を持つもの（3D ソリッド・リージョン・ボディ・面）
+  "3DSOLID": "ACIS", REGION: "ACIS", BODY: "ACIS", PLANESURFACE: "ACIS", EXTRUDEDSURFACE: "ACIS", LOFTEDSURFACE: "ACIS",
+  REVOLVEDSURFACE: "ACIS", SWEPTSURFACE: "ACIS", NURBSURFACE: "ACIS",
 };
 // 図形ではあるが、表示しないもの（ブロックの区切り・子の図形）
 const STRUCTURE = new Set(["BLOCK", "ENDBLK", "SEQEND", "ATTRIB", "VERTEX_2D", "VERTEX_3D", "VERTEX_MESH", "VERTEX_PFACE", "VERTEX_PFACE_FACE"]);
@@ -158,6 +163,11 @@ export function drawingFromDwg(bytes) {
           elevation: o.elevation, extrusion: o.extrusion, style: o.style, gradient: o.gradient });
       case "SOLID": case "TRACE": return Object.assign(e, { points: o.points, extrusion: o.extrusion });
       case "3DFACE": return Object.assign(e, { points: o.points, invisibleEdges: o.invisibleEdges });
+      case "3DSOLID": case "REGION": case "BODY": case "PLANESURFACE": case "EXTRUDEDSURFACE": case "LOFTEDSURFACE":
+      case "REVOLVEDSURFACE": case "SWEPTSURFACE": case "NURBSURFACE":
+        // 形が読めないもの（R2013+ の AcDs の節にあるもの・SAT など）は「まだ描かない図形」に数える
+        if (acisShape(o.acis).error) unsupported.set(o.kind, (unsupported.get(o.kind) ?? 0) + 1);
+        return Object.assign(e, { solid: o.kind, acis: o.acis });
       case "LEADER": return Object.assign(e, { points: o.points, arrow: o.arrow, pathType: o.pathType, extrusion: o.extrusion });
       case "RAY": case "XLINE": return Object.assign(e, { p: o.p, direction: o.direction });
       case "VIEWPORT":
@@ -200,6 +210,7 @@ export function drawingFromDwg(bytes) {
     name: l.name, block: name(l.block), tabOrder: l.tabOrder, limits: l.limits, extents: l.extents,
   }));
   drawing.layouts = normalizeLayouts(layouts, drawing.blocks, modelName);
+  drawing.models3d = solids3d(drawing); // 3D ソリッドがあれば「図面 ⇄ 3D」のタブで 3D も見せる
   drawing.failures = failures;
   return drawing;
 }

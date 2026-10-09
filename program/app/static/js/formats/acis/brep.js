@@ -1,4 +1,5 @@
-// .ipt の B-rep 層: SAB エンティティからトポロジを辿り、形式によらない中立な面・稜線（model/）にする。
+// ACIS（Autodesk ShapeManager）の B-rep 層: SAB・SAT のエンティティからトポロジを辿り、形式によらない中立な面・稜線（model/）にする。
+// Inventor（.ipt の PmBRepSegment）と AutoCAD（DWG・DXF の 3D ソリッド）で共用する。
 
 import { length, sub } from "../../core/vec.js";
 import { sampleCurve } from "../../model/curves.js";
@@ -78,7 +79,71 @@ export function surfaceOf(e) {
       slope: kind === "cone" ? sinAngle / cosAngle : 0, normalOutward: cosAngle >= 0,
     };
   }
+  if (e.type === "torus-surface") {
+    // 中心, 軸, 大きな半径, 小さな半径（負なら法線が管の内向き）, 角度の基準
+    const [radius, minor] = e.doubles;
+    return { kind: "torus", origin: e.positions[0], direction: e.vectors[0], major: e.vectors[1], radius, minor: Math.abs(minor), slope: 0, normalOutward: minor > 0 };
+  }
+  if (e.type === "sphere-surface") {
+    // 中心, 半径（負なら法線が内向き）, 角度の基準, 極の向き
+    const radius = e.doubles[0];
+    return { kind: "sphere", origin: e.positions[0], direction: e.vectors[1], major: e.vectors[0], radius: Math.abs(radius), slope: 0, normalOutward: radius > 0 };
+  }
+  if (e.type === "spline-surface") return splineSurfaceOf(e) ?? { kind: e.type };
   return { kind: e.type };
+}
+
+/**
+ * 自由曲面（spline-surface）が持つ B スプライン曲面（ACIS の bs3_surface）を読む。読めない形（近似を持たない手続きの曲面など）は null。
+ * 手続きの曲面（転がり球の丸み・スイープ・オフセットなど）は、定義のあとに近似の B スプライン曲面を持つことが多い。
+ * 定義の中の曲線（nubs）とは並びが違う（曲面は次数を 2 つ・閉じ方と特異点を 2 つずつ持つ）ので、曲面として読めるものを探す。
+ * 並び: "nubs"（有理なら "nurbs"）, u の次数, v の次数, u・v の閉じ方, u・v の特異点, u・v のノット数, (値, 重複度) × u のノット数,
+ *       同じく v, 制御点 (x, y, z[, 重み]) × u の数 × v の数（u が先に進む。境界の点が曲面に乗る向きで確かめた）。両端のノットは「次数」重なので、次数 + 1 重に揃える
+ */
+function splineSurfaceOf(e) {
+  const f = e.fields;
+  for (let start = 0; start < f.length; start++) {
+    if (f[start][0] !== Tag.IDENT || (f[start][1] !== "nubs" && f[start][1] !== "nurbs")) continue;
+    const surface = bs3SurfaceAt(f, start);
+    if (surface) return surface;
+  }
+  return null;
+}
+
+function bs3SurfaceAt(f, start) {
+  let i = start;
+  const rational = f[i++][1] === "nurbs";
+  const take = (...tags) => (i < f.length && tags.includes(f[i][0]) ? f[i++][1] : NaN);
+  const degree = [take(Tag.LONG), take(Tag.LONG)];
+  const closure = [take(Tag.ENUM), take(Tag.ENUM)];
+  take(Tag.ENUM);
+  take(Tag.ENUM); // 特異点（極）
+  const counts = [take(Tag.LONG), take(Tag.LONG)];
+  if (![...degree, ...counts].every((v) => Number.isInteger(v) && v >= 1)) return null;
+  const knots = counts.map((count) => {
+    const out = [];
+    for (let k = 0; k < count; k++) {
+      const value = take(Tag.DOUBLE), multiplicity = take(Tag.LONG);
+      for (let m = 0; m < multiplicity; m++) out.push(value);
+    }
+    return out;
+  });
+  const sizes = knots.map((k, d) => k.length - degree[d] + 1);
+  if (sizes.some((n) => n < 2) || knots.flat().some(Number.isNaN)) return null;
+  // 制御点は u が先に進む（v ごとに u の列）。points[u][v] に並べ直す
+  const points = Array.from({ length: sizes[0] }, () => []), weights = Array.from({ length: sizes[0] }, () => []);
+  for (let v = 0; v < sizes[1]; v++) {
+    for (let u = 0; u < sizes[0]; u++) {
+      points[u][v] = [take(Tag.DOUBLE), take(Tag.DOUBLE), take(Tag.DOUBLE)];
+      weights[u][v] = rational ? take(Tag.DOUBLE) : 1;
+    }
+  }
+  if ([...points.flat(2), ...weights.flat()].some(Number.isNaN)) return null;
+  for (const k of knots) {
+    k.unshift(k[0]);
+    k.push(k.at(-1));
+  }
+  return { kind: "bspline", degree, knots, points, weights: rational ? weights : null, closure };
 }
 
 // ---- 属性（Inventor が面に付ける情報）------------------------------------------
@@ -169,6 +234,20 @@ export class Topology {
     return face;
   }
 
+  /**
+   * ボディの置き方（transform。無ければ null）→ 点を移す関数 point(p) と向きを移す関数 vector(v)、倍率 scale。
+   * 並び: 3 行の向き（r0, r1, r2）, 移動 t, 倍率 s → p' = s・(x・r0 + y・r1 + z・r2) + t（ezdxf（MIT）の読みと同じ行ベクトルの向き）
+   */
+  placement(body) {
+    const t = this.ref(body, "transform");
+    if (!t || t.doubles.length < 12) return null;
+    const d = t.doubles, s = d[12] ?? 1;
+    const identity = d.slice(0, 12).every((v, i) => v === [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0][i]) && s === 1;
+    if (identity) return null;
+    const vector = ([x, y, z]) => [0, 1, 2].map((k) => s * (x * d[k] + y * d[3 + k] + z * d[6 + k]));
+    return { vector, point: (p) => vector(p).map((v, k) => v + d[9 + k]), scale: s };
+  }
+
   isClosed(body) {
     return this.faces(body).every((f) => this.coedges(f).every((c) => this.ref(c, "partner") !== null));
   }
@@ -199,4 +278,20 @@ function summarizeBody(topo, body, scale) {
     vertices: vertexIds.size,
   };
   return { index: body.index, ...topologySummary(counts, topo.isClosed(body)), ...summarizeFaces(faces, scale) };
+}
+
+/** 中立な面を置き方（Topology.placement）で移す（曲面の値・境界のループ・稜線の点列）。置き方が無ければそのまま */
+export function placeFace(face, place) {
+  if (!place) return face;
+  const { point, vector, scale } = place;
+  const surface = { ...face.surface };
+  for (const key of ["origin"]) if (surface[key]) surface[key] = point(surface[key]);
+  for (const key of ["direction", "major"]) if (surface[key]) surface[key] = vector(surface[key]);
+  for (const key of ["radius", "minor"]) if (surface[key] !== undefined) surface[key] *= scale;
+  if (surface.points) surface.points = surface.points.map((row) => row.map(point));
+  return {
+    ...face, surface,
+    loops: face.loops.map((loop) => loop.map(point)),
+    edges: face.edges.map((e) => ({ ...e, points: e.points.map(point) })),
+  };
 }

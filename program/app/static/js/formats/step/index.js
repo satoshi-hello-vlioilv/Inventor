@@ -3,7 +3,7 @@
 //   scene … { file, units: "mm", kind: "assembly", source, labels, parts, instances }
 //     parts[i]     … { id, name, number, material, density_g_per_mm3, bodies: [{ faces, edges, summary }] }
 //     instances[i] … { id, part（parts の番号）, name, path, matrix（4×4 行優先、mm） }
-// 形状の要約・面の書き出しは ipt と同じ処理（formats/ipt/brep.js・scene.js）を使う。
+// 形状の要約・面の書き出しは ipt と同じ処理（formats/acis/brep.js・scene.js）を使う。
 
 import labels from "../../core/labels.json" with { type: "json" };
 import { exportFace, mm as toMm } from "../../model/scene.js";

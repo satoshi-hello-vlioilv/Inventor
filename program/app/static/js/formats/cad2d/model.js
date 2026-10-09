@@ -27,6 +27,8 @@
 //   HATCH { loops: [{ edges } | { points, bulges, closed }], solid, pattern, angle, scale, lines, elevation }
 //   SOLID { points: [4 点] }・3DFACE { points, invisibleEdges }・LEADER { points, arrow }・RAY・XLINE { p, direction }
 //   VIEWPORT { center, width, height, viewCenter, viewHeight, twist }
+//   ACIS { solid（3DSOLID・REGION・BODY・PLANESURFACE など）, acis（ACIS の形のデータ。SAB か SAT のバイト列。無ければ null） }
+//     2D では稜線を描き、3D の表示（drawing.models3d の format: "ACIS"。cad2d/solids3d.js）では面を描く
 
 export function createDrawing({ format, version, codepage = null }) {
   return {

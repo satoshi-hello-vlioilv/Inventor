@@ -3,7 +3,7 @@
 // 形状の忠実度（閉じたソリッド・体積・ねじ・円錐）は ipt-fidelity.test.mjs が確かめる。
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { Topology, SLOTS } from "../../app/static/js/formats/ipt/brep.js";
+import { Topology, SLOTS } from "../../app/static/js/formats/acis/brep.js";
 import { openIpt } from "../../app/static/js/formats/ipt/container.js";
 import { parseIpt, shapes } from "../../app/static/js/formats/ipt/index.js";
 import { SAMPLE_NAME, readSample, sampleIpts } from "./helpers.mjs";

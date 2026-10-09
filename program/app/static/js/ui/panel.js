@@ -297,7 +297,8 @@ export function renderDrawingPanel({ drawing, describe, layout, visible, display
  *   describe … viewer/describe.js の describeMeshes の結果（読めなかったときは null と error）
  * @returns {Map<string, HTMLElement>} 部品のキー → 行
  */
-export function renderModel3dPanel({ format, describe, error = "", warnings = [] }, handlers) {
+export function renderModel3dPanel({ format, describe, error = "", warnings = [], units = null }, handlers) {
+  $("model3d-units").textContent = units ? `大きさは ${units}` : "大きさはファイルの単位"; // 図面の 3D ソリッドは mm に直してある
   definitionList("model3d-info", [
     ["形式", format],
     ["部品", describe ? `${describe.groups.length}` : "—"],

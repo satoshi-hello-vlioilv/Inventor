@@ -5,7 +5,7 @@
 
 import labels from "../../core/labels.json" with { type: "json" };
 import { exportFace, mm } from "../../model/scene.js";
-import { Topology, summarize } from "./brep.js";
+import { Topology, summarize } from "../acis/brep.js";
 
 export const BREP_SEGMENT = "PmBRepSegment";
 

@@ -1,4 +1,4 @@
-// STEP の B-rep を、Inventor の B-rep（formats/ipt/brep.js）と同じ「中立な面」の形にする。
+// STEP の B-rep を、Inventor の B-rep（formats/acis/brep.js）と同じ「中立な面」の形にする。
 // 面の要約（外接箱・穴・円錐）と表示（三角形分割）は ipt と共通の処理を使う。
 //   面: { index, surface, reversed, concave, edges, loops, threads }
 //   曲面: plane / cylinder / cone / torus / bspline（有理を含む B スプライン曲面。それ以外は型名のまま。表示は稜線だけ）

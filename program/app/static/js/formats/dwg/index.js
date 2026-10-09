@@ -3,7 +3,8 @@
 //   header … 見出しの変数（header.js: 線種の尺度・単位）。読めなければ null で、わけを headerError に（図形は読む）
 // 図面のモデル（画層・ブロック・レイアウト・図形）への組み立ては ../cad2d/（DXF と共通）。
 
-import { DwgError, latin1 } from "./bits.js";
+import { readAcDs } from "./acds.js";
+import { DwgError, latin1, R2013 } from "./bits.js";
 import { readDwgFile, VERSION_NAME } from "./file.js";
 import { readHeader } from "./header.js";
 import { readObject } from "./objects.js";
@@ -49,6 +50,18 @@ export function readDwgObjects(bytes) {
       objects.set(handle, readObject(data, offset, ctx));
     } catch (error) {
       failures.push({ handle, kind: error.kind ?? null, message: error.message });
+    }
+  }
+  // R2013+: 3D ソリッドなどの形は AcDs の節にある（オブジェクトの中は空）。ハンドルで引いて入れる
+  if (file.version >= R2013) {
+    const solids = [...objects.values()].filter((o) => o.acis === null);
+    if (solids.length) {
+      try {
+        const store = readAcDs(file.section("AcDb:AcDsPrototype_1b"));
+        for (const o of solids) o.acis = store.get(o.handle) ?? null;
+      } catch (error) {
+        failures.push({ handle: 0, kind: "AcDs", message: `3D ソリッドの形の置き場（AcDs）を読めませんでした: ${error.message}` });
+      }
     }
   }
   let header = null, headerError = null;

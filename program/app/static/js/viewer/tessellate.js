@@ -586,7 +586,72 @@ function bspline(face) {
   return { points: verts.map((v) => v.p), normals: verts.map(normal), index, oriented: true };
 }
 
-export const MESHERS = { plane, cylinder: revolved, cone: revolved, torus: revolved, bspline };
+// ---- 球面 ------------------------------------------------------------------------
+// 面の外にある球面の点 q から、q を通る直径に垂直な平面へ立体射影して分割する。立体射影は q 以外の球面と平面を 1 対 1 に写し、
+// 境界の円（平面で切った縁）は平面の円になるので、帽子・帯・半球のどれも 1 つの平らな多角形になる。中点は平面の中点を球面に戻した点
+// （逆射影は球面の上の点そのもの）。q は最初の境界の「面の無い側」の中心: 境界を外（面の法線の側）から見て反時計回りに回る側が面。
+// 境界の無い面（球面全体）は緯度と経度の格子にする。
+
+function sphere(face) {
+  const center = v3(face.origin), R = face.radius, sign = face.outward ? 1 : -1;
+  const loops = face.loops.map((l) => withoutSpikes(openLoop(l))).filter((l) => l.length >= 3);
+  if (!loops.length) return fullSphere(center, R, sign, v3(face.axis).normalize(), v3(face.ref).normalize());
+  // 境界のまわりの向き（Newell）。面は、外から見て境界が反時計回りに見える側
+  const newell = new THREE.Vector3();
+  const first = loops[0];
+  first.forEach((p, i) => {
+    const a = p.clone().sub(center), b = first[(i + 1) % first.length].clone().sub(center);
+    newell.add(new THREE.Vector3((a.y - b.y) * (a.z + b.z), (a.z - b.z) * (a.x + b.x), (a.x - b.x) * (a.y + b.y)));
+  });
+  if (newell.lengthSq() === 0) return null;
+  const q = newell.normalize().multiplyScalar(-sign); // 面の無い側の向き
+  const helper = Math.abs(q.x) < 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+  const e1 = new THREE.Vector3().crossVectors(helper, q).normalize(), e2 = new THREE.Vector3().crossVectors(q, e1);
+  const project = (p) => {
+    const u = p.clone().sub(center).divideScalar(R);
+    const k = 1 / Math.max(1 - u.dot(q), 1e-12);
+    return { p, u: u.clone().normalize(), x: u.dot(e1) * k, y: u.dot(e2) * k };
+  };
+  const lift = (x, y) => {
+    const w2 = x * x + y * y;
+    const u = e1.clone().multiplyScalar(2 * x).addScaledVector(e2, 2 * y).addScaledVector(q, w2 - 1).divideScalar(w2 + 1);
+    return { p: center.clone().addScaledVector(u, R), u, x, y };
+  };
+  const rings = loops.map((l) => l.map(project));
+  const { verts, triangles } = meshChart(rings, [], [], {
+    uv: (v) => new THREE.Vector2(v.x, v.y),
+    width: (a, b) => a.u.angleTo(b.u) / ARC_STEP,
+    midpoint: (a, b) => lift((a.x + b.x) / 2, (a.y + b.y) / 2),
+  }) ?? {};
+  if (!triangles) return null;
+  return { points: verts.map((v) => v.p), normals: verts.map((v) => v.u.clone().multiplyScalar(sign)), index: triangles.flat() };
+}
+
+/** 球面全体（境界の無い面）: 極を軸にした緯度・経度の格子 */
+function fullSphere(center, R, sign, axis, ref) {
+  const side = new THREE.Vector3().crossVectors(axis, ref);
+  const nt = Math.ceil(TAU / ARC_STEP), nh = Math.ceil(Math.PI / ARC_STEP);
+  const points = [], normals = [], index = [];
+  for (let j = 0; j <= nh; j++) {
+    const h = -Math.PI / 2 + (Math.PI * j) / nh;
+    for (let i = 0; i <= nt; i++) {
+      const t = (TAU * i) / nt;
+      const u = ref.clone().multiplyScalar(Math.cos(h) * Math.cos(t)).addScaledVector(side, Math.cos(h) * Math.sin(t)).addScaledVector(axis, Math.sin(h));
+      points.push(center.clone().addScaledVector(u, R));
+      normals.push(u.multiplyScalar(sign));
+    }
+  }
+  const at = (i, j) => j * (nt + 1) + i;
+  for (let j = 0; j < nh; j++) {
+    for (let i = 0; i < nt; i++) {
+      if (j > 0) index.push(at(i, j), at(i + 1, j), at(i + 1, j + 1));
+      if (j < nh - 1) index.push(at(i, j), at(i + 1, j + 1), at(i, j + 1));
+    }
+  }
+  return { points, normals, index };
+}
+
+export const MESHERS = { plane, cylinder: revolved, cone: revolved, torus: revolved, sphere, bspline };
 export const isRenderable = (face) => face.type in MESHERS;
 
 /**

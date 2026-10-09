@@ -20,6 +20,8 @@
 
 import { IDENTITY, apply, multiply, rotationZ, scaling, translation } from "../core/matrix.js";
 import { bulgePoints, flattenSubpath, interpolateFit, neutralSpline, ocsAxes, toOcs, toWcs } from "../formats/cad2d/curves.js";
+import { acisShape } from "../formats/acis/index.js";
+import { insertMatrices } from "../formats/cad2d/placement.js";
 import { sampleCurve } from "../model/curves.js";
 import { ACI, rgbHex } from "./colors.js";
 import { mtextLines, singleLine } from "./text.js";
@@ -365,24 +367,13 @@ export function buildScene(drawing, layout, { hidden = new Set(), shown = new Se
   function insert(e, layer, ctx, item, depth) {
     const block = blocks.get(nameKey(e.block));
     if (!block || depth > MAX_DEPTH) return;
-    const axes = ocsAxes(e.extrusion);
-    const ocs = axes
-      ? [axes[0][0], axes[1][0], axes[2][0], 0, axes[0][1], axes[1][1], axes[2][1], 0, axes[0][2], axes[1][2], axes[2][2], 0, 0, 0, 0, 1]
-      : IDENTITY;
-    const base = block.base ?? [0, 0, 0];
-    const [sx, sy, sz] = e.scale ?? [1, 1, 1];
     const inner = {
       layer: layer, color: color(e.color, layer, ctx), linetype: linetypeName(e, layer, ctx), lineweight: lineweight(e, layer, ctx),
     };
-    for (let r = 0; r < Math.max(1, e.rows ?? 1); r++) {
-      for (let c = 0; c < Math.max(1, e.columns ?? 1); c++) {
-        const cell = [(e.columnSpacing ?? 0) * c, (e.rowSpacing ?? 0) * r, 0];
-        const local = multiply(multiply(multiply(multiply(translation(e.p ?? [0, 0, 0]), rotationZ(e.rotation ?? 0)), translation(cell)),
-          scaling([sx || 1, sy || 1, sz || 1])), translation(base.map((v) => -v)));
-        const m = multiply(ctx.m, multiply(ocs, local));
-        const sub = { ...inner, m, scale: scaleOf(m), item: ctx.item };
-        for (const child of block.entities) draw(child, sub, item, depth + 1, true);
-      }
+    for (const local of insertMatrices(e, block)) {
+      const m = multiply(ctx.m, local);
+      const sub = { ...inner, m, scale: scaleOf(m), item: ctx.item };
+      for (const child of block.entities) draw(child, sub, item, depth + 1, true);
     }
     for (const a of e.attribs ?? []) {
       if ((a.flags ?? 0) & 1) continue; // 見えない属性
@@ -541,6 +532,13 @@ export function buildScene(drawing, layout, { hidden = new Set(), shown = new Se
         return;
       }
       case "LEADER": return leader(e, layer, ctx, item);
+      case "ACIS": { // 3D ソリッドなど: 稜線を上から見て描く（AutoCAD の 2D ワイヤフレームと同じ）。読めない形は読み取りが数えてある
+        const shape = acisShape(e.acis);
+        if (shape.error) return;
+        const st = style(e, layer, ctx), toWorld = place(ctx, null);
+        for (const body of shape.bodies) for (const edge of body.edges) stroke(st, item, edge.map(toWorld));
+        return;
+      }
       case "RAY": case "XLINE": {
         const d = e.direction ?? [1, 0, 0], p = e.p ?? [0, 0, 0];
         const from = e.type === "XLINE" ? p.map((v, k) => v - d[k] * INFINITE) : p;

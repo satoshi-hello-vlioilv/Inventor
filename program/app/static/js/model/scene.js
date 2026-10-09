@@ -1,5 +1,5 @@
 // 中立な面（.ipt・STEP 共通）を、three.js ビューアに渡すシーン JSON の面（mm 単位）にする。
-//   平面: 法線 / 円筒・円錐（回転面）: 軸上の原点・軸・角度の基準方向・半径・半径の傾き / トーラス: 大小の半径
+//   平面: 法線 / 円筒・円錐（回転面）: 軸上の原点・軸・角度の基準方向・半径・半径の傾き / トーラス: 大小の半径 / 球面: 中心・極・半径
 //   自由曲面（B スプライン）: 次数・ノット・制御点（mm）・重み・法線を裏返すか（∂S/∂u × ∂S/∂v が面の外向きでなければ true）
 //   三角形分割はビューアが境界ループに沿って行う（ループは隣の面と同じ点列なので、面どうしが隙間なくつながる）
 
@@ -49,6 +49,21 @@ function torus(face, scale) {
   };
 }
 
+/** 球面: 点 = origin + radius・(cos h・(cos θ・ref + sin θ・(axis × ref)) + sin h・axis)。axis は極の向き */
+function sphere(face, scale) {
+  const s = face.surface;
+  const axis = unit(s.direction);
+  return {
+    type: "sphere",
+    origin: mm(s.origin, scale),
+    axis: mm(axis, 1),
+    ref: mm(unit(reject(s.major, axis)), 1),
+    radius: round(s.radius * scale, DIGITS),
+    outward: !face.concave, // 面の法線が中心から外へ向くか
+    loops: loopsOf(face, scale),
+  };
+}
+
 /** 自由曲面（B スプライン）。ノットはパラメータなので単位を変えない */
 function bspline(face, scale) {
   const s = face.surface;
@@ -63,7 +78,7 @@ function bspline(face, scale) {
   };
 }
 
-const FACE_EXPORTERS = { plane, cylinder: revolved, cone: revolved, torus, bspline };
+const FACE_EXPORTERS = { plane, cylinder: revolved, cone: revolved, torus, sphere, bspline };
 
 /** 中立な面（ipt・STEP 共通）→ シーン JSON の面 */
 export function exportFace(face, scale) {

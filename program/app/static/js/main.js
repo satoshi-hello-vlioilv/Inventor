@@ -265,7 +265,9 @@ function showDrawingView(key) {
   }
 }
 
-/** 3D の PDF の 3D を表示する（読むのは初めて開いたときの 1 回だけ） */
+const FORMAT3D = { ACIS: "ACIS（3D ソリッド）" };
+
+/** 3D の PDF の 3D・図面の 3D ソリッドを表示する（読むのは初めて開いたときの 1 回だけ） */
 function show3d(index) {
   const entry = sheet.model.drawing.models3d[index];
   if (!sheet.shown3d.has(index)) {
@@ -279,7 +281,7 @@ function show3d(index) {
   const shown = sheet.shown3d.get(index);
   viewer?.show({ meshes: shown.meshes ?? [], view: shown.view });
   const describe = shown.meshes ? describeMeshes(shown) : null;
-  const rows = renderModel3dPanel({ format: entry.format, describe, error: shown.error, warnings: shown.warnings }, rowHandlers((g) => g.ids));
+  const rows = renderModel3dPanel({ format: FORMAT3D[entry.format] ?? entry.format, describe, error: shown.error, warnings: shown.warnings, units: shown.units }, rowHandlers((g) => g.ids));
   current = describe && { info: describe.info, rows };
   highlight([]);
 }
