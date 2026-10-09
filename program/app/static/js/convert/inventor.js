@@ -327,7 +327,7 @@ function labelOf(part, feature) {
  * 三角形を添える。面取り付きの押し出し（面取りの面は未実装）と、断面の円弧の円が軸と交わる回転体（紡錘形のトーラス。たる形・りんご形。
  * 規格の書き方 DEGENERATE_TOROIDAL_SURFACE は読み手の扱いがそろわない。OpenCascade は体積を 100 倍に読み違えた）
  */
-function needsStepMesh(shape) {
+export function needsStepMesh(shape) {
   if (shape.chamfers) return true;
   const spindle = (s) => (s.type === "arc" || s.type === "circle") && Math.abs(s.center[0]) > 1e-9 &&
     s.center[0] < (s.radius ?? Math.hypot(s.a[0] - s.center[0], s.a[1] - s.center[1])) - 1e-9;
