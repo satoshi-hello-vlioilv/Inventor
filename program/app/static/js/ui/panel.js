@@ -10,6 +10,7 @@ import { AXES, fmt, fmtMass, fmtSize } from "../viewer/describe.js";
 import { ACI, rgbHex } from "../viewer2d/colors.js";
 import { layerScales } from "../formats/cad2d/model.js";
 import { length, scaleText } from "../viewer2d/describe.js";
+import { renderTree } from "./tree.js";
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, className, text) => {
@@ -141,6 +142,47 @@ export function renderIptPanel({ report, scene, describe, properties = {}, volum
   return rows;
 }
 
+/** 部品の行の説明（寸法・材質・質量。見つからない部品はファイル名） */
+const partSub = (g) => (g.missing ? `ファイル ${g.file ?? "?"}`
+  : [g.size ? fmtSize(g.size) : null, g.material, g.mass !== null ? `約 ${fmtMass(g.mass)}` : null].filter(Boolean).join(" · "));
+
+/**
+ * 組立の部品表の見方（構成（木）⇄ 部品の種類ごと）と、構成の木（ui/tree.js）。
+ * @param {{ nodes, depth }} structure  describeStructure の結果
+ * @param {{ open, hidden, view }} state  開閉・消した行・見方（呼ぶ側が持つ）
+ * @param {{ onEnter, onLeave, onPick, onChange }} handlers
+ * @returns {Map<string, HTMLElement>} 行の key → 行（部品の行は、部品表と同じ key「part:番号」でも引ける: 3D から強調するため。
+ *   閉じた組立の中の部品は、その組立の行）
+ */
+export function renderAsmStructure(structure, state, handlers) {
+  const tree = state.view === "tree";
+  $("bom-view").hidden = false;
+  for (const button of $("bom-view").querySelectorAll("button")) button.setAttribute("aria-selected", String(button.dataset.bomView === state.view));
+  $("asm-tree").hidden = !tree;
+  $("bom").hidden = tree;
+  if (!tree) return null;
+  const decorate = (nodes) => nodes.map((n) => {
+    const name = n.group?.name ?? n.name; // 部品の行は部品表と同じ名前（同じ部品を別の名前で見せない）
+    return {
+      ...n,
+      name,
+      sub: n.children.length ? `サブ組立 · 中の部品 ${n.children.length} 種類` : n.group ? partSub(n.group) : "",
+      text: `${name} × ${n.count}`,
+      children: decorate(n.children),
+    };
+  });
+  const nodes = decorate(structure.nodes);
+  const rows = renderTree($("asm-tree"), nodes, state, handlers);
+  // 閉じた組立の中の部品は、見えている一番近い親の行で示す
+  const byPart = (list, shown) => list.forEach((n) => {
+    const row = rows.get(n.key) ?? shown;
+    if (n.group && !rows.has(n.group.key)) rows.set(n.group.key, row);
+    byPart(n.children, row);
+  });
+  byPart(structure.nodes, null);
+  return rows;
+}
+
 /**
  * 組立の表示（.iam・STEP）。
  * @param {{ describe: object, scene: object }} data  describe は describeAssembly の結果
@@ -161,7 +203,7 @@ export function renderAsmPanel({ describe, scene }, handlers) {
     kind: String(g.number).padStart(2, "0"),
     dim: g.name,
     count: g.count,
-    sub: g.missing ? `ファイル ${g.file ?? "?"}` : [g.size ? fmtSize(g.size) : null, g.material, g.mass !== null ? `約 ${fmtMass(g.mass)}` : null].filter(Boolean).join(" · "),
+    sub: partSub(g),
     note: g.missing ? "部品ファイルが見つかりません" : null,
     tone: g.missing ? "missing" : null,
     title: g.missing ? g.path ?? g.file : "押すと、この部品を開きます",

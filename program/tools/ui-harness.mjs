@@ -127,6 +127,8 @@ export const STATES = [
   ["library", openLibrary, "#start-open"],
   ["ipt", async (p) => { await openSample(p, IPT); }, "[data-next]"],
   ["asm", async (p) => { await openSample(p, IAM); }, "[data-next]"],
+  // 入れ子の組立（サブ組立 2 種類 × 2 と、直下の部品）。構成の木の見え方を撮る
+  ["nested", async (p) => { await openSample(p, "Assembly_XY2.stp"); }, "[data-next]"],
   // 図面（2D）。図形にカーソルを合わせた様子（読み出し・強調）も撮る: 図面の上を格子状に動かし、読み出しが出た所で止める
   ["drawing", async (p) => { await openSample(p, DRAWING); await hoverDrawing(p); }, "[data-next], #open"],
   ["layout", async (p) => { await p.click("#layout-tabs button:nth-child(2)"); await sleep(600); await hoverDrawing(p); }, "[data-next], #open"],
@@ -232,7 +234,7 @@ export function measure(nextSelector) {
     for (const [r, g, b, a] of layers.reverse()) base = [r * a + base[0] * (1 - a), g * a + base[1] * (1 - a), b * a + base[2] * (1 - a)];
     return base;
   }
-  const controls = [...document.querySelectorAll("button, a[href], input:not([type=hidden]), select, summary, [role=button]")].filter(visible);
+  const controls = [...document.querySelectorAll("button, a[href], input:not([type=hidden]), select, summary, [role=button], [role=treeitem]")].filter(visible);
   const seen = controls.filter((el) => inView(el.getBoundingClientRect()));
   const dialog = document.querySelector("dialog[open]");
   const scope = (el) => !dialog || dialog.contains(el);

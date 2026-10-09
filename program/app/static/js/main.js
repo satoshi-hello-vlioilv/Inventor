@@ -25,9 +25,10 @@ import { initBuild } from "./ui/build.js";
 import { setupUnit } from "./ui/units.js";
 import { initSettings, offerShortcut, showNews } from "./ui/settings.js";
 import { selectViewTab, setViewTabs } from "./ui/viewtabs.js";
-import { renderAsmPanel, renderDrawingPanel, renderHeader, renderHtmlPanel, renderIptPanel, renderModel3dPanel, renderSpecPanel, setPanelMode } from "./ui/panel.js";
+import { renderAsmPanel, renderAsmStructure, renderDrawingPanel, renderHeader, renderHtmlPanel, renderIptPanel, renderModel3dPanel, renderSpecPanel, setPanelMode } from "./ui/panel.js";
 import { startDialog } from "./ui/start.js";
-import { describeAssembly, describeBody, describeMeshes } from "./viewer/describe.js";
+import { hiddenIds } from "./ui/tree.js";
+import { describeAssembly, describeBody, describeMeshes, describeStructure } from "./viewer/describe.js";
 import { VIEWS, Viewer } from "./viewer/viewer.js";
 import { describeDrawing, describeItem } from "./viewer2d/describe.js";
 import { buildScene } from "./viewer2d/scene.js";
@@ -62,7 +63,9 @@ function highlight(ids, text, groupKey) {
   viewer?.highlight(ids);
   readoutChip.textContent = text ?? idleText;
   readout.classList.toggle("is-live", Boolean(text));
-  for (const [key, row] of current?.rows ?? []) row.classList.toggle("is-active", key === groupKey);
+  // 同じ行が複数の key で引けることがある（組立の木: 行の key と部品表の key）ので、行ごとに 1 回だけ付け外しする
+  const active = current?.rows?.get(groupKey);
+  for (const row of new Set(current?.rows?.values() ?? [])) row.classList.toggle("is-active", row === active);
 }
 
 function onHover(id) {
@@ -165,7 +168,14 @@ function showAssembly(model, header) {
     onMissing: () => $("file-input").click(),
   });
   current = { info: describe.info, rows };
-  assembly = { ...assembly, model, header };
+  // 構成の木（サブ組立があれば最初から木で見せる）。開閉・消した行は、部品を開いて戻っても保つ
+  const structure = describeStructure(model.scene, describe.groups);
+  const same = assembly?.model === model && assembly.tree;
+  const tree = same ? assembly.tree : {
+    open: new Set(branchKeys(structure.nodes)), hidden: new Set(), view: structure.depth > 1 ? "tree" : "kinds",
+  };
+  assembly = { ...assembly, model, header, structure, tree, bomRows: rows };
+  renderStructure();
   highlight([]);
   // 見つからない部品があれば、次にすることは「部品を加える」（行動ドック）。Content Center の標準部品だけなら、
   // この PC では .ipt を用意できないことが多いので、ボタンは控えめにし、主の行動にしない（欄の説明で用意の仕方を示す）
@@ -175,6 +185,28 @@ function showAssembly(model, header) {
   $("add-missing").textContent = `見つからない部品を加える（${describe.missing.length} 種類）`;
   setNext("view", addable ? $("add-missing") : null);
 }
+
+/** 構成の木を描き直し、消した部品を 3D から消す（開閉・目・見方の切り替えのたび） */
+function renderStructure() {
+  const { structure, tree, bomRows } = assembly;
+  const rows = renderAsmStructure(structure, tree, {
+    onEnter: (node) => highlight(node.ids, node.text, node.key),
+    onLeave: () => highlight([]),
+    onPick: (node) => node.group && !node.group.missing && openAssemblyPart(node.group.index),
+    onChange: renderStructure,
+  });
+  current = { ...current, rows: rows ?? bomRows };
+  viewer?.setHidden(hiddenIds(structure.nodes, tree));
+}
+
+const branchKeys = (nodes) => nodes.flatMap((n) => (n.children.length ? [n.key, ...branchKeys(n.children)] : []));
+
+$("bom-view").addEventListener("click", (event) => {
+  const view = event.target.closest("button")?.dataset.bomView;
+  if (!view || !assembly?.tree || view === assembly.tree.view) return;
+  assembly.tree.view = view;
+  renderStructure();
+});
 
 /** 組立の中の部品を 1 つだけ開く（部品と同じ表示。「組立に戻る」で戻る） */
 function openAssemblyPart(index) {

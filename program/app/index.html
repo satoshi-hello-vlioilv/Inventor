@@ -229,9 +229,14 @@
       <section class="card" data-mode="asm">
         <h2>部品表<span class="h-note">行を押すと、その部品を開きます</span></h2>
         <div class="tally" id="asm-tally"></div>
+        <div class="seg" id="bom-view" role="tablist" aria-label="部品表の見方" hidden>
+          <button type="button" role="tab" data-bom-view="tree" aria-selected="true">構成（木）</button>
+          <button type="button" role="tab" data-bom-view="kinds" aria-selected="false">部品の種類ごと</button>
+        </div>
+        <ul class="tree" id="asm-tree" role="tree" aria-label="組立の構成" hidden></ul>
         <ul class="features is-bom" id="bom"></ul>
         <details class="more">
-          <summary>構成</summary>
+          <summary>合計と形式</summary>
           <dl class="topology" id="asm-info"></dl>
         </details>
       </section>

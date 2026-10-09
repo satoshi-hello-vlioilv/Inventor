@@ -51,6 +51,7 @@ export class Viewer {
     this.materials = new Map(); // 面・部品の id → { material, tone }
     this.edgeMaterial = new THREE.LineBasicMaterial();
     this.highlighted = new Set();
+    this.hidden = new Set(); // 消した部品の id（構成の木の目）
     this.marks = new Map(); // 面・部品の id → 印の色の種類（作った結果。元の色の代わりに塗る）
     this.focus = false; // 目を向ける印があるか（あれば、それだけを不透明にし、ほかの部品を薄く透かす）
     this.edgesVisible = true;
@@ -190,11 +191,18 @@ export class Viewer {
     this.materials.clear();
     this.surfaces = [];
     this.highlighted.clear();
+    this.hidden.clear();
     this.marks.clear();
     this.focus = false;
     this.model.quaternion.identity();
     this.home = VIEWS.iso;
     this.requestRender();
+  }
+
+  /** 部品を消す（id の集まり。空なら全て見せる）。消した部品はカーソルでも拾わない */
+  setHidden(ids) {
+    this.hidden = new Set(ids);
+    this.applyColors();
   }
 
   highlight(ids) {
@@ -262,6 +270,7 @@ export class Viewer {
       const mark = this.marks.get(id);
       const base = mark ? tones[mark] ?? tones.exact : color ?? tones[tone] ?? tones.exact;
       material.color.copy(this.highlighted.has(id) ? base.clone().lerp(accent, 0.65) : base);
+      material.visible = !this.hidden.has(id);
       const ghost = this.#ghosted(id);
       if (material.transparent !== ghost) {
         Object.assign(material, { transparent: ghost, opacity: ghost ? GHOST_OPACITY : 1, depthWrite: !ghost, needsUpdate: true });
@@ -270,7 +279,7 @@ export class Viewer {
     for (const child of this.model.children) {
       if (!child.isLineSegments) continue;
       const id = child.userData.id; // 配置ごとの稜線だけが id を持つ（部品の面の稜線は透かさない）
-      child.visible = this.edgesVisible && !(id !== undefined && this.#ghosted(id));
+      child.visible = this.edgesVisible && !(id !== undefined && (this.#ghosted(id) || this.hidden.has(id)));
     }
     this.edgeMaterial.color.set(token("--edge"));
     const light = (name, fallback) => Number.parseFloat(token(name)) || fallback;
@@ -376,8 +385,9 @@ export class Viewer {
       requestAnimationFrame(() => {
         pending = false;
         raycaster.setFromCamera(pointer, this.camera);
-        const hit = raycaster.intersectObjects(this.surfaces, false)[0];
-        this.onHover(hit ? hit.object.userData.ids[hit.face.materialIndex ?? 0] ?? null : null);
+        const idOf = (h) => h.object.userData.ids[h.face.materialIndex ?? 0] ?? null;
+        const hit = raycaster.intersectObjects(this.surfaces, false).find((h) => !this.hidden.has(idOf(h))); // 消した部品は飛ばす
+        this.onHover(hit ? idOf(hit) : null);
       });
     });
     this.canvas.addEventListener("pointerleave", () => this.onHover(null));
