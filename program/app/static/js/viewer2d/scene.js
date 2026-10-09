@@ -5,6 +5,7 @@
 //     fills:   [{ item, color, rings: [Float64Array], rule?, alpha? }]（rule が無ければ偶奇の規則。SOLID・ハッチング・PDF の塗り）
 //     texts:   [{ item, color, x, y, rotation, height, widthFactor, oblique, mirror, lines, align, valign, width, lineSpacing, font? }]
 //     points:  [{ item, color, x, y }]
+//     snaps:   [{ item, kind, x, y, clip? }]（測るときに吸い付く点。kind: end 端点・mid 中点・center 中心・quad 四分点・node 点。交点は viewer2d/snap.js が近くで求める）
 //     images:  [{ item, matrix: [a, b, c, d, e, f]（画像の単位の正方形 → 表示の座標）, image }]（PDF の画像）
 //     regions: [{ item, rings }]（模様のハッチング・画像の外形。描かないが、内側を指せるように索引に入れる）
 //     items:   [{ handle, type, layer, entity }]（指せる図形。レイアウトに直に置かれた図形の単位。ブロック参照は中身ごと 1 つ）
@@ -19,7 +20,7 @@
 // 線の太さは 1/100 mm（既定 25）、破線は図面の長さの単位の並び（正 = 線・負 = すき間・0 = 点）。
 
 import { IDENTITY, apply, multiply, rotationZ, scaling, translation } from "../core/matrix.js";
-import { bulgePoints, flattenSubpath, interpolateFit, neutralSpline, ocsAxes, toOcs, toWcs } from "../formats/cad2d/curves.js";
+import { bulgeArc, bulgePoints, flattenSubpath, interpolateFit, neutralSpline, ocsAxes, toOcs, toWcs } from "../formats/cad2d/curves.js";
 import { acisShape } from "../formats/acis/index.js";
 import { insertMatrices } from "../formats/cad2d/placement.js";
 import { sampleCurve } from "../model/curves.js";
@@ -41,7 +42,7 @@ export function buildScene(drawing, layout, { hidden = new Set(), shown = new Se
   const hiddenKeys = new Set([...hidden].map(nameKey));
   const shownKeys = new Set([...shown].map(nameKey));
 
-  const strokes = new Map(), fills = [], texts = [], points = [], regions = [], images = [], items = [];
+  const strokes = new Map(), fills = [], texts = [], points = [], regions = [], images = [], items = [], snaps = [];
   let seq = 0; // 描く順序（PDF のように順序に意味がある図面では、描く側がこの順に描く）
   const usedLayers = new Map();
   const box = { min: [Infinity, Infinity], max: [-Infinity, -Infinity] };
@@ -117,6 +118,38 @@ export function buildScene(drawing, layout, { hidden = new Set(), shown = new Se
     strokes.get(key).lines.push(extra ? Object.assign(line, extra) : line);
   }
 
+  /** 測るときに吸い付く点を足す（表示の座標。数でない座標の点は足さない: 値の壊れた図形） */
+  const snap = (item, kind, p) => {
+    if (Number.isFinite(p[0]) && Number.isFinite(p[1])) snaps.push({ item: item.index, kind, x: p[0], y: p[1] });
+  };
+  /** 頂点の並び（膨らみつき）の吸い付く点: 頂点（端点）・直線の辺の中点・円弧の辺の中点と中心。at: 図形の座標 → 表示の座標 */
+  function vertexSnaps(item, vertices, bulges, closed, at) {
+    const n = vertices.length;
+    vertices.forEach((v) => snap(item, "end", at(v)));
+    for (let i = 0; i < (closed ? n : n - 1); i++) {
+      const a = vertices[i], b = vertices[(i + 1) % n], z = a[2] ?? 0;
+      const arc = bulgeArc(a, b, bulges?.[i] ?? 0);
+      if (arc) {
+        snap(item, "mid", at([arc.mid[0], arc.mid[1], z]));
+        snap(item, "center", at([arc.center[0], arc.center[1], z]));
+      } else if (a[0] !== b[0] || a[1] !== b[1]) snap(item, "mid", at([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, z]));
+    }
+  }
+  /** 円・円弧の吸い付く点: 中心・四分点（円）・両端と中点（円弧）。角度は OCS */
+  function arcSnaps(item, e, at, full) {
+    const [cx, cy, cz = 0] = e.center;
+    const on = (t) => at([cx + e.radius * Math.cos(t), cy + e.radius * Math.sin(t), cz]);
+    snap(item, "center", at(e.center));
+    if (full) for (let k = 0; k < 4; k++) snap(item, "quad", on((k * Math.PI) / 2));
+    else {
+      let sweep = e.end - e.start;
+      while (sweep <= 0) sweep += TAU;
+      snap(item, "end", on(e.start));
+      snap(item, "end", on(e.start + sweep));
+      snap(item, "mid", on(e.start + sweep / 2));
+    }
+  }
+
   const ring = (pts) => {
     const flat = new Float64Array(pts.length * 2);
     pts.forEach((p, i) => {
@@ -165,6 +198,11 @@ export function buildScene(drawing, layout, { hidden = new Set(), shown = new Se
       const rings = runs.filter((r) => r.length >= 3);
       if (rings.length) fills.push({ z: seq++, item: item.index, color: c, rings: rings.map(ring), rule: e.fill, ...(e.alpha < 1 && { alpha: e.alpha }) });
       return;
+    }
+    for (const sp of e.subpaths) { // 吸い付く点: 区間の端（頂点）と直線の区間の中点
+      const pts = sp.points, curved = new Set((sp.curves ?? []).map((cv) => cv[0]));
+      for (let i = 0; i + 1 < pts.length; i += 2) snap(item, "end", at([pts[i], pts[i + 1], 0]));
+      for (let i = 0; i + 3 < pts.length; i += 2) if (!curved.has(i / 2)) snap(item, "mid", at([(pts[i] + pts[i + 2]) / 2, (pts[i + 1] + pts[i + 3]) / 2, 0]));
     }
     const k = ctx.scale;
     const st = { color: c, lineweight: 0, dashes: e.dashes?.length ? e.dashes.map((d) => d * k) : null };
@@ -447,17 +485,19 @@ export function buildScene(drawing, layout, { hidden = new Set(), shown = new Se
     // ブロック（SXF の部分図・寸法の中身など）の中の図形も、その画層に数える（画層の一覧で表示・非表示を切り替えられるように）。
     // 画層 0 の図形は置く側の画層を引き継ぐので数えない
     if (inBlock && e.layer && e.layer !== "0" && e.type !== "INSERT") usedLayers.set(e.layer, (usedLayers.get(e.layer) ?? 0) + 1);
+    const snapped = snaps.length;
     try {
       drawEntity(e, ctx, item, depth, inBlock);
     } catch {
       broken++;
+      snaps.length = snapped; // 描けなかった図形の吸い付く点は残さない（壊れた円の中心など）
     }
     if (mark) clipSince(mark, clipBox(e.clip, ctx));
   }
 
   // ---- 切り取り（ビューポートの枠・PDF の切り取りの外形）: 印を付けた後に足したものに、枠を付ける -------------------------
   const marks = () => ({ strokes: new Map([...strokes].map(([key, s]) => [key, s.lines.length])), fills: fills.length, texts: texts.length,
-    points: points.length, regions: regions.length, images: images.length });
+    points: points.length, snaps: snaps.length, regions: regions.length, images: images.length });
   const meet = (a, b) => (a ? { min: [Math.max(a.min[0], b.min[0]), Math.max(a.min[1], b.min[1])], max: [Math.min(a.max[0], b.max[0]), Math.min(a.max[1], b.max[1])] } : b);
   function clipSince(mark, clip) {
     const set = (list, from) => {
@@ -467,6 +507,7 @@ export function buildScene(drawing, layout, { hidden = new Set(), shown = new Se
     set(fills, mark.fills);
     set(texts, mark.texts);
     set(points, mark.points);
+    set(snaps, mark.snaps);
     set(regions, mark.regions);
     set(images, mark.images);
   }
@@ -487,23 +528,33 @@ export function buildScene(drawing, layout, { hidden = new Set(), shown = new Se
     switch (e.type) {
       case "PATH": return path(e, layer, ctx, item);
       case "IMAGE": return image(e, ctx, item);
-      case "LINE": return stroke(st(), item, [e.a, e.b].map(place(ctx, null)));
+      case "LINE": {
+        const at = place(ctx, null);
+        snap(item, "end", at(e.a));
+        snap(item, "end", at(e.b));
+        snap(item, "mid", at([0, 1, 2].map((k) => ((e.a[k] ?? 0) + (e.b[k] ?? 0)) / 2)));
+        return stroke(st(), item, [e.a, e.b].map(at));
+      }
       case "POINT": {
         const p = place(ctx, null)(e.p);
         grow(p[0], p[1]);
+        snap(item, "node", p);
         return points.push({ z: seq++, item: item.index, color: color(e.color, layer, ctx), x: p[0], y: p[1] });
       }
-      case "CIRCLE": return stroke(st(), item, arcPoints(e.center, e.radius, 0, TAU).map(place(ctx, axes())));
-      case "ARC": return stroke(st(), item, arcPoints(e.center, e.radius, e.start, e.end).map(place(ctx, axes())));
+      case "CIRCLE": arcSnaps(item, e, place(ctx, axes()), true); return stroke(st(), item, arcPoints(e.center, e.radius, 0, TAU).map(place(ctx, axes())));
+      case "ARC": arcSnaps(item, e, place(ctx, axes()), false); return stroke(st(), item, arcPoints(e.center, e.radius, e.start, e.end).map(place(ctx, axes())));
       case "ELLIPSE": {
         let end = e.end;
         while (end <= e.start) end += TAU;
         const c = { kind: "ellipse", origin: e.center, direction: e.extrusion ?? [0, 0, 1], major: e.major, ratio: e.ratio };
+        snap(item, "center", place(ctx, null)(e.center));
         return stroke(st(), item, sampleCurve(c, e.start, end).map(place(ctx, null)));
       }
       case "LWPOLYLINE": {
         if (!e.points?.length) return;
-        const pts = bulged(e.points.map((p) => [p[0], p[1], e.elevation ?? 0]), e.bulges ?? [], e.closed, e.elevation ?? 0);
+        const vertices = e.points.map((p) => [p[0], p[1], e.elevation ?? 0]);
+        vertexSnaps(item, vertices, e.bulges, e.closed, place(ctx, axes()));
+        const pts = bulged(vertices, e.bulges ?? [], e.closed, e.elevation ?? 0);
         const width = (e.constWidth || Math.max(0, ...(e.widths ?? []).flat())) * ctx.scale;
         return stroke(st(), item, pts.map(place(ctx, axes())), width);
       }
@@ -552,8 +603,14 @@ export function buildScene(drawing, layout, { hidden = new Set(), shown = new Se
   function polyline(e, st, ctx, item) {
     const v = e.vertices ?? [];
     if (!v.length) return;
-    if (e.kind === "2d") return stroke(st, item, bulged(v.map((x) => x.p), v.map((x) => x.bulge), e.closed, e.elevation).map(place(ctx, ocsAxes(e.extrusion))));
-    if (e.kind === "3d") return stroke(st, item, [...v, ...(e.closed ? [v[0]] : [])].map((x) => x.p).map(place(ctx, null)));
+    if (e.kind === "2d") {
+      vertexSnaps(item, v.map((x) => x.p), v.map((x) => x.bulge), e.closed, place(ctx, ocsAxes(e.extrusion)));
+      return stroke(st, item, bulged(v.map((x) => x.p), v.map((x) => x.bulge), e.closed, e.elevation).map(place(ctx, ocsAxes(e.extrusion))));
+    }
+    if (e.kind === "3d") {
+      vertexSnaps(item, v.map((x) => x.p), null, e.closed, place(ctx, null));
+      return stroke(st, item, [...v, ...(e.closed ? [v[0]] : [])].map((x) => x.p).map(place(ctx, null)));
+    }
     const toWorld = place(ctx, null);
     if (e.kind === "mesh" && e.m > 0 && e.n > 0) {
       const at = (i, j) => v[i * e.n + j]?.p;
@@ -621,7 +678,7 @@ export function buildScene(drawing, layout, { hidden = new Set(), shown = new Se
   }
 
   const extents = box.min[0] <= box.max[0] ? box : null;
-  return { strokes: [...strokes.values()], fills, texts, points, regions, images, items, extents, layers: usedLayers, broken,
+  return { strokes: [...strokes.values()], fills, texts, points, snaps, regions, images, items, extents, layers: usedLayers, broken,
     unsupported: top?.unsupported ?? drawing.unsupported, ordered: Boolean(drawing.ordered), exact: Boolean(drawing.exactColors), paper };
 }
 

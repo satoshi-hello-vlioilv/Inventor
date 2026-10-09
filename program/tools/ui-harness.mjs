@@ -114,6 +114,62 @@ async function hoverDrawing(page) {
   }
 }
 
+/**
+ * 図面の座標 → 画面の位置を求める（測っている間に使う）。カーソルを粗い格子で動かし、読み出し（指した点の種類と図面の座標）の組から
+ * 画面 = 図面 × k ＋ 位置（y は上下が逆）を最小二乗で求める（吸い付く範囲 12 px の誤差は平均で薄まる）
+ */
+async function drawingMap(page) {
+  const box = await page.locator("#view2d").boundingBox();
+  const pairs = [];
+  for (let fy = 0.25; fy <= 0.75; fy += 0.1) {
+    for (let fx = 0.15; fx <= 0.85; fx += 0.05) {
+      const at = [box.x + box.width * fx, box.y + box.height * fy], w = await snapReadout(page, at);
+      if (w) pairs.push([at, w]);
+    }
+  }
+  if (pairs.length < 2) throw new Error("図面の上で読み出しが出ない");
+  const mean = (f) => pairs.reduce((s, p) => s + f(p), 0) / pairs.length;
+  const [sx, sy, wx, wy] = [mean((p) => p[0][0]), mean((p) => p[0][1]), mean((p) => p[1].x), mean((p) => p[1].y)];
+  const k = mean((p) => (p[0][0] - sx) * (p[1].x - wx) - (p[0][1] - sy) * (p[1].y - wy)) / mean((p) => (p[1].x - wx) ** 2 + (p[1].y - wy) ** 2);
+  return (x, y) => [sx + (x - wx) * k, sy - (y - wy) * k];
+}
+
+/** カーソルを動かし、測っている間の読み出し「種類 · x, y」を読む */
+async function snapReadout(page, at) {
+  await page.mouse.move(...at);
+  await sleep(25);
+  const m = (await page.locator("#readout .chip").textContent()).match(/^(\S+) · (-?[\d.]+), (-?[\d.]+)/);
+  return m && { kind: m[1], x: Number(m[2]), y: Number(m[3]) };
+}
+
+/** 測っている間に、図面の座標 (x, y) の吸い付く点（種類 kind）を押す。見込みの位置から近い順に 3 px おきに探す */
+async function clickSnap(page, map, kind, x, y) {
+  const guess = map(x, y), same = (a, b) => Math.abs(a - b) < 5e-4;
+  for (let r = 0; r <= 24; r += 3) {
+    for (let dy = -r; dy <= r; dy += 3) {
+      for (let dx = -r; dx <= r; dx += 3) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue; // 内側の環から
+        const at = [guess[0] + dx, guess[1] + dy], w = await snapReadout(page, at);
+        if (w?.kind === kind && same(w.x, x) && same(w.y, y)) return page.mouse.click(...at);
+      }
+    }
+  }
+  throw new Error(`${kind} (${x}, ${y}) が見つからない`);
+}
+
+/** 選ぶ・測る（見本の図面）: 外形の円弧を押して選び、測る（M）で円の中心から P.C.D. の穴の中心まで（20 mm・45°）を測る */
+async function measureDrawing(page) {
+  await page.keyboard.press("m");
+  const map = await drawingMap(page);
+  await page.keyboard.press("m");
+  const t = (250 * Math.PI) / 180; // 外形の円弧（中心 140, 0・半径 27.25）の上で、ほかの線から離れた所
+  await page.mouse.click(...map(140 + 27.25 * Math.cos(t), 27.25 * Math.sin(t)));
+  await page.keyboard.press("m");
+  await clickSnap(page, map, "中心", 140, 0);
+  await clickSnap(page, map, "中心", 154.142, 14.142);
+  await sleep(300);
+}
+
 /** 「Inventor で作る」を押し、仕事が始まる（中止のボタンが出る）まで待つ（その前に段階を進めると、進める先が無い） */
 async function startJob(page) {
   await page.click("#build");
@@ -131,6 +187,8 @@ export const STATES = [
   ["nested", async (p) => { await openSample(p, "Assembly_XY2.stp"); }, "[data-next]"],
   // 図面（2D）。図形にカーソルを合わせた様子（読み出し・強調）も撮る: 図面の上を格子状に動かし、読み出しが出た所で止める
   ["drawing", async (p) => { await openSample(p, DRAWING); await hoverDrawing(p); }, "[data-next], #open"],
+  // 選ぶ・測る: 外形の円弧を押して選び、測る（M）で円の中心どうしを測る（結果と選んだ図形は欄のカード、案内は図の上の帯）
+  ["measure", measureDrawing, "#measure-stop"],
   ["layout", async (p) => { await p.click("#layout-tabs button:nth-child(2)"); await sleep(600); await hoverDrawing(p); }, "[data-next], #open"],
   // PDF: ページの多い図面（ページ送り）・3D を含む PDF（主役の場所のタブ: 3D → 図面）
   ["pages", async (p) => { await openFile(p, await manyPages()); }, "[data-next], #open"],

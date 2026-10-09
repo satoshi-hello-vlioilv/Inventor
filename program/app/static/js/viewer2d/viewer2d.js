@@ -5,15 +5,20 @@
 //   --sheet          … 図面の地の色
 //   --sheet-ink      … 色番号 7（前景色）。地が暗ければ白、明るければ黒
 //   --sheet-contrast … 地に対するコントラスト比の下限（例 3）。届かない図面の色を前景の側へ寄せる（0 か無しなら図面の色のまま）
-//   --accent         … 指した図形の強調
+//   --accent         … 指した図形・選んだ図形の強調、測った線と札（--accent-ink は札の文字）
+//   --caution-ink    … 吸い付く点の印
+// 図の上の印（setOverlay）: 測った線・点・吸い付く点の印・札を、図面の座標で渡し、画面の大きさ（px）で描く（拡大しても太さが変わらない）。
 
 import { readable } from "./colors.js";
 import { HitIndex, textOutline } from "./hit.js";
+import { SnapIndex } from "./snap.js";
 
 const ZOOM_STEP = 1.0015; // ホイール 1 単位あたりの拡大率
 const MIN_DASH_PX = 3; // 破線の 1 周期が画面でこれより短ければ、実線で描く
 const MIN_TEXT_PX = 1.5; // 文字の高さが画面でこれより小さければ描かない
 const HIT_PX = 6; // 指した点からこの距離（画面の px）までの図形を拾う
+const SNAP_PX = 12; // 吸い付く点を探す距離（画面の px）
+const CLICK_PX = 4; // 押してから離すまでにこれ以上動いたら、押したのではなくドラッグ（移動）
 const FIT_MARGIN = 0.06;
 const CAP_HEIGHT = 0.72; // フォントの大きさ（em）に対する大文字の高さ（図面の文字の高さ = 大文字の高さ）
 const DESCENT = 0.25; // TEXT の「下」揃え: 基線から下の部分（大文字の高さに対する比）
@@ -29,14 +34,19 @@ const PREPARED = new WeakMap(); // 画像 → 描ける形（Canvas・ImageBitma
 export class DrawingViewer {
   /**
    * @param {{ stage: HTMLElement, canvas: HTMLCanvasElement }} elements
-   * @param {{ onHover?: (item: number | null) => void, insets?: () => { top, right, bottom, left } }} [callbacks]
+   * @param {{ onHover?: (item: number | null, at?: { px, py, x, y }) => void, onClick?: (hit: { px, py, x, y, item }) => void,
+   *   insets?: () => { top, right, bottom, left } }} [callbacks]
+   *   onHover … 指した図形と、指した所（画面の px・図面の座標）。onClick … ドラッグせずに押して離した所と、そこの図形
    *   insets … 図面の上に重ねた帯（ツールバー・読み出し）が覆う幅（px）。全体表示はその内側に収める
    */
-  constructor({ stage, canvas }, { onHover, insets } = {}) {
+  constructor({ stage, canvas }, { onHover, onClick, insets } = {}) {
     this.stage = stage;
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
     this.onHover = onHover ?? (() => {});
+    this.onClick = onClick ?? (() => {});
+    this.selected = null; // 選んだ図形（強調が残る）
+    this.overlay = null; // 図の上の印（setOverlay）
     this.insets = insets ?? (() => ({ top: 0, right: 0, bottom: 0, left: 0 }));
     this.scene = null;
     this.view = { scale: 1, x: 0, y: 0 }; // 画面の px = (world - origin) × scale + (x, y)。y は上向き
@@ -56,7 +66,10 @@ export class DrawingViewer {
     this.origin = ext ? [(ext.min[0] + ext.max[0]) / 2, (ext.min[1] + ext.max[1]) / 2] : [0, 0];
     this.#build();
     this.index = new HitIndex(scene);
+    this.snapper = new SnapIndex(scene, this.index);
     this.highlighted = null;
+    this.selected = null;
+    this.overlay = null;
     this.highlightKey = "";
     if (fit) this.fit();
     else this.requestRender();
@@ -102,6 +115,27 @@ export class DrawingViewer {
     this.highlightKey = key;
     this.highlighted = list.length ? list : null;
     this.requestRender();
+  }
+
+  /** 選んだ図形（items の番号の並び。null か空で外す）。カーソルの強調と別に残る */
+  select(items) {
+    this.selected = items?.length ? items : null;
+    this.requestRender();
+  }
+
+  /**
+   * 図の上の印（null で消す）。座標は図面の座標
+   * @param {{ lines?: { a, b, dashed? }[], points?: [x, y][], snap?: { x, y, kind, label }, tags?: { x, y, text }[] } | null} overlay
+   */
+  setOverlay(overlay) {
+    this.overlay = overlay;
+    this.requestRender();
+  }
+
+  /** 画面の点の近くの吸い付く点（viewer2d/snap.js）。無ければ null */
+  snapAt(px, py) {
+    if (!this.snapper) return null;
+    return this.snapper.find(...this.toWorld(px, py), SNAP_PX / this.view.scale);
   }
 
   /** 図面の色 → 地に合わせて描く色（画層の欄の見本を、図面と同じ色にするため） */
@@ -344,7 +378,9 @@ export class DrawingViewer {
       });
     }
     ctx.setLineDash([]);
-    if (this.highlighted !== null) this.#drawHighlight(dpr, px);
+    if (this.selected) this.#drawHighlight(dpr, px, this.selected);
+    if (this.highlighted !== null) this.#drawHighlight(dpr, px, this.highlighted);
+    if (this.overlay) this.#drawOverlay(dpr);
   }
 
   /** 画像: 単位の正方形 → 図面 の行列で、画素の行 0（上）が正方形の上辺に来るように描く */
@@ -432,10 +468,10 @@ export class DrawingViewer {
     lines.forEach((line, i) => ctx.fillText(line, 0, -(first - lineHeight * i)));
   }
 
-  #drawHighlight(dpr, px) {
+  #drawHighlight(dpr, px, items) {
     const { ctx } = this;
     const accent = this.#token("--accent") || "#1a62c4";
-    const entries = this.highlighted.flatMap((item) => this.byItem.get(item) ?? []);
+    const entries = items.flatMap((item) => this.byItem.get(item) ?? []);
     ctx.strokeStyle = ctx.fillStyle = accent;
     for (const e of entries) {
       const { scale, x, y } = this.view;
@@ -458,6 +494,69 @@ export class DrawingViewer {
       } else if (e.kind === "point") {
         ctx.fillRect(e.point.x - this.origin[0] - 3 * px, e.point.y - this.origin[1] - 3 * px, 6 * px, 6 * px);
       }
+    }
+  }
+
+  /** 図面の座標 → 画面の px */
+  toScreen(x, y) {
+    const v = this.view;
+    return [(x - this.origin[0]) * v.scale + v.x, -(y - this.origin[1]) * v.scale + v.y];
+  }
+
+  /** 図の上の印（画面の px で描く） */
+  #drawOverlay(dpr) {
+    const { ctx, overlay: o } = this;
+    const accent = this.#token("--accent") || "#1a62c4";
+    const ink = this.#token("--accent-ink") || "#fff";
+    const surface = this.#token("--surface") || "#fff";
+    const caution = this.#token("--caution-ink") || "#8a5a12";
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.lineJoin = ctx.lineCap = "round";
+    for (const { a, b, dashed } of o.lines ?? []) {
+      const [x0, y0] = this.toScreen(...a), [x1, y1] = this.toScreen(...b);
+      ctx.strokeStyle = accent;
+      ctx.lineWidth = 2;
+      ctx.setLineDash(dashed ? [6, 4] : []);
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.lineTo(x1, y1);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    for (const p of o.points ?? []) {
+      const [x, y] = this.toScreen(...p);
+      ctx.fillStyle = surface;
+      ctx.strokeStyle = accent;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(x, y, 4, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.stroke();
+    }
+    if (o.snap) {
+      const [x, y] = this.toScreen(o.snap.x, o.snap.y);
+      ctx.strokeStyle = ctx.fillStyle = caution;
+      ctx.lineWidth = 2;
+      snapMark(ctx, o.snap.kind, x, y, 7);
+      if (o.snap.label) {
+        ctx.font = `600 12px ${this.#token("--font-ui") || "sans-serif"}`;
+        ctx.textBaseline = "bottom";
+        ctx.textAlign = "left";
+        ctx.fillText(o.snap.label, x + 10, y - 8);
+      }
+    }
+    ctx.font = `600 13px ${this.#token("--font-num") || "monospace"}`;
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "left";
+    for (const t of o.tags ?? []) {
+      const [x, y] = this.toScreen(t.x, t.y);
+      const w = ctx.measureText(t.text).width + 16;
+      ctx.fillStyle = accent;
+      ctx.beginPath();
+      ctx.roundRect(x + 10, y - 11, w, 22, 6);
+      ctx.fill();
+      ctx.fillStyle = ink;
+      ctx.fillText(t.text, x + 18, y);
     }
   }
 
@@ -492,11 +591,16 @@ export class DrawingViewer {
     }, { passive: false });
     canvas.addEventListener("pointerdown", (event) => {
       if (event.button !== 0 && event.button !== 1 && event.button !== 2) return;
-      drag = { at: local(event), view: { ...this.view } };
+      drag = { at: local(event), view: { ...this.view }, button: event.button, moved: false };
       canvas.setPointerCapture(event.pointerId);
       canvas.classList.add("is-panning");
     });
     canvas.addEventListener("pointerup", (event) => {
+      // ドラッグせずに押して離したら「押した」（左ボタンだけ）
+      if (drag && !drag.moved && drag.button === 0 && this.index) {
+        const [px, py] = local(event), [x, y] = this.toWorld(px, py);
+        this.onClick({ px, py, x, y, item: this.index.find(x, y, HIT_PX / this.view.scale) });
+      }
       drag = null;
       canvas.releasePointerCapture?.(event.pointerId);
       canvas.classList.remove("is-panning");
@@ -506,6 +610,8 @@ export class DrawingViewer {
     canvas.addEventListener("pointermove", (event) => {
       const p = local(event);
       if (drag) {
+        if (!drag.moved && Math.hypot(p[0] - drag.at[0], p[1] - drag.at[1]) < CLICK_PX) return;
+        drag.moved = true;
         this.view.x = drag.view.x + p[0] - drag.at[0];
         this.view.y = drag.view.y + p[1] - drag.at[1];
         this.requestRender();
@@ -518,7 +624,7 @@ export class DrawingViewer {
         pending = false;
         if (!this.index || !last) return;
         const [wx, wy] = this.toWorld(...last);
-        this.onHover(this.index.find(wx, wy, HIT_PX / this.view.scale));
+        this.onHover(this.index.find(wx, wy, HIT_PX / this.view.scale), { px: last[0], py: last[1], x: wx, y: wy });
       });
     });
     canvas.addEventListener("pointerleave", () => {
@@ -526,6 +632,42 @@ export class DrawingViewer {
       this.onHover(null);
     });
   }
+}
+
+/** 吸い付く点の印（端点 □・中点 △・中心 ○・四分点 ◇・交点 ×・点 ◎・線上 ⧖） */
+function snapMark(ctx, kind, x, y, r) {
+  ctx.beginPath();
+  if (kind === "end") ctx.rect(x - r, y - r, 2 * r, 2 * r);
+  else if (kind === "mid") {
+    ctx.moveTo(x, y - r);
+    ctx.lineTo(x + r, y + r * 0.8);
+    ctx.lineTo(x - r, y + r * 0.8);
+    ctx.closePath();
+  } else if (kind === "quad") {
+    ctx.moveTo(x, y - r);
+    ctx.lineTo(x + r, y);
+    ctx.lineTo(x, y + r);
+    ctx.lineTo(x - r, y);
+    ctx.closePath();
+  } else if (kind === "int") {
+    ctx.moveTo(x - r, y - r);
+    ctx.lineTo(x + r, y + r);
+    ctx.moveTo(x + r, y - r);
+    ctx.lineTo(x - r, y + r);
+  } else if (kind === "near") {
+    ctx.moveTo(x - r, y - r);
+    ctx.lineTo(x + r, y - r);
+    ctx.lineTo(x - r, y + r);
+    ctx.lineTo(x + r, y + r);
+    ctx.closePath();
+  } else {
+    ctx.arc(x, y, r, 0, 2 * Math.PI);
+    if (kind === "node") {
+      ctx.moveTo(x + r / 2, y);
+      ctx.arc(x, y, r / 2, 0, 2 * Math.PI);
+    }
+  }
+  ctx.stroke();
 }
 
 /** MTEXT の折り返し（幅 width を越える行を、語か文字の切れ目で折る） */
