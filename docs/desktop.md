@@ -36,6 +36,7 @@ flowchart LR
 | `desktop/src/router.rs` | 問い合わせの振り分け: 画面（`program/app/index.html` に起動ごとの合言葉を埋める）・`/static`・`/samples`・`/api/…` |
 | `desktop/src/jobs.rs` | 「STEP を作る」「Inventor で作る」の仕事（前の `app/builds.py` を移したもの。§4） |
 | `desktop/src/received.rs` | 起動で受け取ったファイル（引数・2 つめの起動）を預かり、画面へ番号で渡す。組立（.iam）と同じフォルダの部品（.ipt）も添える |
+| `desktop/src/save.rs` | 画面で作ったファイル（直した図面・変換データ）を、保存の窓（`main.rs` の `/__desktop/save-file`）で選んだ場所へ書く。中身は base64 で受け、隣に書いてから名前を変える（半端なファイルを残さない） |
 | `desktop/src/proc.rs` | 子のプロセスを窓なしで起こし、止めるときは孫まで止める（Windows はジョブオブジェクト） |
 | `desktop/src/locate.rs` | 置き場: `program` フォルダ（exe から上へたどる）・作業場所（`%LOCALAPPDATA%\Inventor3DTool`）・Python（WaveLog と同じ探し方） |
 | `desktop/src/system.rs` | 保存先（`program\config\appsettings.json` の `build.output_dir`、空ならドキュメント\Inventor 3Dツール）・Inventor が入っているか（レジストリ） |

@@ -13,6 +13,7 @@
     POST /__dev/env?ready=0&inventor=0&python=0   ライブラリ・Inventor・Python があるかを変える
     POST /__dev/mix?mismatch=4,11&failed=19       次に作る仕事で、その番目（1 から）の部品を不一致・失敗にする（無しで全て一致）
     POST /__dev/shortcut?desktop=missing&start=ok  ショートカットの状態を変える（ok・missing・other。窓の shortcut.rs と同じ形で答える）
+    GET  /__dev/saved           保存の窓で「保存した」ファイル（名前・種類・中身の base64。窓の save.rs の代わりに覚えたもの）
     POST /__dev/update?role=developer&reachable=1&news=1  版の管理の役割（developer・maintainer・user・unset）・置き場に届くか・
                                                   そろえた後の「変わったこと」を見せるかを変える（update.rs と同じ形）
 """
@@ -114,6 +115,7 @@ ENV = {"ready": True, "inventor": True, "python": True}
 LAUNCH: list[Path] = []
 GIVEN: dict[str, Path] = {}
 PENDING: list[Path] = []
+SAVED: list[dict] = []  # 保存の窓で「保存した」ファイル（/__desktop/save-file の模擬）
 UPDATE = {"role": "developer", "reachable": True, "local": "2.1.0", "release": "2.1.0", "previous": "2.0.3", "keep": 5,
           "versions": [("2.1.0", "2026-10-08T09:12:00Z", "sato@PC-SHIAGE01", "Inventor-main.zip", 812, 41_532_118),
                        ("2.0.3", "2026-10-01T16:40:00Z", "sato@PC-SHIAGE01", "Inventor-main (3).zip", 790, 40_118_207),
@@ -220,6 +222,12 @@ class Handler(BaseHTTPRequestHandler):
             return self.file(SAMPLES, path[len("/samples/"):])
         if path == "/__desktop/pick-zip":
             return self.json({"path": "C:\\Users\\sato\\Downloads\\Inventor-main.zip"})
+        if path == "/__desktop/save-file":  # 保存の窓で選んだことにする（書かずに覚える。/__dev/saved で読める）
+            asked = json.loads(body or b"{}")
+            SAVED.append({"name": asked.get("name"), "filter": asked.get("filter"), "data": asked.get("data")})
+            return self.json({"path": "C:\\Users\\sato\\Documents\\" + str(asked.get("name"))})
+        if path == "/__dev/saved":
+            return self.json({"saved": SAVED})
         if path.startswith("/__dev/"):
             if path == "/__dev/freeze":
                 BUILD.frozen = True

@@ -17,6 +17,7 @@ mod locate;
 mod proc;
 mod received;
 mod router;
+mod save;
 mod settings;
 mod shortcut;
 mod system;
@@ -109,6 +110,36 @@ fn native(app: Arc<OnceLock<AppHandle>>, info: Value) -> Native {
                 });
                 let path = picked.and_then(|p| p.into_path().ok()).map(|p| p.display().to_string());
                 Some(Reply::json(200, &json!({"path": path})))
+            }
+            // 画面で作ったファイル（直した図面・変換データ）を、保存の窓で選んだ場所へ書く（save.rs）。選ばなければ path: null
+            ("POST", "/__desktop/save-file") => {
+                use tauri_plugin_dialog::DialogExt;
+                let asked = match save::parse_request(&body) {
+                    Ok(asked) => asked,
+                    Err(why) => return Some(Reply::error(400, &why)),
+                };
+                let picked = app.get().and_then(|a| {
+                    let (label, extensions) = &asked.filter;
+                    let extensions: Vec<&str> = extensions.iter().map(String::as_str).collect();
+                    let mut d = a.dialog().file().set_title(&asked.title).set_file_name(&asked.name);
+                    if !extensions.is_empty() {
+                        d = d.add_filter(label, &extensions);
+                    }
+                    if let Some(w) = a.get_webview_window("main") {
+                        d = d.set_parent(&w);
+                    }
+                    d.blocking_save_file()
+                });
+                let Some(path) = picked.and_then(|p| p.into_path().ok()) else {
+                    return Some(Reply::json(200, &json!({"path": null})));
+                };
+                Some(match save::write(&path, &asked.data) {
+                    Ok(()) => {
+                        log(&format!("SAVE {}", path.display()));
+                        Reply::json(200, &json!({"path": path.display().to_string()}))
+                    }
+                    Err(why) => Reply::error(500, &why),
+                })
             }
             ("POST", "/__desktop/selftest/result") => {
                 if let Some(app) = app.get() {

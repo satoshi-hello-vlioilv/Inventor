@@ -88,5 +88,24 @@ export const updateStatus = async () => (await request("/api/update")).json();
 export const updateProgress = async () => (await request("/api/update/progress")).json();
 /** 版を置く ZIP を窓のファイルを選ぶ窓で選ぶ（選ばなければ null） */
 export const pickZip = async () => (await post("/__desktop/pick-zip")).path ?? null;
+// ---- 保存（desktop/src/save.rs）: 画面で作ったファイルを、窓の保存の窓で選んだ場所へ書く ----
+
+/** バイト列 → base64（大きな図面でも引数の数の上限を超えないよう、区切って変える） */
+function base64(bytes) {
+  let text = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(text);
+}
+
+/**
+ * 保存の窓を開いて書く。中身は文字列（UTF-8 で書く）かバイト列（Shift_JIS などは呼ぶ側で符号化する）。
+ * @param {{ name: string, title?: string, filter?: { label: string, extensions: string[] }, content: string | Uint8Array }} file
+ * @returns {Promise<string | null>} 保存した場所（窓を閉じて選ばなければ null）
+ */
+export async function saveFile({ name, title, filter, content }) {
+  const bytes = typeof content === "string" ? new TextEncoder().encode(content) : content;
+  return (await post("/__desktop/save-file", { name, title, filter, data: base64(bytes) })).path ?? null;
+}
+
 /** 版の管理の操作: publish {path}・release {version}・delete {version}・policy {keep}・roles {developers, maintainers}・settings {dir} */
 export const updateOp = (op, body) => post(`/api/update/${op}`, body);
