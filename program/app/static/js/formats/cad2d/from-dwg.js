@@ -4,7 +4,7 @@
 
 import { readDwgObjects, VERSION_NAME } from "../dwg/index.js";
 import { completeSpline } from "./curves.js";
-import { cadText, createDrawing, normalizeLayouts } from "./model.js";
+import { cadText, createDrawing, normalizeLayouts, unitsOf } from "./model.js";
 
 const VERTEX = /^VERTEX_/;
 // 図面のモデルに入れる図形の種類（DWG の種類 → モデルの種類）。ここに無い図形は「読まない図形」として数える
@@ -23,8 +23,14 @@ const DIMENSION_KIND = { DIMENSION_ORDINATE: "ordinate", DIMENSION_LINEAR: "line
 
 /** DWG のバイト列 → 図面のモデル */
 export function drawingFromDwg(bytes) {
-  const { version, codepage, objects, failures } = readDwgObjects(bytes);
+  const { version, codepage, header, headerError, objects, failures } = readDwgObjects(bytes);
   const drawing = createDrawing({ format: "dwg", version: VERSION_NAME[version] ?? String(version), codepage });
+  // 見出しの変数（DXF の $LTSCALE・$INSUNITS と同じ）。読めなければ既定（尺度 1・単位なし）のまま、見出しバーで知らせる
+  drawing.headerError = headerError;
+  if (header) {
+    drawing.units = unitsOf(header.insunits ?? 0);
+    drawing.ltscale = header.ltscale > 0 ? header.ltscale : 1;
+  }
   // ブロックの名前: DWG の無名のブロック（*D・*T・*Paper_Space など）は番号の無い同じ名前で入っているので、番号を付けて分ける
   // （DXF に書き出すと AutoCAD が付けるのと同じ考え方。参照はハンドルなので、番号の付け方は表示のためだけ）
   const headers = [...objects.values()].filter((o) => o.kind === "BLOCK_HEADER").sort((a, b) => a.handle - b.handle);

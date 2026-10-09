@@ -1,9 +1,11 @@
 // DWG（AutoCAD の図面）を読む。Inventor・AutoCAD が無くても、このアプリの中だけで読む（仕様: Open Design Specification for .dwg files）。
-//   readDwgObjects(bytes) → { version, codepage, objects: Map<ハンドル, オブジェクト>, failures: [{ handle, kind, message }] }
+//   readDwgObjects(bytes) → { version, codepage, header, headerError, objects: Map<ハンドル, オブジェクト>, failures: [{ handle, kind, message }] }
+//   header … 見出しの変数（header.js: 線種の尺度・単位）。読めなければ null で、わけを headerError に（図形は読む）
 // 図面のモデル（画層・ブロック・レイアウト・図形）への組み立ては ../cad2d/（DXF と共通）。
 
 import { DwgError, latin1 } from "./bits.js";
 import { readDwgFile, VERSION_NAME } from "./file.js";
+import { readHeader } from "./header.js";
 import { readObject } from "./objects.js";
 import { readClasses, readObjectMap } from "./sections.js";
 
@@ -49,5 +51,11 @@ export function readDwgObjects(bytes) {
       failures.push({ handle, kind: error.kind ?? null, message: error.message });
     }
   }
-  return { version: file.version, codepage: file.codepage, classes: ctx.classes, objects, failures };
+  let header = null, headerError = null;
+  try {
+    header = readHeader(file.section("AcDb:Header"), { version: file.version, maintenance: file.maintenance });
+  } catch (error) {
+    headerError = error.message;
+  }
+  return { version: file.version, codepage: file.codepage, classes: ctx.classes, header, headerError, objects, failures };
 }

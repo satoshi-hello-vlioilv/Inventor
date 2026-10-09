@@ -1,7 +1,7 @@
 // 2 次元の図面のモデル（DWG・DXF・PDF・Jw_cad で共通。表示は viewer2d/ が受け持つ）。
 //
 // 図面: { format: "dwg"|"dxf"|"pdf"|"jww", version, codepage, units: { code, name }, ltscale, layers, linetypes, styles, blocks, layouts, unsupported, failures }
-//   ltscale   … 線種の尺度（$LTSCALE。DWG はまだ見出しの変数を読まないので 1）
+//   ltscale   … 線種の尺度（$LTSCALE。DWG で見出しの変数を読めなければ 1 で、わけを headerError に）
 //   layers    … Map<名前, { name, color: { index, rgb? }, off, frozen, locked, plot, linetype, lineweight, scale? }>
 //               scale … 画層の縮尺（実寸 = 図面の長さ × scale。Jw_cad の画層グループの縮尺 1/scale。無ければ 1）
 //   linetypes … Map<名前, { name, description, dashes: [長さ（正 = 線・負 = すき間・0 = 点）] }>

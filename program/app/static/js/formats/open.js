@@ -109,8 +109,9 @@ function readDrawingModel(bytes, name) {
   const meta = [`${drawing.format.toUpperCase()} ${drawing.version}`, where, scales.length && `縮尺 ${scales.map((k) => scaleText(1 / k)).join("・")}`,
     drawing.models3d?.length && "3D あり"].filter(Boolean).join(" · ");
   const failed = drawing.failures.length;
-  const warning = failed ? `読めなかったオブジェクトが ${failed} 個あります。読めたものは表示しています。`
-    : drawing.repaired ? "PDF の構造（相互参照）が壊れていたので、ファイルを走査して読み直しました。" : null;
+  const warning = [failed && `読めなかったオブジェクトが ${failed} 個あります。読めたものは表示しています。`,
+    drawing.headerError && "見出しの変数（線種の尺度・単位）を読めなかったので、線種の尺度 1・単位なしとして描いています。",
+    drawing.repaired && "PDF の構造（相互参照）が壊れていたので、ファイルを走査して読み直しました。"].filter(Boolean).join(" ") || null;
   return { kind: "drawing", format: drawing.format, name, drawing, meta, warning };
 }
 

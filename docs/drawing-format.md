@@ -10,7 +10,7 @@ PDF は 6 章、PDF の 3D は 7 章、Jw_cad は 8 章、SXF は 9 章。
 
 | 場所 | 役割 |
 |---|---|
-| `formats/dwg/` | DWG のビット列（`bits.js`）・ファイルの節（`file.js`: R13〜R2000 の節の地図、R2004 以降の暗号化した見出し・ページの地図・LZ77 の圧縮）・クラスとオブジェクトの地図（`sections.js`）・オブジェクト（`objects.js`: 図形 30 種類ほどと、画層・線種・文字スタイル・ブロック・レイアウト）。R2007 は `rs2007.js`（まだ） |
+| `formats/dwg/` | DWG のビット列（`bits.js`）・ファイルの節（`file.js`: R13〜R2000 の節の地図、R2004 以降の暗号化した見出し・ページの地図・LZ77 の圧縮）・見出しの変数（`header.js`: 線種の尺度・単位など）・クラスとオブジェクトの地図（`sections.js`）・オブジェクト（`objects.js`: 図形 30 種類ほどと、画層・線種・文字スタイル・ブロック・レイアウト）。R2007 は `rs2007.js`（まだ） |
 | `formats/cad2d/` | DWG と DXF で共通の **図面のモデル**（`model.js`）。DXF の読み取り（`from-dxf.js`: ASCII・バイナリ）、DWG のオブジェクトの組み立て（`from-dwg.js`）、図面に固有の曲線（`curves.js`: 通過点のスプライン・膨らみ・OCS）、入口（`index.js`） |
 | `viewer2d/` | 描くもの（`scene.js`: ブロックの入れ子・画層ごと／ブロックごとの色・線種・線の太さ・ハッチングの模様・ビューポート）、Canvas への描画（`viewer2d.js`）、指した図形の索引（`hit.js`）、説明（`describe.js`）、文字の書式（`text.js`）、色番号（`colors.js`） |
 | `formats/pdf/` | PDF の字句と値（`objects.js`）・ストリームの符号化（`filters.js`）・ファイルの構造（`file.js`: 相互参照・オブジェクトのストリーム・壊れた相互参照の読み直し・ページの木・画層）・書体と文字の対応（`fonts.js`）・色（`colorspace.js`）・ページの中身の実行（`content.js`）・画像（`images.js`）・注記の見た目（`annotations.js`）・3D の取り出し（`three-d.js`）。図面のモデルにするのは `cad2d/from-pdf.js` |
@@ -70,9 +70,18 @@ R2007 以降は UTF-16。どちらも `\U+XXXX`・`\M+NXXXX`（文字の逃が�
    - **R2018 の複数行の属性**: DXF の属性の後ろに、埋め込みの MTEXT の値（`101 Embedded Object` から）が同じグループコードで続く。
      属性の幅の係数・揃え・反転の値と取り違えていた
    - 描けない値の図形（大きさが数でない円など）が 1 つあると、表示全体が止まった。その図形だけ飛ばし、右の欄に数を出す
-6. **試験**（`program/tests/js/drawing.test.mjs`）: 同梱のサンプルの図面を、ASCII（UTF-8・Shift_JIS）・バイナリの DXF と、
+6. **見出しの変数**（`formats/dwg/header.js`。`$LTSCALE`・`$INSUNITS` など）: 変数は決まった順に詰めて並び（版ごとに有る・無いが変わる）、
+   欲しい `$INSUNITS` は先頭から 289 番目なので、その前を全て型どおりに読み飛ばす。並びは仕様書の表を ACadSharp（MIT）の読みと突き合わせて作り、
+   5 の見本の **R2000・R2004・R2010・R2013・R2018 の見出しの節を読んだ値を、同じ図面の DXF の 12 個の変数と比べた。全て一致**
+   （範囲 `$EXTMIN`・`$EXTMAX`、日時 `$TDUCREATE`・`$TDUUPDATE`・`$TDINDWG` のような既定でない値を含むので、並びが 1 つずれれば合わない。
+   試験では HANDSEED を 1 つ抜くと落ちることを確かめた）。R14 は対の DXF が無いので、範囲・文字の高さが R2000 以降と同じ値になることだけを確かめた。
+   - DWG の日時は**世界時**で、DXF の `$TDCREATE`（地方時）ではなく `$TDUCREATE` と一致する（見本では 1 時間違う）。最初は値の大きさに比べた
+     幅（1e-6 の比）で比べて「一致」としていたが、ユリウス日（約 246 万）では 2 日を超えるずれまで通る幅だった。ミリ秒で比べ直して分かった
+   - 限界: 隣り合う同じ型の変数が同じ値のとき（見本の `$TDINDWG` と `$TDUSRTIMER`）は、入れ替わっていても値では見分けられない
+   - 読めなければ、図形は描き、線種の尺度 1・単位なしとして描いて、見出しバーで知らせる（図形の失敗とは数えない）
+7. **試験**（`program/tests/js/drawing.test.mjs`・`dwg-header.test.mjs`）: 同梱のサンプルの図面を、ASCII（UTF-8・Shift_JIS）・バイナリの DXF と、
    DWG（R2000・R2004。LibreDWG の `dxf2dwg` で変換したもの）で読み、図形ごとに突き合わせる。AutoCAD の制御点の再現は、AutoCAD が書いた
-   DXF の値を試験の中に持つ
+   DXF の値を試験の中に持つ。見出しの変数は、5 の見本の見出しの節だけを抜き出した素材（`tests/fixtures/drawings/dwg-header/`）で比べる
 
 評価の題材（LibreDWG の試験データ）は使用条件がはっきりしないので、リポジトリには入れない。手元で確かめるときは
 `git clone --depth 1 https://github.com/LibreDWG/libredwg` の `test/test-data` を道具に渡す。
@@ -109,7 +118,6 @@ python program/tools/make_drawing_sample.py                                     
 ## 5. まだできないこと（次の課題）
 
 - **R2007 の DWG**（AutoCAD 2007〜2009 の形式）。いまは「保存し直し」を案内する
-- **DWG の見出しの変数**（`$LTSCALE`・`$INSUNITS` など）。DWG では線種の尺度を 1、単位を「指定なし」として描く
 - まだ描かない図形: マルチ引出線・表・マルチライン・ワイプアウト・幾何公差・弧長寸法・ラスター画像・3D ソリッド・リージョン など
   （読み飛ばし、右の欄に種類と数を出す）
 - 引出線の注記の手前のフック線（DWG には点として無く、寸法スタイルの矢印の大きさで AutoCAD が作る）・寸法スタイルの値
