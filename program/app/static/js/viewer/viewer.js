@@ -179,7 +179,10 @@ export class Viewer {
       mesh.userData.ids = m.groups.map((g) => g.id);
       this.model.add(mesh);
       this.surfaces.push(mesh);
-      this.#addEdges(new THREE.EdgesGeometry(geometry, EDGE_ANGLE_DEG));
+      // 群が 1 つのメッシュ（図面の 3D ソリッドなど）は、稜線にもその id を付ける（消した部品の稜線を残さない）
+      const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geometry, EDGE_ANGLE_DEG), this.edgeMaterial);
+      if (m.groups.length === 1) edges.userData.id = m.groups[0].id;
+      this.model.add(edges);
     }
   }
 
@@ -279,7 +282,7 @@ export class Viewer {
     }
     for (const child of this.model.children) {
       if (!child.isLineSegments) continue;
-      const id = child.userData.id; // 配置ごとの稜線だけが id を持つ（部品の面の稜線は透かさない）
+      const id = child.userData.id; // 配置ごとの稜線と、群が 1 つのメッシュの稜線だけが id を持つ（部品の面の稜線は透かさない）
       child.visible = this.edgesVisible && !(id !== undefined && (this.#ghosted(id) || this.hidden.has(id)));
     }
     this.edgeMaterial.color.set(token("--edge"));

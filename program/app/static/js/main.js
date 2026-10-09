@@ -30,7 +30,7 @@ import { selectViewTab, setViewTabs } from "./ui/viewtabs.js";
 import { renderAsmPanel, renderAsmStructure, renderDrawingPanel, renderHeader, renderHtmlPanel, renderIptPanel, renderModel3dPanel, renderSpecPanel, setPanelMode } from "./ui/panel.js";
 import { startDialog } from "./ui/start.js";
 import { hiddenIds } from "./ui/tree.js";
-import { describeAssembly, describeBody, describeMeshes, describeStructure } from "./viewer/describe.js";
+import { describeAssembly, describeBody, describeMeshes, describeSolidTree, describeStructure } from "./viewer/describe.js";
 import { VIEWS, Viewer } from "./viewer/viewer.js";
 import { describeDrawing, describeItem } from "./viewer2d/describe.js";
 import { buildScene } from "./viewer2d/scene.js";
@@ -58,7 +58,8 @@ let source = null; // 表示中の元のページ（SourceFrame）
 let sourceName = ""; // 表示中の HTML のファイル名
 let captured = null; // 最後に取り込んだシーン { snapshot, at, unit }（単位を変えたら認識し直す）
 let sheet = null; // 表示中の図面 { model, layout（番号）, layers: Map<画層, 表示するか>（利用者が切り替えたもの）, scene, rows,
-//                  view（主役の場所のタブ: "sheet" か 3D の PDF の "3d:番号"）, shown3d: Map<番号, read3d の結果か { error }> }
+//                  view（主役の場所のタブ: "sheet" か 3D の PDF の "3d:番号"）, shown3d: Map<番号, read3d の結果か { error }>,
+//                  trees3d: Map<番号, { open, hidden }>（図面の 3D ソリッドの木の開閉・消した行） }
 
 // ---- 強調表示（3D ⇄ パネルの双方向） -----------------------------------------
 function highlight(ids, text, groupKey) {
@@ -271,7 +272,7 @@ function showDrawing(model, header) {
   setMode("drawing");
   renderHeader(header);
   current = null;
-  sheet = { model, layout: 0, layers: new Map(), scene: null, rows: new Map(), view: "sheet", shown3d: new Map() };
+  sheet = { model, layout: 0, layers: new Map(), scene: null, rows: new Map(), view: "sheet", shown3d: new Map(), trees3d: new Map() };
   renderLayoutTabs();
   renderSheet(true);
   const models = model.drawing.models3d ?? [];
@@ -316,8 +317,21 @@ function show3d(index) {
   const shown = sheet.shown3d.get(index);
   viewer?.show({ meshes: shown.meshes ?? [], view: shown.view });
   const describe = shown.meshes ? describeMeshes(shown) : null;
-  const rows = renderModel3dPanel({ format: FORMAT3D[entry.format] ?? entry.format, describe, error: shown.error, warnings: shown.warnings, units: shown.units }, rowHandlers((g) => g.ids));
-  current = describe && { info: describe.info, rows };
+  const solids = describe && describeSolidTree({ groups: describe.groups, parts: shown.parts }); // 図面の 3D ソリッドは木
+  if (solids && !sheet.trees3d.has(index)) sheet.trees3d.set(index, { open: new Set(solids.outside ? [solids.outside] : []), hidden: new Set() });
+  const state = sheet.trees3d.get(index);
+  const render = () => {
+    const tree = solids && {
+      tree: { nodes: solids.nodes, state },
+      onEnter: (node) => highlight(node.ids, `${node.name}${node.count ? ` ×${node.count}` : ""} · ${node.sub}`, node.key),
+      onChange: render,
+    };
+    const rows = renderModel3dPanel({ format: FORMAT3D[entry.format] ?? entry.format, describe, error: shown.error, warnings: shown.warnings, units: shown.units },
+      { ...rowHandlers((g) => g.ids), ...tree });
+    current = describe && { info: describe.info, rows };
+    if (solids) viewer?.setHidden(hiddenIds(solids.nodes, state));
+  };
+  render();
   highlight([]);
 }
 

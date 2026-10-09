@@ -203,6 +203,11 @@ export function describeStructure(scene, groups) {
 }
 
 // ---- 三角形メッシュの場面（3D の PDF の 3D）-----------------------------------------
+/** 図面の 3D ソリッドの大きさ（mm。10 mm 以上は整数、未満は 0.1 mm まで）の書き方と、大きさの順 */
+const roundLength = (v) => (v >= 10 ? Math.round(v) : Math.round(v * 10) / 10);
+const sizeText = (size) => `${size.map((v) => roundLength(v).toLocaleString("en-US")).join(" × ")} mm`;
+const extentOf = (size) => Math.hypot(...size); // 大きさの順（外形の対角。平らな面も大きいものは前に）
+
 /**
  * 部品の行（一覧の順）・強調の対応（群の id → 行と説明文）・外形寸法（全ての部品の置いた後の位置を囲む）。
  * @param {{ meshes: { positions, matrix }[], parts: { name, faces, ids }[] }} scene  formats/model3d.js の read3d の結果
@@ -221,10 +226,73 @@ export function describeMeshes({ meshes, parts }) {
   const info = new Map();
   const groups = parts.map((part, i) => {
     const key = `mesh:${i}`;
-    const text = `${part.name} · 面 ${part.faces}`;
+    // 図面の 3D ソリッドは、一覧の木と同じく大きさで示す（画層は 0 以外のときだけ）
+    const text = part.solid ? `${part.solid.label} · ${sizeText(part.solid.size)}${part.solid.layer !== "0" ? ` · 画層 ${part.solid.layer}` : ""}`
+      : `${part.name} · 三角形 ${part.faces}`;
     for (const id of part.ids) info.set(id, { group: key, text });
     return { key, number: i + 1, name: part.name, ids: part.ids, faces: part.faces, text };
   });
   const size = lo.every(Number.isFinite) ? hi.map((v, k) => v - lo[k]) : null;
   return { groups, info, size, faces: parts.reduce((sum, p) => sum + p.faces, 0) };
+}
+
+/**
+ * 図面の 3D ソリッドの一覧の木（利用者が選んだ案 H: docs/ui.md §18）。describeMeshes の行（groups）と部品（solid を持つもの）から作る。
+ *   ブロック参照の道筋で木にし、同じ名前・同じ中身のブロック参照は 1 行（×n）にまとめる（ブロックの中はファイルの順）。
+ *   ブロックに入っていない立体は 1 つの枝「ブロックに入っていないソリッド」にまとめ、大きい順に並べ、同じ大きさを 1 行（×n）にする。
+ *   ブロックが 1 つも無ければ、その枝を作らず、大きい順の行を直に並べる。
+ * @returns {{ nodes: object[], outside: string|null } | null}  node: { key, name, count, sub, ids, keys（部品の行の key）, children }。
+ *   outside … ブロックに入っていない立体の枝の key（最初から開く）。solid を持つ部品が無ければ null
+ */
+export function describeSolidTree({ groups, parts }) {
+  if (!parts.length || !parts.every((p) => p.solid)) return null;
+  const leafOf = (k) => {
+    const { label, layer, size } = parts[k].solid;
+    return { key: `s/${k}`, name: label, sub: `${sizeText(size)} · 三角形 ${parts[k].faces}${layer !== "0" ? ` · 画層 ${layer}` : ""}`,
+      ids: groups[k].ids, keys: [groups[k].key], children: [], count: null };
+  };
+  // ブロック参照の道筋の木（参照は handle と配列の何番目で見分ける）
+  const root = { refs: new Map(), solids: [] };
+  parts.forEach((p, k) => {
+    let node = root;
+    for (const step of p.solid.path) {
+      const id = `${step.handle}:${step.index}`;
+      if (!node.refs.has(id)) node.refs.set(id, { block: step.block, refs: new Map(), solids: [] });
+      node = node.refs.get(id);
+    }
+    node.solids.push(k);
+  });
+  // 同じ中身（ブロックの名前と、中の立体の形のデータ・入れ子）の参照をまとめる（向きの違う同じブロックも 1 つに）
+  const shape = (n) => `${n.block}[${n.solids.map((k) => parts[k].solid.shape).join(",")}|${[...n.refs.values()].map(shape).sort().join(",")}]`;
+  const leafCount = (n) => n.solids.length + [...n.refs.values()].reduce((sum, r) => sum + leafCount(r), 0);
+  const blocks = (members, prefix) => {
+    const byShape = new Map();
+    for (const m of members) for (const r of m.refs.values()) (byShape.get(shape(r)) ?? byShape.set(shape(r), []).get(shape(r))).push(r);
+    return [...byShape.values()].map((list, i) => {
+      const key = `${prefix}/${i}`;
+      const children = [...blocks(list, key), ...list[0].solids.map((k, j) => ({ ...leafOf(k), key: `${key}/s${j}`,
+        ids: list.flatMap((r) => groups[r.solids[j]].ids), keys: list.map((r) => groups[r.solids[j]].key) }))];
+      return { key, name: list[0].block, count: list.length / members.length, sub: `ブロック · 中のソリッド ${leafCount(list[0])}`,
+        ids: children.flatMap((c) => c.ids), keys: children.flatMap((c) => c.keys), children };
+    });
+  };
+  const tops = blocks([root], "b");
+  // ブロックに入っていない立体: 大きい順、同じ大きさ（mm に丸めて）を 1 行に
+  const bySize = new Map();
+  for (const k of [...root.solids].sort((a, b) => extentOf(parts[b].solid.size) - extentOf(parts[a].solid.size))) {
+    const id = parts[k].solid.size.map(roundLength).join("x");
+    (bySize.get(id) ?? bySize.set(id, []).get(id)).push(k);
+  }
+  const loose = [...bySize.values()].map((list) => {
+    const first = leafOf(list[0]);
+    const label = parts[list[0]].solid.label.replace(/ \d+$/, "");
+    return { ...first, key: `o/${list[0]}`, name: sizeText(parts[list[0]].solid.size), count: list.length > 1 ? list.length : null,
+      sub: list.length > 1 ? `${label} ${list.length} 個 · 同じ大きさ` : `${parts[list[0]].solid.label} · 三角形 ${parts[list[0]].faces}`,
+      ids: list.flatMap((k) => groups[k].ids), keys: list.map((k) => groups[k].key) };
+  });
+  if (!tops.length) return { nodes: loose, outside: null };
+  if (!loose.length) return { nodes: tops, outside: null };
+  const outside = { key: "o", name: "ブロックに入っていないソリッド", count: null,
+    sub: `${root.solids.length} 個 · 大きさ ${loose.length} 種類 · 大きい順`, ids: loose.flatMap((n) => n.ids), keys: loose.flatMap((n) => n.keys), children: loose };
+  return { nodes: [...tops, outside], outside: outside.key };
 }

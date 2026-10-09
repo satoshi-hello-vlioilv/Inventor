@@ -180,6 +180,11 @@ export const STATES = [
     await p.click("#parts li button"); await sleep(400);
     if (await p.$("#dim-D0\\.0")) { await p.fill("#dim-D0\\.0", "250"); await p.press("#dim-D0\\.0", "Enter"); await sleep(800); }
   }, "[data-next], #build"],
+  // 図面の 3D ソリッド（ブロックの入れ子のある DWG）。再配布できるサンプルが無いので、手元のファイルを UI_SOLIDS_DWG で渡したときだけ撮る
+  ...(process.env.UI_SOLIDS_DWG ? [["solids3d", async (p) => {
+    await openFile(p, process.env.UI_SOLIDS_DWG);
+    await p.click('#view-tab-list [data-view^="3d"]'); await sleep(4000);
+  }, "[data-next], #open"]] : []),
 ];
 
 async function openSettings(p) {
