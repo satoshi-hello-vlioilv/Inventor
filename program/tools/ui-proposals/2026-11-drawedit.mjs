@@ -17,6 +17,19 @@ const WHILE_SELECTED = (selector, extra = "") => `
   for (const id of ["selection-card", "edit-band"]) new MutationObserver(run).observe(document.getElementById(id), { attributes: true });
   run();`;
 
+// F の保存の強調（2 回目の複合案でも使う）
+const SAVE_EMPHASIS = {
+  css: `
+    #edit-dirty { display: none !important; }
+    .save-dxf.is-dirty #save-dxf { color: var(--accent-ink, #fff); background: var(--accent); border-color: var(--accent); }
+    .save-dxf.is-dirty #save-dxf::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-inline-end: 6px; border-radius: 50%; background: var(--warn); vertical-align: 1px; }
+  `,
+  op: ["script", `
+    const run = () => document.getElementById("save-dxf-group").classList.toggle("is-dirty", !document.getElementById("edit-dirty").hidden);
+    new MutationObserver(run).observe(document.getElementById("edit-dirty"), { attributes: true });
+    run();`],
+};
+
 export const PROPOSALS = [
   { key: "A", name: "ツールバーに直す命令の群・見出しに DXF で保存（版つき）・カードに画層", css: "", ops: [] },
   {
@@ -66,17 +79,44 @@ export const PROPOSALS = [
       ["script", WHILE_SELECTED("#edit-row", "&& document.getElementById('edit-band').hidden")],
     ],
   },
+  { key: "F", name: "A ＋ 直した後は保存を主の色に（「変更あり」は保存のボタンの点に）", css: SAVE_EMPHASIS.css, ops: [SAVE_EMPHASIS.op] },
+  // 2 回目（1 回目は F と A が僅差）: F を元に、E の読みやすさ・ツールバーの長さ・取り消しの置き場所を変えた複合案 3 つ
   {
-    key: "F",
-    name: "A ＋ 直した後は保存を主の色に（「変更あり」は保存のボタンの点に）",
-    css: `
-      #edit-dirty { display: none !important; }
-      .save-dxf.is-dirty #save-dxf { color: var(--accent-ink, #fff); background: var(--accent); border-color: var(--accent); }
-      .save-dxf.is-dirty #save-dxf::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-inline-end: 6px; border-radius: 50%; background: var(--warn); vertical-align: 1px; }
+    key: "G",
+    name: "F ＋ 命令の群の頭に「選んだ図形を」（文のように読む。いつも同じ所）",
+    css: SAVE_EMPHASIS.css + `
+      #edit-tools .edit-lead { display: flex; align-items: center; padding: 0 10px; font-size: var(--fs-s); color: var(--muted); border-inline-end: 1px solid var(--rule); white-space: nowrap; }
     `,
-    ops: [["script", `
-      const run = () => document.getElementById("save-dxf-group").classList.toggle("is-dirty", !document.getElementById("edit-dirty").hidden);
-      new MutationObserver(run).observe(document.getElementById("edit-dirty"), { attributes: true });
-      run();`]],
+    ops: [SAVE_EMPHASIS.op, ["insert", '<span class="edit-lead">選んだ図形を</span>', "afterbegin", "#edit-tools"]],
+  },
+  {
+    key: "H",
+    name: "F ＋ 取り消し・やり直しを見出しの保存の隣へ（直した履歴と保存を 1 か所に。ツールバーは命令だけ）",
+    css: SAVE_EMPHASIS.css + `
+      #edit-history { display: flex; margin-inline-end: 6px; border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
+      #edit-history button { border: 0; background: var(--surface); color: var(--ink); min-width: 34px; font-size: var(--fs-l); cursor: pointer; }
+      #edit-history button + button { border-inline-start: 1px solid var(--rule); }
+      #edit-history button:disabled { color: var(--muted); opacity: 0.45; }
+    `,
+    ops: [SAVE_EMPHASIS.op, ["insert", '<div id="edit-history"></div>', "afterbegin", "#save-dxf-group"],
+      ["move", "#edit-undo", "append", "#edit-history"], ["move", "#edit-redo", "append", "#edit-history"]],
+  },
+  {
+    key: "I",
+    name: "F ＋ E: 命令は選んだら帯に（「選んだ図形を …」）、取り消し・やり直しはツールバーにいつも",
+    css: SAVE_EMPHASIS.css + `
+      #edit-row { flex-basis: 100%; display: flex; justify-content: center; pointer-events: none; }
+      #edit-row[hidden] { display: none; }
+      #edit-row .tool-group { border-color: var(--accent); }
+      #edit-row .edit-lead { display: flex; align-items: center; padding: 0 12px; font-size: var(--fs-s); font-weight: 600; color: var(--accent); }
+    `,
+    ops: [SAVE_EMPHASIS.op,
+      ["insert", '<div class="tool-group" role="group" aria-label="取り消し" id="edit-history-group"></div>', "afterend", "#edit-tools"],
+      ["move", "#edit-undo", "append", "#edit-history-group"], ["move", "#edit-redo", "append", "#edit-history-group"],
+      ["insert", '<div class="measure-row" id="edit-row"></div>', "beforebegin", "#edit-band"],
+      ["move", "#edit-tools", "append", "#edit-row"],
+      ["insert", '<span class="edit-lead">選んだ図形を</span>', "afterbegin", "#edit-tools"],
+      ["script", WHILE_SELECTED("#edit-row", "&& document.getElementById('edit-band').hidden")],
+    ],
   },
 ];

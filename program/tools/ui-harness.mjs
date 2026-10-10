@@ -52,6 +52,7 @@ export async function launch() {
       await routeThree(context);
       const page = await context.newPage();
       page.on("pageerror", (e) => console.warn(`[${theme}] page error: ${e.message}`));
+      page.on("dialog", (d) => d.accept()); // 直した内容を保存せずに別のファイルを開く確かめ（confirm）は「はい」で進める
       await dev("env?ready=1&inventor=1&python=1"); // 模擬の状態を既定に戻す（前のテーマで変えた物を持ち越さない）
       await dev("shortcut?desktop=ok&start=missing&made=0"); await dev("samples?off=0");
       await dev("update?role=developer&reachable=1&news=0");
@@ -299,13 +300,16 @@ async function settingsPane(p, pane, reopen = false) {
 
 /** 状態を順に進め、各状態で visit(名前, 次に押すべきもの) を呼ぶ（only を渡せば、その状態だけ） */
 export async function walk(page, dev, visit, only = null) {
+  const left = new Set(only ?? []);
   for (const [name, go, next] of STATES) {
+    if (only && !left.size) break; // 頼まれた状態を撮り終えたら、後の状態は通らない
     try {
       await go(page, dev);
     } catch (e) {
       console.warn(`${name}: ${e.message.split("\n")[0]}`);
     }
     if (!only || only.includes(name)) await visit(name, next);
+    left.delete(name);
   }
 }
 
