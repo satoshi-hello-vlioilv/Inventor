@@ -176,9 +176,12 @@ jobs:
           $desk = [Environment]::GetFolderPath('Desktop')
           $found = Wait-For { @(Get-ChildItem -LiteralPath $desk -Filter "Inventor 3D*.lnk" -ErrorAction SilentlyContinue).Count -gt 0 } 10
           $lnk = if ($found) { (Get-ChildItem -LiteralPath $desk -Filter "Inventor 3D*.lnk" | Select-Object -First 1).FullName } else { "" }
-          $target = if ($found) { (New-Object -ComObject WScript.Shell).CreateShortcut($lnk).TargetPath } else { "" }
-          $linked = $target -eq "$homeApp\Inventor3DTool.exe"
-          Write-Host "デスクトップのショートカット: $linked（$lnk → $target）"
+          # 指す先: ショートカットのファイルの中に、この PC の exe の道が（ANSI か UTF-16 で）書いてあるか
+          # （WScript.Shell の TargetPath はこの環境で空を返すので使わない。窓の自己確認は IShellLink で「この exe を指す」と記録する）
+          $want = "$homeApp\Inventor3DTool.exe"
+          $bytes = if ($found) { [IO.File]::ReadAllBytes($lnk) } else { [byte[]]@() }
+          $linked = $found -and ([Text.Encoding]::Unicode.GetString($bytes).Contains($want) -or [Text.Encoding]::Default.GetString($bytes).Contains($want))
+          Write-Host "デスクトップのショートカット: $linked（$lnk が $want を指すか）"
           if (-not $linked) {
             # 見つからないときの手がかり: デスクトップの場所と、見える .lnk の一覧
             Write-Host "Desktop: $([Environment]::GetFolderPath('Desktop')) / DesktopDirectory: $([Environment]::GetFolderPath('DesktopDirectory'))"
