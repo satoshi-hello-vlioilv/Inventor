@@ -81,3 +81,33 @@ export function compareDrawings(first, second) {
 
 /** 図形のハンドル → 図形（突き合わせの片方にしか無いものを調べるとき） */
 export const entitiesByHandle = (drawing) => byHandle(drawing);
+
+/**
+ * 図形以外の値（表・ブロック・レイアウト・見出し）の食い違い → [[どこ, a の値, b の値]]（書き出しの評価で使う）。
+ * 名前は大文字・小文字を区別しない（AutoCAD の決まり）。ブロックとレイアウトは、名前・基点・無名か・レイアウトのブロック・タブの順を比べる
+ */
+export function compareTables(first, second) {
+  const out = [];
+  const lower = (map) => new Map([...map].map(([k, v]) => [String(k).toLowerCase(), v]));
+  const pick = (v, keys) => Object.fromEntries(keys.map((k) => [k, v[k]]));
+  const table = (name, a, b, keys) => {
+    const [x, y] = [lower(a), lower(b)];
+    for (const k of x.keys()) if (!y.has(k)) out.push([`${name} ${k}`, "あり", "なし"]);
+    for (const k of y.keys()) if (!x.has(k)) out.push([`${name} ${k}`, "なし", "あり"]);
+    for (const [k, v] of x) {
+      if (!y.has(k)) continue;
+      const found = [];
+      diff(pick(v, keys), pick(y.get(k), keys), "", found);
+      for (const [at, p, q] of found) out.push([`${name} ${k}.${at}`, p, q]);
+    }
+  };
+  table("画層", first.layers, second.layers, ["color", "off", "frozen", "locked", "plot", "linetype", "lineweight"]);
+  table("線種", first.linetypes, second.linetypes, ["dashes"]);
+  table("文字スタイル", first.styles, second.styles, ["font", "bigFont", "height", "widthFactor", "oblique"]);
+  table("ブロック", first.blocks, second.blocks, ["base", "anonymous"]);
+  const layouts = (d) => d.layouts.map((l) => `${l.name}|${String(l.block).toLowerCase()}|${l.model}`).join("\n");
+  if (layouts(first) !== layouts(second)) out.push(["レイアウト", layouts(first), layouts(second)]);
+  for (const key of ["ltscale"]) if (!close(first[key], second[key])) out.push([key, first[key], second[key]]);
+  if (first.units?.code !== second.units?.code) out.push(["units", first.units?.code, second.units?.code]);
+  return out;
+}

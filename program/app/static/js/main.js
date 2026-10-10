@@ -16,13 +16,16 @@ import { read3d } from "./formats/model3d.js";
 import { ACCEPT, FORMATS, FORMAT_NAMES, OPENABLE, detectFormat, explainError, partOf, readModel } from "./formats/open.js";
 import { buildDisplayMeshes, describeRecognition } from "./html/describe.js";
 import { SourceFrame } from "./html/frame.js";
+import { DrawingEdits } from "./edit/drawing.js";
 import { History } from "./edit/history.js";
+import { drawingToDxf, dxfNotes } from "./formats/cad2d/to-dxf.js";
 import { saveSpec, setSpec } from "./ui/convert.js";
 import { DimensionEditor } from "./ui/dimedit.js";
+import { DrawingEditTool } from "./ui/drawedit.js";
 import { MeasureTool } from "./ui/measure.js";
 import { onFlow, setNext, updateFlow } from "./ui/flow.js";
 import "./ui/steps.js";
-import { claimLaunch, listSamples, onLaunch } from "./desktop.js";
+import { claimLaunch, listSamples, onLaunch, saveFile } from "./desktop.js";
 import { PartLibrary, acceptFiles } from "./ui/files.js";
 import { initBuild } from "./ui/build.js";
 import { setupUnit } from "./ui/units.js";
@@ -102,8 +105,9 @@ const overlayInsets = () => {
   return { top, bottom: chip.height ? stage.bottom - chip.top + 8 : 0, left: 0, right: 0 };
 };
 const drawingViewer = new DrawingViewer({ stage: $("stage"), canvas: $("view2d") }, {
-  onHover: (index, at) => measureTool.hover(at) || onDrawingHover(index), // 測っている間は図形を強調しない（吸い付く点の印だけ）
-  onClick: (hit) => measureTool.click(hit),
+  // 直す命令・測っている間は図形を強調しない（吸い付く点の印と、直す命令の影だけ）
+  onHover: (index, at) => editTool.hover(at) || measureTool.hover(at) || onDrawingHover(index),
+  onClick: (hit) => editTool.click(hit) || measureTool.click(hit),
   insets: overlayInsets,
 });
 // 選ぶ・測る（docs/ui.md §19）。図面の図を見ている間だけ
@@ -113,6 +117,40 @@ const measureTool = new MeasureTool({
     ? { scene: sheet.scene, units: sheet.model.drawing.units.name, scaleOf: (i) => sheet.model.drawing.layers.get(sheet.scene.items[i]?.layer)?.scale ?? 1 }
     : null),
   readout: (text) => highlightItems([], text ?? undefined),
+  onSelect: () => editTool.refresh(),
+});
+
+// 図面を直す（docs/editing.md §6）。直したら描き直す（選んだ図形・測った線は残す）
+const drawingEdits = new DrawingEdits({ onChange: () => {
+  if (sheet?.view === "sheet") renderSheet(false);
+  editTool.refresh();
+} });
+/** 選んだ図形（scene.items の番号）。ビューポートの中に見えている図形（モデルの図形）は除く */
+const selectedItems = () => (sheet?.scene ? measureTool.selection.items.filter((i) => sheet.scene.items[i] && sheet.scene.items[i].viewport === undefined) : []);
+const editTool = new DrawingEditTool({
+  viewer: drawingViewer,
+  edits: drawingEdits,
+  items: selectedItems,
+  selected: () => selectedItems().map((i) => sheet.scene.items[i].entity),
+  units: () => sheet?.model.drawing.units.name ?? "",
+  notify: (text) => showNotice(text),
+});
+$("measure").addEventListener("click", () => editTool.stop()); // 測ると直す命令は同時にしない
+for (const b of document.querySelectorAll("[data-edit]")) b.addEventListener("click", () => measureTool.toggle(false), { capture: true });
+
+$("save-dxf").addEventListener("click", async () => {
+  if (!sheet) return;
+  const version = $("dxf-version").value;
+  try {
+    const { bytes, notes } = drawingToDxf(sheet.model.drawing, { version });
+    const name = `${$("file-name").textContent.replace(/\.[^.]+$/, "")}.dxf`;
+    const path = await saveFile({ name, title: `DXF（${version}）で保存`, filter: { label: "DXF", extensions: ["dxf"] }, content: bytes });
+    if (!path) return;
+    drawingEdits.history.markSaved();
+    showNotice([`${path} に保存しました（DXF ${version}）。`, ...dxfNotes(notes)].join(" "));
+  } catch (error) {
+    showAlert(`DXF で保存できませんでした: ${error.message}`);
+  }
 });
 
 function showMessage(id, message) {
@@ -134,6 +172,9 @@ function setMode(mode) {
   $("view2d").hidden = mode !== "drawing";
   $("stage").setAttribute("aria-label", mode === "drawing" ? "図面" : "3D ビュー");
   if (mode !== "drawing") {
+    editTool.stop();
+    drawingEdits.open(null);
+    $("save-dxf-group").hidden = true;
     measureTool.reset();
     sheet = null;
     drawingViewer.clear();
@@ -288,6 +329,9 @@ function showDrawing(model, header) {
   renderHeader(header);
   current = null;
   sheet = { model, layout: 0, layers: new Map(), scene: null, rows: new Map(), view: "sheet", shown3d: new Map(), trees3d: new Map() };
+  editTool.stop();
+  drawingEdits.open(model.drawing);
+  $("save-dxf-group").hidden = false;
   renderLayoutTabs();
   renderSheet(true);
   const models = model.drawing.models3d ?? [];
@@ -309,6 +353,7 @@ function showDrawingView(key) {
   setPanelMode(is3d ? "model3d" : "drawing");
   idleText = IDLE_TEXT[is3d ? "model3d" : "drawing"];
   current = null;
+  editTool.stop();
   measureTool.reset();
   if (is3d) show3d(index);
   else {
@@ -358,8 +403,12 @@ function renderSheet(fit) {
   const pick = (on) => new Set([...sheet.layers].filter(([, v]) => v === on).map(([k]) => k));
   sheet.scene = buildScene(drawing, layout, { hidden: pick(false), shown: pick(true) });
   drawingViewer.show(sheet.scene, { fit });
-  if (fit) measureTool.reset(); // 別の図面・レイアウト
-  else measureTool.refresh(); // 画層の切り替え: 選んだ図形と測った線を残す
+  if (fit) { // 別の図面・レイアウト
+    editTool.stop();
+    measureTool.reset();
+  }
+  else measureTool.refresh(); // 画層の切り替え・直した後: 選んだ図形と測った線を残す
+  editTool.refresh();
   const visible = (name) => {
     if (sheet.layers.has(name)) return sheet.layers.get(name);
     const l = drawing.layers.get(name);
@@ -490,7 +539,18 @@ addEventListener("keydown", (event) => {
 
 // M で測る・Esc で 1 つ戻す（1 点目 → 測る → 選んだ図形）。図面の図を見ているときだけ（入力の欄の中は除く。MeasureTool.key）
 addEventListener("keydown", (event) => {
-  if (!dimEditor.isOpen && !isSettingsOpen() && measureTool.key(event)) event.preventDefault();
+  if (dimEditor.isOpen || isSettingsOpen() || sheet?.view !== "sheet") return;
+  if (event.target.closest?.("dialog, .page-pop")) return;
+  // Ctrl+Z・Ctrl+Y（Ctrl+Shift+Z）: 図面の直しを取り消す・やり直す（入力の欄の中は、欄の文字の取り消し）
+  if ((event.ctrlKey || event.metaKey) && !event.target.closest?.("input, textarea, select")) {
+    const key = event.key.toLowerCase();
+    if (key === "z" && !event.shiftKey) drawingEdits.history.undo();
+    else if (key === "y" || (key === "z" && event.shiftKey)) drawingEdits.history.redo();
+    else return;
+    event.preventDefault();
+    return;
+  }
+  if (editTool.key(event) || measureTool.key(event)) event.preventDefault();
 });
 
 /** 図面の図形の強調（読み出しの文と、画層の行の印） */
@@ -669,7 +729,14 @@ function loadSpec(text, name, isSample = false) {
   showSpec(spec);
 }
 
+/** 直してまだ保存していない図面・変換データがあれば、開き直してよいかを確かめる */
+function discardEdits() {
+  if (!drawingEdits.history.dirty && !specEdits.dirty) return true;
+  return confirm("直した内容をまだ保存していません。別のファイルを開くと、直した内容は消えます。開きますか？");
+}
+
 async function load(bytes, name, isSample = false) {
+  if (!discardEdits()) return;
   startDialog.close();
   showNotice("");
   if (SPEC.test(name)) loadSpec(new TextDecoder().decode(bytes), name, isSample);

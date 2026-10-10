@@ -77,6 +77,7 @@ export class DrawingViewer {
 
   clear() {
     this.scene = null;
+    this.ghost = null;
     this.ops = [];
     this.requestRender();
   }
@@ -120,6 +121,27 @@ export class DrawingViewer {
   /** 選んだ図形（items の番号の並び。null か空で外す）。カーソルの強調と別に残る */
   select(items) {
     this.selected = items?.length ? items : null;
+    this.requestRender();
+  }
+  /** 図形（scene.items の番号）を描いた結果の外形 { min, max }（図面の座標）。無ければ null */
+  boundsOf(items) {
+    const want = new Set(items);
+    const box = { min: [Infinity, Infinity], max: [-Infinity, -Infinity] };
+    const grow = (x, y) => {
+      box.min = [Math.min(box.min[0], x), Math.min(box.min[1], y)];
+      box.max = [Math.max(box.max[0], x), Math.max(box.max[1], y)];
+    };
+    const flat = (pts) => {
+      for (let i = 0; i + 1 < pts.length; i += 2) grow(pts[i], pts[i + 1]);
+    };
+    for (const s of this.scene?.strokes ?? []) for (const line of s.lines) if (want.has(line.item)) flat(line.points);
+    for (const f of this.scene?.fills ?? []) if (want.has(f.item)) f.rings.forEach(flat);
+    for (const t of [...(this.scene?.texts ?? []), ...(this.scene?.points ?? [])]) if (want.has(t.item)) grow(t.x, t.y);
+    return box.min[0] <= box.max[0] ? box : null;
+  }
+  /** 直す命令の見本: 図形（items）を変換 m（図面の座標の { a, b, c, d, e, f }。formats/cad2d/transform.js）で動かした影。null で消す */
+  setGhost(ghost) {
+    this.ghost = ghost?.items.length ? ghost : null;
     this.requestRender();
   }
 
@@ -380,6 +402,11 @@ export class DrawingViewer {
     ctx.setLineDash([]);
     if (this.selected) this.#drawHighlight(dpr, px, this.selected);
     if (this.highlighted !== null) this.#drawHighlight(dpr, px, this.highlighted);
+    if (this.ghost) {
+      ctx.globalAlpha = 0.6;
+      this.#drawHighlight(dpr, px, this.ghost.items, this.ghost.m);
+      ctx.globalAlpha = 1;
+    }
     if (this.overlay) this.#drawOverlay(dpr);
   }
 
@@ -468,16 +495,21 @@ export class DrawingViewer {
     lines.forEach((line, i) => ctx.fillText(line, 0, -(first - lineHeight * i)));
   }
 
-  #drawHighlight(dpr, px, items) {
+  #drawHighlight(dpr, px, items, m = null) {
     const { ctx } = this;
+    // 影（m）: 描く点は 図面の座標 − origin なので、m を origin の分だけずらして掛ける
+    const [ox, oy] = this.origin;
+    const moved = m && [m.a, m.b, m.c, m.d, m.a * ox + m.c * oy + m.e - ox, m.b * ox + m.d * oy + m.f - oy];
+    const s = m ? Math.hypot(m.a, m.b) : 1;
     const accent = this.#token("--accent") || "#1a62c4";
     const entries = items.flatMap((item) => this.byItem.get(item) ?? []);
     ctx.strokeStyle = ctx.fillStyle = accent;
     for (const e of entries) {
       const { scale, x, y } = this.view;
       ctx.setTransform(dpr * scale, 0, 0, -dpr * scale, dpr * x, dpr * y);
+      if (moved) ctx.transform(...moved);
       if (e.kind === "stroke") {
-        ctx.lineWidth = Math.max(e.width ?? 0, 3 * px);
+        ctx.lineWidth = Math.max(e.width ?? 0, 3 * px / s);
         ctx.stroke(e.path);
       } else if (e.kind === "fill") {
         ctx.globalAlpha = 0.45;
@@ -490,7 +522,7 @@ export class DrawingViewer {
         for (let i = 0; i < r.length; i += 2) ctx.lineTo(r[i] - this.origin[0], r[i + 1] - this.origin[1]);
         ctx.closePath();
         ctx.stroke();
-        this.#text(e.text, accent, dpr);
+        if (!moved) this.#text(e.text, accent, dpr); // 影は文字の外形だけ
       } else if (e.kind === "point") {
         ctx.fillRect(e.point.x - this.origin[0] - 3 * px, e.point.y - this.origin[1] - 3 * px, 6 * px, 6 * px);
       }
@@ -599,7 +631,7 @@ export class DrawingViewer {
       // ドラッグせずに押して離したら「押した」（左ボタンだけ）
       if (drag && !drag.moved && drag.button === 0 && this.index) {
         const [px, py] = local(event), [x, y] = this.toWorld(px, py);
-        this.onClick({ px, py, x, y, item: this.index.find(x, y, HIT_PX / this.view.scale) });
+        this.onClick({ px, py, x, y, item: this.index.find(x, y, HIT_PX / this.view.scale), shiftKey: event.shiftKey, ctrlKey: event.ctrlKey, metaKey: event.metaKey });
       }
       drag = null;
       canvas.releasePointerCapture?.(event.pointerId);

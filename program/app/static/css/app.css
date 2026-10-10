@@ -752,3 +752,36 @@ details.card.more summary .h-note { margin-inline-start: 8px; }
 .dim-save-row { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 .dim-save-note { margin: 0; font-size: var(--fs-xs); color: var(--muted); overflow-wrap: anywhere; }
 .dim-save-note:empty { display: none; }
+
+/* ---- 図面を直す（ui/drawedit.js。docs/editing.md §6）---- */
+.save-dxf { display: flex; align-items: stretch; }
+.save-dxf[hidden] { display: none; }
+.save-dxf #save-dxf { border-start-end-radius: 0; border-end-end-radius: 0; }
+.save-dxf select { padding: 0 6px; border: 1px solid var(--rule); border-inline-start: 0; border-start-end-radius: 8px; border-end-end-radius: 8px;
+  background: var(--surface); color: var(--ink); font: 500 var(--fs-xs) var(--font-num); cursor: pointer; }
+/* 直した後（保存していない）: 保存を主の色に、点で知らせる（案 F） */
+.save-dxf .dirty-dot { display: none; width: 8px; height: 8px; margin-inline-end: 6px; border-radius: 50%; background: var(--warn); }
+.save-dxf.is-dirty #save-dxf { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
+.save-dxf.is-dirty #save-dxf:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
+.save-dxf.is-dirty .dirty-dot { display: inline-block; }
+.tool-group.edit-tools button:disabled { color: var(--muted); opacity: 0.45; cursor: default; background: transparent; }
+.tool-group.edit-tools #edit-undo, .tool-group.edit-tools #edit-redo { min-width: 36px; font-size: var(--fs-l); padding-block: 5px; }
+.tool-group.edit-tools [data-edit] kbd { margin-inline-start: 4px; line-height: 1; margin-block: -2px; }
+.edit-band b { color: var(--accent); }
+.edit-band #edit-step { color: var(--ink); font-weight: 600; }
+.edit-inputs { display: flex; gap: 8px; }
+.edit-inputs[hidden] { display: none; }
+.edit-inputs label { display: flex; align-items: center; gap: 4px; color: var(--muted); white-space: nowrap; }
+.edit-inputs input { width: 84px; padding: 4px 6px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); color: var(--ink);
+  font: 500 var(--fs-s) var(--font-num); text-align: right; }
+.selection-edit { display: grid; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--rule); }
+.selection-edit[hidden] { display: none; }
+.edit-field { display: grid; grid-template-columns: 4em minmax(0, 1fr); align-items: center; gap: 8px; font-size: var(--fs-s); color: var(--muted); }
+.edit-field[hidden] { display: none; }
+.edit-field select, .edit-field input { min-width: 0; padding: 5px 8px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; }
+.edit-field select:disabled, .edit-field input:disabled, .selection-card dd > #edit-layer:disabled { opacity: 0.55; }
+.selection-card dd > #edit-layer { width: 100%; min-width: 0; margin-block: -3px; padding: 2px 6px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; }
+.edit-reason { margin: 0; font-size: var(--fs-xs); color: var(--caution-ink); }
+.edit-reason[hidden] { display: none; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.visually-hidden[hidden] { display: none; }

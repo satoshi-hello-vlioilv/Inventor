@@ -52,6 +52,7 @@ export async function launch() {
       await routeThree(context);
       const page = await context.newPage();
       page.on("pageerror", (e) => console.warn(`[${theme}] page error: ${e.message}`));
+      page.on("dialog", (d) => d.accept()); // 直した内容を保存せずに別のファイルを開く確かめ（confirm）は「はい」で進める
       await dev("env?ready=1&inventor=1&python=1"); // 模擬の状態を既定に戻す（前のテーマで変えた物を持ち越さない）
       await dev("shortcut?desktop=ok&start=missing&made=0"); await dev("samples?off=0");
       await dev("update?role=developer&reachable=1&news=0");
@@ -176,6 +177,24 @@ async function startJob(page) {
   await page.waitForSelector("#build-cancel:not([hidden])", { timeout: 10000 });
 }
 
+/** 直す: 測る（M）で図面の座標 → 画面の位置を求め、中心線（50, −7〜7）を押して選ぶ */
+let editMap = null;
+async function selectForEdit(page) {
+  await page.keyboard.press("m");
+  editMap = await drawingMap(page);
+  await page.keyboard.press("m");
+  await page.mouse.click(...editMap(50, 3));
+  await sleep(300);
+}
+
+/** 動かす: 基点（中心線の上の端 50, 7）→ 移動先の手前までカーソルを動かす（影と札が出る） */
+async function moveForEdit(page) {
+  await page.click("[data-edit=move]");
+  await page.mouse.click(...editMap(50, 7));
+  await page.mouse.move(...editMap(82, -12), { steps: 4 });
+  await sleep(400);
+}
+
 // 状態: [名前, そこへ行く操作, 次に押すべきもの（新しい画面の data-next → 前の画面の部品 の順に探す）]
 export const STATES = [
   ["start", async () => {}, "[data-next], #start-open"],
@@ -189,6 +208,10 @@ export const STATES = [
   ["drawing", async (p) => { await openSample(p, DRAWING); await hoverDrawing(p); }, "[data-next], #open"],
   // 選ぶ・測る: 外形の円弧を押して選び、測る（M）で円の中心どうしを測る（結果と選んだ図形は欄のカード、案内は図の上の帯）
   ["measure", measureDrawing, "#measure-stop"],
+  // 図面を直す（docs/editing.md §6）: 中心線を選んだ様子（選んだ図形のカードに画層）・動かす途中（基点 → カーソルの所に影と札）
+  ["edit-select", async (p) => { await p.keyboard.press("Escape"); await p.keyboard.press("Escape"); await selectForEdit(p); }, "[data-edit=move]"],
+  ["edit", async (p) => { await moveForEdit(p); }, "#edit-stop"],
+  ["edit-done", async (p) => { await p.mouse.click(...editMap(82, -12)); await sleep(500); }, "#save-dxf"],
   ["layout", async (p) => { await p.click("#layout-tabs button:nth-child(2)"); await sleep(600); await hoverDrawing(p); }, "[data-next], #open"],
   // PDF: ページの多い図面（ページ送り）・3D を含む PDF（主役の場所のタブ: 3D → 図面）
   ["pages", async (p) => { await openFile(p, await manyPages()); }, "[data-next], #open"],
@@ -277,13 +300,16 @@ async function settingsPane(p, pane, reopen = false) {
 
 /** 状態を順に進め、各状態で visit(名前, 次に押すべきもの) を呼ぶ（only を渡せば、その状態だけ） */
 export async function walk(page, dev, visit, only = null) {
+  const left = new Set(only ?? []);
   for (const [name, go, next] of STATES) {
+    if (only && !left.size) break; // 頼まれた状態を撮り終えたら、後の状態は通らない
     try {
       await go(page, dev);
     } catch (e) {
       console.warn(`${name}: ${e.message.split("\n")[0]}`);
     }
     if (!only || only.includes(name)) await visit(name, next);
+    left.delete(name);
   }
 }
 

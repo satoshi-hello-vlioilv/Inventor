@@ -12,7 +12,7 @@
 //   reset() … 別の図面・レイアウト・表示へ（選ぶ・測るを全て消す）・refresh() … 同じレイアウトを描き直した後（画層の切り替え）
 
 import { Selection } from "../edit/selection.js";
-import { itemDetails, length } from "../viewer2d/describe.js";
+import { itemDetails, length, typeLabel } from "../viewer2d/describe.js";
 import { SNAP_LABEL, measure } from "../viewer2d/snap.js";
 
 const $ = (id) => document.getElementById(id);
@@ -28,10 +28,12 @@ export class MeasureTool {
   #done = null; // 測った結果 { a, b, m }
   #picked = []; // 選んだ図形の entity（描き直して scene.items の番号が変わっても、同じ図形を選び直す）
 
-  constructor({ viewer, context, readout }) {
+  /** onSelect … 選んだ図形のカードを描き直した後（選び直した・測った・描き直した） */
+  constructor({ viewer, context, readout, onSelect = () => {} }) {
     this.viewer = viewer;
     this.context = context;
     this.readout = readout;
+    this.onSelect = onSelect;
     // 選んでいるもの（edit/selection.js。2D は scene.items の番号）。変わったら強調とカードを描き直す
     this.selection = new Selection({ onChange: (selection) => {
       const items = this.context()?.scene.items ?? [];
@@ -88,7 +90,10 @@ export class MeasureTool {
     const ctx = this.context();
     if (!ctx) return;
     if (!this.#active) {
-      this.selection.set(hit.item === null ? [] : [hit.item]);
+      // Shift ＋押す: 足す・Ctrl ＋押す: 選ぶ・外すを切り替え・ただ押す: 選び直す（何も無い所で外す）
+      if (hit.item !== null && hit.shiftKey) this.selection.add([hit.item]);
+      else if (hit.item !== null && (hit.ctrlKey || hit.metaKey)) this.selection.toggle(hit.item);
+      else if (!hit.shiftKey && !hit.ctrlKey) this.selection.set(hit.item === null ? [] : [hit.item]);
       return;
     }
     const p = this.viewer.snapAt(hit.px, hit.py) ?? { x: hit.x, y: hit.y, kind: null, item: hit.item };
@@ -170,8 +175,16 @@ export class MeasureTool {
         ...(m.scale !== 1 ? [["縮尺", `実寸（画層の縮尺 1:${String(Number(m.scale.toFixed(4)))}）`]] : []),
         ...(m.mixed ? [["縮尺", "縮尺の違う画層をまたぐので、図面の長さ"]] : [])]);
     }
-    const [index] = this.selection.items;
-    $("selection-card").hidden = index === undefined;
-    if (index !== undefined) list("selection-info", itemDetails(ctx.scene.items[index], units, ctx.scaleOf(index)));
+    const chosen = this.selection.items;
+    $("selection-card").hidden = !chosen.length;
+    $("selection-note").textContent = chosen.length > 1 ? `${chosen.length} 個・Esc で外す` : "Esc で外す";
+    if (chosen.length === 1) list("selection-info", itemDetails(ctx.scene.items[chosen[0]], units, ctx.scaleOf(chosen[0])));
+    else if (chosen.length > 1) {
+      // 複数: 種類ごとの数と画層
+      const count = (key) => [...chosen.reduce((m, i) => m.set(key(ctx.scene.items[i]), (m.get(key(ctx.scene.items[i])) ?? 0) + 1), new Map())]
+        .map(([k, n]) => `${k} ${n}`).join("・");
+      list("selection-info", [["種類", count((it) => typeLabel(it.type))], ["画層", count((it) => it.layer)]]);
+    }
+    this.onSelect(); // カードを描き直したら、直す欄（画層・文字）を付け直す（ui/drawedit.js）
   }
 }
