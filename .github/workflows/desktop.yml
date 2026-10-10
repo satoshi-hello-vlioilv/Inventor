@@ -171,9 +171,11 @@ jobs:
           $top = (Get-ChildItem $share | ForEach-Object Name | Sort-Object) -join ","
           $layout = $top -eq "Inventor3DTool.exe,versions" -and (Test-Path "$share\versions\release.json")
           Write-Host "置き場の最上位: $top（形が正しい: $layout）"
-          # 入れたとき、デスクトップにこの PC の exe を指すショートカットを作った
-          $lnk = Join-Path ([Environment]::GetFolderPath('Desktop')) "Inventor 3Dツール.lnk"
-          $found = Wait-For { Test-Path -LiteralPath $lnk } 10
+          # 入れたとき、デスクトップにこの PC の exe を指すショートカットを作った。名前は ASCII の型で探す
+          # （この段の台本の日本語は、PowerShell が別の文字コードで読むので、文字列のままでは名前が合わない）
+          $desk = [Environment]::GetFolderPath('Desktop')
+          $found = Wait-For { @(Get-ChildItem -LiteralPath $desk -Filter "Inventor 3D*.lnk" -ErrorAction SilentlyContinue).Count -gt 0 } 10
+          $lnk = if ($found) { (Get-ChildItem -LiteralPath $desk -Filter "Inventor 3D*.lnk" | Select-Object -First 1).FullName } else { "" }
           $target = if ($found) { (New-Object -ComObject WScript.Shell).CreateShortcut($lnk).TargetPath } else { "" }
           $linked = $target -eq "$homeApp\Inventor3DTool.exe"
           Write-Host "デスクトップのショートカット: $linked（$lnk → $target）"
