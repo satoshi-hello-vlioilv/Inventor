@@ -1,4 +1,5 @@
 // 変換データの部品の寸法を直す欄（利用者が選んだ案 H: 小さな断面図に札。docs/ui.md §17）。
+//   寸法の名前の横に、Inventor で作った部品の中での呼び名の札（名前つきの値 D0_0・参照寸法「参照」・対応なし「—」。案 I: docs/ui.md §21）
 //   部品の行を押すと、部品の一覧がこの欄に切り替わる（← で戻る。3D は見えたまま）。
 //   寸法は置き場所（全体・外周・穴 n・断面）の見出しで分け、直せる寸法だけを並べる。直せない寸法は理由とともに畳む。
 //   行にカーソルを合わせる（欄に入る）と、断面図でその辺が光り、札（「直径 250」）が付く。
@@ -99,9 +100,6 @@ export class DimensionEditor {
     }
     const editable = dims.filter((d) => d.editable), fixed = dims.filter((d) => !d.editable);
     this.#inventor = inventorNames(part);
-    const params = editable.map((d) => this.#inventor.get(d.id)).filter((n) => n?.kind === "param").map((n) => n.name);
-    $("dim-inventor").hidden = !params.length;
-    $("dim-inventor").textContent = params.length ? `Inventor の名前つきの値 ${params.length}: ${params.join("・")}（パラメータの表で直せます）` : "";
     if (!this.#focus || !editable.some((d) => d.id === this.#focus)) this.#focus = (editable.find((d) => focusOf(d)) ?? editable[0])?.id ?? null;
     // 置き場所ごとの見出しと行（寸法の一覧の順を保つ）
     const places = [...new Set(editable.map((d) => placeOf(d, part)))];
@@ -185,7 +183,9 @@ export class DimensionEditor {
     const part = this.getSpec().parts[this.#index];
     const dim = dimensionsOf(part).find((d) => d.id === this.#focus);
     const focus = dim && focusOf(dim);
-    const label = focus ? `${names(dim, placeOf(dim, part)).name} ${fmt(dim.value)}` : "";
+    // 札は「直径 250」。Inventor の名前つきの値なら「直径 250 · D0_0」（図でも、どのパラメータか分かる。案 I: docs/ui.md §21）
+    const inv = this.#inventor.get(dim?.id);
+    const label = focus ? `${names(dim, placeOf(dim, part)).name} ${fmt(dim.value)}${inv?.kind === "param" ? ` · ${inv.name}` : ""}` : "";
     $("dim-sketch").innerHTML = sketchMarkup(part.sketch.loops, { width: 400, height: 200, focus, label });
   }
 
