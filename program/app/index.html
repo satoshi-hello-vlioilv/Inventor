@@ -41,9 +41,18 @@
       <span class="kind-badge" id="file-kind">ファイル</span>
       <h1 id="file-name">開いていません</h1>
       <span class="badge" id="sample-badge" hidden>サンプル</span>
+      <span class="badge is-dirty" id="edit-dirty" hidden title="直した図面をまだ保存していません">変更あり</span>
       <button type="button" class="pill" id="received-switch" hidden title="受け取ったファイルを切り替える"></button>
     </div>
     <div class="appbar-actions">
+      <!-- 図面を DXF で保存（直していなくても、ほかの形式の図面を DXF に直して渡せる。ui/drawedit.js） -->
+      <div class="save-dxf" id="save-dxf-group" data-mode="drawing" hidden>
+        <button type="button" class="secondary" id="save-dxf" title="図面を DXF で保存（AutoCAD・Inventor・Jw_cad などで開ける）">DXF で保存</button>
+        <select id="dxf-version" aria-label="DXF の版" title="DXF の版（R2000 は古い CAD・Jw_cad 向け。日本語は Shift_JIS）">
+          <option value="R2013">R2013</option>
+          <option value="R2000">R2000</option>
+        </select>
+      </div>
       <button type="button" class="quiet" id="show-settings" aria-pressed="false" title="設定（ショートカット・版の管理）。もう一度押すと元の画面へ">
         <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg>設定
       </button>
@@ -124,11 +133,30 @@
         <button type="button" id="measure" aria-pressed="false" data-mode="drawing" title="2 点の間を測る（M）。端点・中点・中心・交点に吸い付く">測る <kbd>M</kbd></button>
         <button type="button" id="fit" title="全体が収まるように表示（図面はダブルクリックでも）">全体表示</button>
       </div>
+      <!-- 図面を直す（ui/drawedit.js）: 選んだ図形を動かす・写す・回す・消す。取り消し・やり直し -->
+      <div class="tool-group edit-tools" role="group" aria-label="図面を直す" id="edit-tools" data-mode="drawing">
+        <button type="button" data-edit="move" title="選んだ図形を動かす（基点 → 移動先をクリック。X・Y を数で入れても）">動かす</button>
+        <button type="button" data-edit="copy" title="選んだ図形を写す（基点 → 写す先をクリック。続けて写せる）">写す</button>
+        <button type="button" data-edit="rotate" title="選んだ図形を回す（中心 → 向きをクリック。角度を数で入れても）">回す</button>
+        <button type="button" data-edit="remove" title="選んだ図形を消す（Delete）">消す <kbd>Del</kbd></button>
+        <button type="button" id="edit-undo" disabled title="取り消す（Ctrl+Z）">↶</button>
+        <button type="button" id="edit-redo" disabled title="やり直す（Ctrl+Y）">↷</button>
+      </div>
       <p class="mouse-help" data-mode="empty ipt asm html spec model3d">ドラッグで回転・右ドラッグで移動・ホイールで拡大</p>
       <p class="mouse-help" data-mode="drawing">ドラッグで移動・ホイールで拡大・ダブルクリックで全体</p>
       <!-- 測っている間だけ出す案内の帯（ツールバーの下の行。ui/measure.js） -->
       <div class="measure-row" id="measure-band" hidden>
         <div class="measure-band" role="status"><b>測る</b><span id="measure-step">1 点目をクリック</span><span class="measure-snaps">端点・中点・中心・交点に吸い付く</span><button type="button" id="measure-stop">やめる <kbd>Esc</kbd></button></div>
+      </div>
+      <!-- 直す命令の間だけ出す案内の帯（測ると同じ形。ui/drawedit.js） -->
+      <div class="measure-row" id="edit-band" hidden>
+        <form class="measure-band edit-band" id="edit-form" role="status" autocomplete="off">
+          <b id="edit-title">動かす</b><span id="edit-step">基点をクリック</span>
+          <span class="edit-inputs" id="edit-move-inputs"><label>X <input type="number" step="any" id="edit-dx" inputmode="decimal"></label><label>Y <input type="number" step="any" id="edit-dy" inputmode="decimal"></label></span>
+          <span class="edit-inputs" id="edit-rotate-inputs" hidden><label>角度 <input type="number" step="any" id="edit-angle" inputmode="decimal"> °</label></span>
+          <button type="submit" id="edit-apply">数で直す <kbd>Enter</kbd></button>
+          <button type="button" id="edit-stop">やめる <kbd>Esc</kbd></button>
+        </form>
       </div>
     </div>
     <canvas class="gizmo" id="gizmo" width="152" height="152" aria-hidden="true"></canvas>
@@ -236,8 +264,14 @@
         <dl class="topology" id="measure-result"></dl>
       </section>
       <section class="card selection-card" id="selection-card" hidden>
-        <h2>選んだ図形<span class="h-note">Esc で外す</span></h2>
+        <h2>選んだ図形<span class="h-note" id="selection-note">Esc で外す</span></h2>
         <dl class="topology" id="selection-info"></dl>
+        <!-- 選んだ図形を直す: 画層・文字（ui/drawedit.js） -->
+        <div class="selection-edit" id="selection-edit" hidden>
+          <label class="edit-field">画層 <select id="edit-layer"></select></label>
+          <label class="edit-field" id="edit-text-row" hidden>文字 <input type="text" id="edit-text"></label>
+          <p class="edit-reason" id="edit-reason" hidden></p>
+        </div>
       </section>
 
       <section class="card" data-mode="drawing">

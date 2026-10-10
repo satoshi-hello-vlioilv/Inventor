@@ -74,6 +74,8 @@ test("直せない図形は理由を返す（ビューポート・3D の立体�
   assert.equal(editableReason(base("LINE", {})), null);
   const tilted = base("CIRCLE", { center: [0, 0, 0], radius: 1, extrusion: [0, 1, 1] });
   assert.throws(() => transformEntity(tilted, similarity({ move: [1, 0] })), (e) => e instanceof EditError && /3D の向き/.test(e.message));
+  const standing = base("MTEXT", { p: [0, 0, 0], direction: [0, 1, 0], extrusion: [1, 0, 0], height: 3, width: 0, text: "立てた面の文字" }); // ATMOS-DC22S.dwg（LibreDWG の試験）にある
+  assert.throws(() => transformEntity(standing, similarity({ angle: 1 })), /3D の向き/);
   const mirror = { a: -1, b: 0, c: 0, d: 1, e: 0, f: 0 };
   assert.throws(() => transformEntity(base("LINE", { a: [0, 0, 0], b: [1, 0, 0] }), mirror), /鏡/);
 });

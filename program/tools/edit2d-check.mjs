@@ -69,7 +69,7 @@ const same2 = (p, q, unit) => Math.abs(p[0] - q[0]) <= unit && Math.abs(p[1] - q
  *   文字・点・画像: 位置（広がりの 1e-7 の内）・角度・高さが一致
  *   線と塗り: 開いた線の両端は一致し、全ての点が相手の折れ線の上にある。曲線は描く側が刻むので、刻み方が変換で変わる（円はいつも
  *   角度 0 から刻む・PDF の曲線は長さで刻む）。許す差は、いちばん近い区間の長さの 10%（円を 64 に刻んだときの弦の高さは区間の 1.2%）
- *   模様のハッチングの線（patterned）: 境界にちょうど触れる線が丸めで出入りするので、点の 1% まで合わなくてよい
+ *   模様のハッチングの線（patterned）: 境界にちょうど触れる線（の破線）が丸めで出入りするので、点の 5%（少なくとも 8）まで合わなくてよい
  */
 function sameRendering(expected, actual, size, patterned) {
   const unit = Math.max(size, 1) * 1e-7;
@@ -98,7 +98,7 @@ function sameRendering(expected, actual, size, patterned) {
         }
       }
     }
-    if (missed > (patterned ? 0.01 * total : 0)) return `${first}（${missed}/${total}）`;
+    if (missed > (patterned ? Math.max(0.05 * total, 8) : 0)) return `${first}（${missed}/${total}）`;
   }
   return null;
 }

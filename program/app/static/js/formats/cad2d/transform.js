@@ -12,6 +12,8 @@ import { ocsAxes } from "./curves.js";
 
 export class EditError extends Error {}
 
+const TILTED = "図面の面に平行でない（3D の向きの）図形は、まだ直せません";
+
 export const IDENTITY2D = Object.freeze({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 });
 
 /** 変換の合成（先に n、次に m） */
@@ -42,7 +44,7 @@ function ocsTransform(m, extrusion) {
   const axes = ocsAxes(extrusion);
   if (!axes) return m;
   const [ax, ay, n] = axes;
-  if (Math.abs(n[0]) > 1e-9 || Math.abs(n[1]) > 1e-9) throw new EditError("図面の面に平行でない（3D の向きの）図形は、まだ直せません");
+  if (Math.abs(n[0]) > 1e-9 || Math.abs(n[1]) > 1e-9) throw new EditError(TILTED);
   // OCS → WCS の XY: [ax ay]（直交）。OCS での変換 = L⁻¹ m L（L は直交なので L⁻¹ = 転置）
   const L = { a: ax[0], b: ax[1], c: ay[0], d: ay[1], e: 0, f: 0 };
   const Lt = { a: ax[0], b: ay[0], c: ax[1], d: ay[1], e: 0, f: 0 };
@@ -147,5 +149,8 @@ export function transformEntity(e, m) {
   if (m.a * m.d - m.b * m.c <= 0) throw new EditError("鏡に映す変換は、まだ使えません");
   const reason = editableReason(e);
   if (reason) throw new EditError(reason);
+  // 押し出しの向きが Z と平行でない図形（立てた面の文字など）は、図面の XY の面の変換では直せない（OCS を持たない種類も同じ）
+  const n = e.extrusion;
+  if (n && (Math.abs(n[0]) > 1e-9 || Math.abs(n[1]) > 1e-9)) throw new EditError(TILTED);
   return TRANSFORMS[e.type](e, m);
 }
