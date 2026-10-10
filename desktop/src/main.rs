@@ -370,11 +370,35 @@ fn command_line(args: &[String]) -> Option<i32> {
 /// （無い・ほかの exe を指す物だけ。作った物は、開いた画面が 1 度知らせる）。COM を窓の糸と分けるため、別の糸で作って待つ
 fn make_shortcuts_after_install(exe: &Path) {
     let exe = exe.to_path_buf();
-    let made = std::thread::spawn(move || shortcut::Shortcuts::system(exe, false).ensure(&["desktop", "start"])).join();
+    let made = std::thread::spawn(move || {
+        let s = shortcut::Shortcuts::system(exe, false);
+        (s.ensure(&["desktop", "start"]), s.status())
+    })
+    .join();
     match made {
-        Ok(Ok(made)) if !made.is_empty() => log(&format!("INSTALL ショートカットを作った: {}", made.join("・"))),
-        Ok(Ok(_)) => {}
-        Ok(Err(why)) => log(&format!("INSTALL ショートカットを作れません（{why}）")),
+        Ok((result, status)) => {
+            // 置き場ごとの状態と場所（入れた後に探せるように）
+            let places: Vec<String> = status["places"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|p| {
+                    format!(
+                        "{} {} {}",
+                        p["label"].as_str().unwrap_or(""),
+                        p["state"].as_str().unwrap_or(""),
+                        p["path"].as_str().unwrap_or("")
+                    )
+                })
+                .collect();
+            match result {
+                Ok(made) if !made.is_empty() => {
+                    log(&format!("INSTALL ショートカットを作った: {}（{}）", made.join("・"), places.join(" / ")))
+                }
+                Ok(_) => log(&format!("INSTALL ショートカットはもうある（{}）", places.join(" / "))),
+                Err(why) => log(&format!("INSTALL ショートカットを作れません（{why}）")),
+            }
+        }
         Err(_) => log("INSTALL ショートカットを作る途中で止まりました"),
     }
 }

@@ -173,9 +173,17 @@ jobs:
           Write-Host "置き場の最上位: $top（形が正しい: $layout）"
           # 入れたとき、デスクトップにこの PC の exe を指すショートカットを作った
           $lnk = Join-Path ([Environment]::GetFolderPath('Desktop')) "Inventor 3Dツール.lnk"
-          $target = if (Test-Path $lnk) { (New-Object -ComObject WScript.Shell).CreateShortcut($lnk).TargetPath } else { "" }
+          $found = Wait-For { Test-Path -LiteralPath $lnk } 10
+          $target = if ($found) { (New-Object -ComObject WScript.Shell).CreateShortcut($lnk).TargetPath } else { "" }
           $linked = $target -eq "$homeApp\Inventor3DTool.exe"
-          Write-Host "デスクトップのショートカット: $linked（$target）"
+          Write-Host "デスクトップのショートカット: $linked（$lnk → $target）"
+          if (-not $linked) {
+            # 見つからないときの手がかり: デスクトップの場所と、見える .lnk の一覧
+            Write-Host "Desktop: $([Environment]::GetFolderPath('Desktop')) / DesktopDirectory: $([Environment]::GetFolderPath('DesktopDirectory'))"
+            foreach ($d in @([Environment]::GetFolderPath('Desktop'), "$env:PUBLIC\Desktop", [Environment]::GetFolderPath('Programs'))) {
+              Get-ChildItem -LiteralPath $d -Filter *.lnk -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $($_.FullName)" }
+            }
+          }
           Get-Process Inventor3DTool -ErrorAction SilentlyContinue | Stop-Process -Force
           Start-Sleep -Seconds 2
           if ((Publish (Make-Zip $v2)) -ne 0) { Write-Host "置き場に $v2 を置けません"; exit 12 }
