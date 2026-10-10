@@ -44,6 +44,18 @@ npm test
 （もう写した PC と中身が食い違うため）。main へ入れる PR で `program/` か exe を変えたら、`version` を上げる
 （小さな直し → 3 つめ、機能の追加 → 2 つめ。例 2.1.0 → 2.1.1・2.2.0）。仕組みは [docs/desktop.md](docs/desktop.md) §8
 
+## main へ入れる準備: 配る中身を最小に保つ
+
+置き場（Box）へ配る版は、動かすのに要る物だけにする（版ごとに置き場と全ての PC へ写すので軽く保つ）。
+
+- 配る物は `desktop/src/update.rs` の `PAYLOAD`（exe・README.md・`program/version.json`・`program/Inventor3DTool.build.json`・`program/app`・`program/ipt_build`）。
+  サンプル（`program/samples`）・試験（`program/tests`）・開発の道具（`program/tools`）・この PC の設定（`program/config`）は配らない
+- `program` の直下に動かすのに要る物を足したときだけ `PAYLOAD` に足す。サンプル・試験・道具・大きなデータは足さない
+- 確かめ: `cargo test` の `the_repository_payload_is_small`（配る program が 4 MB 以下・サンプルと試験を含まない）と
+  `test_layout` の `test_the_distribution_is_minimal_and_released_by_ci`。画面はサンプルが無くても使えること（サンプルへの入口を出さない）
+- main へ入ると CI が配る ZIP（`Inventor3DTool-版.zip`）を `--pack` で作り、版ごとに GitHub の Releases へ置く。
+  版の管理の「ZIP から版を置く」では、この軽い ZIP を選ぶ（Code → Download ZIP の ZIP でも、置くときに同じ決まりで選び出す）
+
 ## レビューの指摘は、まとめて 1 回で push する
 
 レビューの指摘を直すときは、指摘ごとに push しない。全ての指摘を直し、上の確かめを全て通してから、まとめて 1 回 push する。

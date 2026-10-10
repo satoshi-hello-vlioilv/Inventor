@@ -161,17 +161,31 @@ Linux で作るときは WebKitGTK などが要る（`libwebkit2gtk-4.1-dev libg
 
 ### 8.1 置き場（`desktop/src/update.rs`）
 
+利用者の依頼（2026-11）: 置き場は versions フォルダと Inventor3DTool.exe を同じ階層に置くだけの最小の構成にし、使い始める人は
+その exe を押すだけでローカルへ写り、ローカルを指すショートカットができて、すぐ使えるように。配る版はサンプルなどを外して最小に。
+
 ```
 <置き場>\
-  release.json        配る版 {"version","setAt","setBy","previous"}
-  versions\<版>\      版の中身（exe・README.md・program の中。設定 program\config と .pyc は除く）と manifest.json
-  versions\<版>\notes.txt  その版で変わったこと（目録の外なので、置いた後でも書き直せる。2000 字まで）
-  versions\.<版>.<pid>.tmp\ ・ .del\   置いている・消している途中（"." で始まる物は一覧に出さない。1 時間たてば片付ける）
   Inventor3DTool.exe  新しい PC の入口（配る版の exe の写し）
-  roles.json          役割 {"developers": [Windows のユーザー名], "maintainers": [...]}
-  policy.json         残す版の数 {"keep": N}（0 = 全て残す）
+  versions\
+    release.json      配る版 {"version","setAt","setBy","previous"}
+    roles.json        役割 {"developers": [Windows のユーザー名], "maintainers": [...]}
+    policy.json       残す版の数 {"keep": N}（0 = 全て残す）
+    <版>\             版の中身（exe・README.md・program の中で動かすのに要る物）と manifest.json
+    <版>\notes.txt    その版で変わったこと（目録の外なので、置いた後でも書き直せる。2000 字まで）
+    .<版>.<pid>.tmp\ ・ .del\   置いている・消している途中（"." で始まる物は一覧に出さない。1 時間たてば片付ける）
 ```
 
+- **最上位は exe と versions だけ**。管理のファイル（release・roles・policy）は versions の中（2.4.0 までは最上位に置いた）
+- **古い形の置き場**（2.4.0 まで）: 読むときは versions の中が無ければ最上位を読む。最上位に release.json が残っている間は、
+  書くたびに最上位にも同じ物を書く（2.4.0 までの PC は最上位の release.json だけを見てそろえるので、配った版へ古い PC もそろう）。
+  全ての PC が 2.5.0 以上になったら、設定 → 置き場 →「versions の中へ片付ける」で最上位から外す（`tidy`。中に有る物は中を残す）
+- **配る中身は最小**（`PAYLOAD`）: exe・README.md・`program/version.json`・`program/Inventor3DTool.build.json`・`program/app`・`program/ipt_build`。
+  サンプル・試験・開発の道具・この PC の設定・.pyc は配らない（このリポジトリで program 15.2 MB → 配る物 2.1 MB・136 ファイル。exe 約 5 MB を足して約 7 MB）。
+  写すときに受け入れる範囲（`accepted_path`）は広いまま（2.4.0 までに置いた版はサンプルを含むので、古い版へ戻すときも写せる）
+- **配る ZIP**: `Inventor3DTool.exe --pack <リポジトリ> <ZIP>` が PAYLOAD だけの ZIP（`Inventor3DTool-<版>/` の下。注記はコミット）を作る。
+  main へ入ると CI が作り、版ごとに GitHub の Releases に置く（`v<版>`。同じ版が有れば置かない）。Code → Download ZIP の ZIP から置いても、
+  置くときに同じ PAYLOAD で選び出す
 - **版の番号**は `program/version.json` の `version`（このリポジトリで版を上げるたびに書き換える。CLAUDE.md）。
   同じ番号の版は置けない（もう写した PC と中身が食い違うため。WaveLog と同じ）
 - **ZIP から版を置く**: GitHub の「Code → Download ZIP」の ZIP をそのまま選ぶ（`Inventor-main/` の下でもよい。区切りが `\` の ZIP も読む）。
@@ -188,7 +202,9 @@ Linux で作るときは WebKitGTK などが要る（`libwebkit2gtk-4.1-dev libg
 ### 8.2 各 PC（`update.rs`・`launch.rs`・`main.rs`）
 
 1. 新しい PC: 置き場の `Inventor3DTool.exe` を開く → exe を `%USERPROFILE%\Inventor3DTool` へ写して（ネットから来た印 Zone.Identifier は外す）
-   渡し、すぐ終わる（置き場の exe を開いたままにしない）。写した exe が配る版を写して入れ、開き直す。置き場の場所は設定に覚える
+   渡し、すぐ終わる（置き場の exe を開いたままにしない）。写した exe（`--from-share`）は、デスクトップとスタートメニューに自分を指す
+   ショートカットを作り（無い・ほかの exe を指す物だけ。`Shortcuts::ensure`）、配る版を写して入れ、開き直す。開いた画面は、作った
+   ショートカットを右下で 1 度知らせる。置き場の場所は設定に覚える。もう入れた PC で入口を押しても、同じく写して開く（ショートカットを直す）
 2. 起動のたび: 配る版と比べ（置き場が 3 秒で答えなければ、いまの版で開く）、違えば窓に「版をそろえています」（進み具合）を出して
    `.update\<版>.stage` へ写し、全てのファイルを目録の大きさ・sha256 と照らす（違えば入れ替えない: Box Drive の同期の途中など）。
    照らし終えたら単位（exe・README.md・program の直下）ごとに今の物を `.update\<今の版>.old` へ移して新しい物を置き、途中で失敗したら全て戻す。
@@ -196,8 +212,9 @@ Linux で作るときは WebKitGTK などが要る（`libwebkit2gtk-4.1-dev libg
    そろえて版が変わったとき（新しい PC へ入れたときは除く）、その版の「変わったこと」を `.update\news.json` に写し、
    次に開いた画面の右下に 1 度だけ出す（閉じると消す。設定の要点の 1 行の下では、いつでも読める）
 3. そろえないとき: 開発の木（`.git`・`desktop/Cargo.toml`）・自己診断・同じフォルダの窓がもう開いている（名前付きのミューテックス）
-4. ショートカット: 置き場から写した exe（ローカル）を指す。起動のとき、デスクトップに無ければ作るかを尋ねる（「作らない」は覚える）。
-   設定からいつでも作る・作り直せる（デスクトップ・スタートメニュー。フォルダを移して別の exe を指す物も「作り直す」で直る）
+4. ショートカット: 置き場から写した exe（ローカル）を指す。置き場の入口から入れたときは自動で作る（上の 1）。それ以外で起動して
+   デスクトップに無ければ、作るかを尋ねる（「作らない」は覚える）。設定のページからいつでも作る・作り直せる
+   （デスクトップ・スタートメニュー。フォルダを移して別の exe を指す物も「作り直す」で直る）
 
 ### 8.3 WaveLog との違い
 
@@ -212,8 +229,12 @@ Linux で作るときは WebKitGTK などが要る（`libwebkit2gtk-4.1-dev libg
 | 変わったこと | 無い | 版ごとに書き、そろえた PC に 1 度だけ見せる（設定ではいつでも読める） |
 
 ### 8.4 評価
-- `cargo test`: ZIP から置く（配るファイルだけ・目録の sha256・同じ版・ZIP でない物・途中の物を残さない・`\` の区切りと BOM）、配る版と
+- `cargo test`: 置き場の形（最上位は exe と versions だけ・古い形を読む・片付けるまで最上位にも書く・片付け）、配る ZIP（--pack: PAYLOAD だけ・
+  注記のコミット・置き場へ置ける）、このリポジトリの配る中身が 4 MB 以下、入れたときのショートカット（作る・1 度知らせる・この exe を指す物は作り直さない）、
+  ZIP から置く（配るファイルだけ・サンプル／試験／道具を除く・目録の sha256・同じ版・ZIP でない物・途中の物を残さない・`\` の区切りと BOM）、配る版と
   入口 exe、消す（配っている版は断る）、残す数、役割（最初の 1 人・開発者だけ・0 人を断る）、そろえる（目録と違えば写さない・設定を残す・
   古い単位を .old へ・途中の失敗で全て戻す）、新しい PC へ入れて置き場を覚える、変わったこと（書く・消す・長すぎる物を断る・版が変わったときだけ 1 度見せる・見たら消す）、ショートカット（無い・作る・別の exe を指す物を直す・尋ねる）
-- CI（本物の Windows）: 置き場に版を置き（`--publish-zip`）、置き場の入口 exe から写して入れ、開き直す。次の版を置き、ローカルの exe を開くと、
+- CI（本物の Windows）: 配る ZIP を `--pack` で作り（サンプル・試験・道具・設定が入っていないかを見る）、その ZIP の版を置き場に置き（`--publish-zip`）、
+  置き場の入口 exe から写して入れ、開き直す。置き場の最上位が exe と versions だけか・デスクトップにこの PC の exe を指すショートカットができたかを見る。
+  次の版を置き、ローカルの exe を開くと、
   動いている自分の exe を `.update\<前の版>.old` へ移してそろえ、開き直す

@@ -39,7 +39,7 @@ Windows のデスクトップアプリ（`Inventor3DTool.exe`。Tauri・Rust の
 
 | 場所 | 中身 |
 |---|---|
-| 見出しバー（上端） | いま開いているもの（種類と名前）・**サンプル・受け取ったファイル**・**ファイルを開く** |
+| 見出しバー（上端） | いま開いているもの（種類と名前）・**設定**（押すと、下の場所が設定のページに切り替わる。戻るは Esc）・**サンプル・受け取ったファイル**（サンプルの無い配る版では出さない）・**ファイルを開く** |
 | 3D（主役） | 何も開いていなければ、ここが始め方（ドロップの受け口・**ファイルを選ぶ**・**サンプルで試す**）になる。HTML のときは左に元のページが並ぶ。図面（.dwg・.dxf・.pdf・.jww・.sfc・.p21）のときは 2D の図面になり、左上でレイアウト（モデル・紙。PDF はページ。9 つ以上ならページ送り）を切り替える。3D を含む PDF は、上の中央のタブで「図面」と「3D」を切り替える |
 | 右の欄 | 上から **段階の帯**（HTML・変換データのとき）→ 中身（寸法・部品表・単位・照合の結果など）→ **行動ドック**（右下） |
 
@@ -51,12 +51,24 @@ Windows のデスクトップアプリ（`Inventor3DTool.exe`。Tauri・Rust の
 - **行動ドック**: 上の縁の色が仕事の状態（青: 進行中・緑: 一致・琥珀: 注意・赤: 失敗）。進み具合・中止・作り直しもここに出る
 - 画面の決め方（改良案を画像にして比べた点数・測った値）は [docs/ui.md](docs/ui.md)
 
-### 配り方・更新
+### 配り方・更新（置き場から。docs/desktop.md §8）
 
-`Inventor3DTool.exe` と `program` フォルダを並べて置く（フォルダの名前は自由。exe だけを別の場所へ移さない。ショートカットは作ってよい）。
-更新は、窓を閉じてから新しい ZIP の中身で exe と `program` を置き換える。exe は main へ GitHub Actions が置く
-（Windows で作り、本物の WebView2 で自己診断を通った物だけ。作った元のコミットは `program\Inventor3DTool.build.json`）。
-作業場所（記録・.pyc）は `%LOCALAPPDATA%\Inventor3DTool` にあり、`program` フォルダは動いている間も「使用中」にならない。
+共有の置き場（Box Drive）の最上位は、入口の `Inventor3DTool.exe` と `versions` フォルダだけ:
+
+```
+<置き場>\
+  Inventor3DTool.exe      新しい PC の入口（配っている版の exe）
+  versions\               配る版（release.json）・役割（roles.json）・残す版の数（policy.json）と、版ごとのフォルダ（2.5.0\ など）
+```
+
+- **使い始める**: 置き場の `Inventor3DTool.exe` を開くだけ。この PC（`%USERPROFILE%\Inventor3DTool`）へアプリを写し、
+  デスクトップとスタートメニューにこの PC の exe を指すショートカットを作って開く。次からはショートカットで開く
+- **更新**: 開くたびに配っている版と比べ、違えばそろえてから開く（置き場に届かなければ、いまの版で開く）
+- **版を配る**（開発者・メンテナンス者）: 設定 → 版 →「ZIP から版を置く」で、GitHub の Releases の配る ZIP（`Inventor3DTool-版.zip`。
+  main へ入ると CI が作る。exe と動かすのに要る物だけ）を選び、「この版を配る」。サンプル・試験・開発の道具は配らない
+- 開発の木（このリポジトリの ZIP を展開した物）では、`Inventor3DTool.exe` と `program` を並べたまま開く（そろえない）。
+  exe は main へ GitHub Actions が置く（Windows で作り、本物の WebView2 で自己診断を通った物だけ。作った元のコミットは `program\Inventor3DTool.build.json`）
+- 作業場所（記録・.pyc）は `%LOCALAPPDATA%\Inventor3DTool` にあり、`program` フォルダは動いている間も「使用中」にならない
 
 ## CAD ファイルを作る
 
@@ -195,6 +207,8 @@ three.js・fzstd（Zstandard の展開）・Delaunator と Constrainautor（面�
   書体（IBM Plex）は読み込めたときだけ使い、つながらない PC では Yu Gothic UI などで表示する
 
 ## サンプル
+
+サンプルは開発と評価のための物で、置き場へ配る版には入れない（配る版を軽くするため。CLAUDE.md「main へ入れる準備」）。
 
 | フォルダ | 内容 |
 |---|---|

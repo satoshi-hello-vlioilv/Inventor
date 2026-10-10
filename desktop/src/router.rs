@@ -13,6 +13,7 @@
 //!   GET  /api/shortcut         ショートカット（デスクトップ・スタートメニュー）が有るか（shortcut.rs）     … 合言葉
 //!   POST /api/shortcut         ショートカットを作る・作り直す（{place: desktop | start}）              … 合言葉
 //!   POST /api/shortcut/decline 起動のときの「デスクトップに作りますか」に「作らない」と答えた             … 合言葉
+//!   POST /api/shortcut/seen    置き場の入口から入れたときに作ったショートカットの知らせを見た              … 合言葉
 //!   GET  /api/update           版の管理の状態（置き場・配る版・版の一覧・役割。update::status）         … 合言葉
 //!   GET  /api/update/progress  版を置いている途中の進み具合                                         … 合言葉
 //!   POST /api/update/publish   ZIP から版を置く（{path}。ZIP は窓のファイルを選ぶ窓で選ぶ）              … 合言葉・開発者／メンテナンス者
@@ -136,6 +137,7 @@ impl Router {
             ("GET", "/api/update/progress") => Reply::json(200, &self.publishing.get()),
             ("POST", p) if p.starts_with("/api/update/") => self.update_op(&p["/api/update/".len()..], body),
             ("GET", "/api/shortcut") => Reply::json(200, &self.shortcuts.status()),
+            ("POST", "/api/shortcut/seen") => Reply::json(200, &self.shortcuts.seen()),
             ("POST", "/api/shortcut/decline") => match self.shortcuts.decline() {
                 Ok(v) => Reply::json(200, &v),
                 Err(why) => Reply::error(500, &why),
@@ -202,6 +204,8 @@ impl Router {
             "seen" => done(self.program.parent().map_or(Ok(json!({"seen": true})), update::seen_news)),
             "delete" => manage().map_or_else(|r| r, |_| done(update::delete_version(&dir, &text("version")))),
             "policy" => manage().map_or_else(|r| r, |_| done(update::set_policy(&dir, v["keep"].as_u64().unwrap_or(0)))),
+            // 古い形（2.4.0 まで）の最上位の管理のファイルを versions の中へ片付ける
+            "tidy" => manage().map_or_else(|r| r, |_| done(update::tidy(&dir))),
             "roles" => done(update::set_roles(&dir, &user, &v)),
             "settings" => {
                 // 置き場に届かないときは誰でも直せる（届かない置き場からは役割も読めないため）
@@ -369,6 +373,7 @@ mod tests {
                 write: |_, _| Ok(()),
                 offer_allowed: false,
                 declined: None,
+                notice: None,
             },
             publishing: Default::default(),
             native: Box::new(|m, p, _, _| (m == "GET" && p == "/__desktop/info").then(|| Reply::json(200, &json!({"shell": "test"})))),
@@ -435,6 +440,7 @@ mod tests {
                 write: |f, l| std::fs::write(f, l.target.display().to_string()).map_err(|e| e.to_string()),
                 offer_allowed: false,
                 declined: None,
+                notice: None,
             },
             ..r
         };
@@ -462,6 +468,7 @@ mod tests {
             ("POST", "/api/build/open"),
             ("GET", "/api/shortcut"),
             ("POST", "/api/shortcut"),
+            ("POST", "/api/shortcut/seen"),
             ("GET", "/__desktop/info"),
         ] {
             assert_eq!(call(&r, m, &format!("inventor://localhost{p}"), None, &Value::Null).0, 403, "{p}");

@@ -171,16 +171,20 @@
       ok("HTML のモデルの取り込み: 測っていない（three.js の CDN に届かない環境）", true, `CDN の答え: ${cdn}`);
     }
 
-    // 8.5) 設定（右の引き出し）: 開くと窓に問い合わせて節が並び（ショートカット・版・置き場）、✕ で閉じる。ショートカットの置き場が分かる
+    // 8.5) 設定のページ: 見出しバーの「設定」でメインの画面を切り替え、窓に問い合わせて目次（概要・ショートカット・版・置き場）が並ぶ。
+    //      目次の「版」で版の区分へ移り、「戻る」で元の画面へ。ショートカットの置き場が分かる
     const shortcut = (await api("/api/shortcut")).json ?? {};
     ok("ショートカットの状態（デスクトップ・スタートメニューの場所が分かる）", shortcut.supported && shortcut.places?.length === 2,
        (shortcut.places ?? []).map((p) => `${p.label} ${p.state}`).join("・"));
     $("show-settings")?.click();
-    const opened8 = await until(() => $("settings").open && $("settings-body").querySelectorAll(".st-section").length >= 3, 10000);
-    ok("設定の引き出しが開き、ショートカット・版・置き場の節が並ぶ", opened8,
-       [...$("settings-body").querySelectorAll(".st-section h3")].map((h) => h.firstChild?.textContent).join("・"));
-    $("settings-close")?.click();
-    ok("設定の引き出しを ✕ で閉じられる", await until(() => !$("settings").open, 3000));
+    const navLabels = () => [...document.querySelectorAll("#settings-nav .st-nav-item b")].map((b) => b.textContent);
+    const opened8 = await until(() => !$("settings").hidden && navLabels().length >= 4 && document.querySelector("#settings-nav .st-nav-badge"), 10000);
+    ok("設定のページが開き、目次に概要・ショートカット・版・置き場が並ぶ（状態つき）", opened8, navLabels().join("・"));
+    document.querySelector('#settings-nav [data-pane="versions"]')?.click();
+    const versions8 = await until(() => document.querySelector('#settings-body [data-pane="versions"]') && $("settings-title").textContent === "版", 5000);
+    ok("目次で版の区分へ移れる", versions8, $("settings-lead").textContent);
+    $("settings-back")?.click();
+    ok("設定のページを「戻る」で閉じ、元の画面に戻る", await until(() => $("settings").hidden && !$("app").classList.contains("is-settings"), 3000));
 
     // 9) 同時の問い合わせが混ざらない
     const paths = Array.from({ length: 40 }, (_, i) => (i % 2 ? "/api/build" : `/static/js/main.js?p=${i}`));

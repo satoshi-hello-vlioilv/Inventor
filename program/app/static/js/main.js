@@ -26,7 +26,7 @@ import { claimLaunch, listSamples, onLaunch } from "./desktop.js";
 import { PartLibrary, acceptFiles } from "./ui/files.js";
 import { initBuild } from "./ui/build.js";
 import { setupUnit } from "./ui/units.js";
-import { initSettings, offerShortcut, showNews } from "./ui/settings.js";
+import { closeSettings, initSettings, isSettingsOpen, offerShortcut, showNews } from "./ui/settings.js";
 import { selectViewTab, setViewTabs } from "./ui/viewtabs.js";
 import { renderAsmPanel, renderAsmStructure, renderDrawingPanel, renderHeader, renderHtmlPanel, renderIptPanel, renderModel3dPanel, renderSpecPanel, setPanelMode } from "./ui/panel.js";
 import { startDialog } from "./ui/start.js";
@@ -126,6 +126,7 @@ const showNotice = (message) => showMessage("notice", message);
 /** 表示モード: empty（何も開いていない）・ipt（部品）・asm（組立）・html・spec（変換データ）。 */
 function setMode(mode) {
   dimEditor.close();
+  closeSettings(); // 設定のページを開いたままファイルを開いた（ドロップ・Ctrl+O）: 開いた物を見せる
   $("app").classList.toggle("is-html", mode === "html");
   $("app").classList.toggle("is-empty", mode === "empty");
   $("app").classList.toggle("is-drawing", mode === "drawing");
@@ -482,14 +483,14 @@ function showLayout(index) {
 
 // PageUp・PageDown で前・次のレイアウト（ページ）。図面を見ているときだけ（入力の欄・一覧を操作しているときは除く）
 addEventListener("keydown", (event) => {
-  if (!sheet || sheet.view !== "sheet" || !["PageUp", "PageDown"].includes(event.key) || event.target.closest?.("input, select, textarea")) return;
+  if (!sheet || sheet.view !== "sheet" || isSettingsOpen() || !["PageUp", "PageDown"].includes(event.key) || event.target.closest?.("input, select, textarea")) return;
   event.preventDefault();
   showLayout(sheet.layout + (event.key === "PageDown" ? 1 : -1));
 });
 
 // M で測る・Esc で 1 つ戻す（1 点目 → 測る → 選んだ図形）。図面の図を見ているときだけ（入力の欄の中は除く。MeasureTool.key）
 addEventListener("keydown", (event) => {
-  if (!dimEditor.isOpen && measureTool.key(event)) event.preventDefault();
+  if (!dimEditor.isOpen && !isSettingsOpen() && measureTool.key(event)) event.preventDefault();
 });
 
 /** 図面の図形の強調（読み出しの文と、画層の行の印） */
@@ -640,7 +641,7 @@ $("dim-save").addEventListener("click", async () => {
 
 // Ctrl+Z・Ctrl+Y（Ctrl+Shift+Z）で寸法の直しを取り消す・やり直す（数の欄の中は、欄の文字の取り消し）
 addEventListener("keydown", (event) => {
-  if (!dimEditor.isOpen || !(event.ctrlKey || event.metaKey) || event.target.closest?.("input, textarea, select")) return;
+  if (!dimEditor.isOpen || isSettingsOpen() || !(event.ctrlKey || event.metaKey) || event.target.closest?.("input, textarea, select")) return;
   const key = event.key.toLowerCase();
   if (key === "z" && !event.shiftKey) specEdits.undo();
   else if (key === "y" || (key === "z" && event.shiftKey)) specEdits.redo();

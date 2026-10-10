@@ -43,9 +43,12 @@ export const startDialog = {
     if (this.element.open) this.element.close();
   },
 
-  /** サンプルの一覧（種類ごと） */
+  /** サンプルの一覧（種類ごと）。配る形にはサンプルが無い（版を軽くするため）: そのときは、サンプルへの入口（始め方の
+   *  「サンプルで試す」・見出しバーのボタン）を出さない（受け取ったファイルが 2 つ以上なら、見出しバーの「受け取った n 件」から開ける） */
   setSamples(samples, onOpen) {
     $("start-samples").hidden = !samples.length;
+    $("welcome-samples").hidden = !samples.length;
+    $("show-start").hidden = !samples.length;
     $("sample-groups").replaceChildren(...KINDS.map(([kind, label, note, chip = kind]) => {
       const items = samples.filter((s) => kindOf(s.name) === kind);
       if (!items.length) return "";
