@@ -732,7 +732,7 @@ details.card.more summary .h-note { margin-inline-start: 8px; }
 .dim-label small { display: block; font-size: var(--fs-xs); color: var(--muted); }
 /* Inventor での呼び名の札（名前つきの値は青、参照寸法と対応なしは灰色。重ねると説明。案 I: docs/ui.md §21） */
 .dim-inv { display: inline-block; margin-inline-start: 6px; padding: 0 6px; border-radius: 5px; vertical-align: 1px;
-  font: 500 var(--fs-xs)/1.5 var(--font-num); color: var(--accent); background: var(--accent-soft); }
+  font: 500 var(--fs-xs)/1.5 var(--font-num); color: var(--accent-strong); background: var(--accent-soft); } /* 光らせた行（淡い青の地）の上でも 4.5 以上 */
 .dim-inv[data-kind="driven"], .dim-inv[data-kind="none"] { color: var(--muted); background: var(--surface-2); font-family: var(--font-ui); }
 .dim-field { display: inline-flex; align-items: baseline; gap: 4px; }
 .dim-field input { width: 88px; padding: 4px 8px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); color: var(--ink); font: 500 var(--fs-m) var(--font-num); text-align: right; }
