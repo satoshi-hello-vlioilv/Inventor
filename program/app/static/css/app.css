@@ -553,6 +553,8 @@ details.card.more summary .h-note { margin-inline-start: 8px; }
   display: grid; grid-template-columns: 264px minmax(0, 1fr); background: var(--bg);
 }
 .settings[hidden] { display: none; }
+/* 設定を開いている間、後ろの場所は描かない（触れない inert に加えて。大きさは変えないので、戻ったときに 3D を描き直さない） */
+.app.is-settings > :is(.stage, .side, .view-tabs, .source) { visibility: hidden; }
 .settings-nav { display: flex; flex-direction: column; gap: 14px; padding: 14px 12px; border-inline-end: 1px solid var(--rule); background: var(--surface); overflow: auto; }
 .settings-back { align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 4px 10px 4px 6px; }
 .settings-back svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
