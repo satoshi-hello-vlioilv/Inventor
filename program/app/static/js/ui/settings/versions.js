@@ -110,19 +110,22 @@ export const versions = {
     if (!u?.reachable) return u && !u.error ? { tone: "warn", text: "置き場に届かない" } : null;
     return u.release ? { tone: "ok", text: `${u.release.version} を配っている` } : { tone: "warn", text: "まだ配っていない" };
   },
+  /** 版を置く・残す数（管理できる人だけ。見出しと一緒に上に留める） */
+  toolbar(ctx) {
+    const u = ctx.update;
+    if (!u?.reachable || !u.canManage) return [];
+    const keep = el("label", "st-keep", "残す版の数 ");
+    const input = Object.assign(el("input"), { type: "number", min: "0", value: String(u.policy?.keep ?? 0), title: "版を置いたとき、新しい順にこの数だけ残す（配っている版と前に配った版は残す）" });
+    input.addEventListener("change", () => ctx.act(() => updateOp("policy", { keep: Math.max(0, Number(input.value) || 0) }), "残す版の数を変えました"));
+    keep.append(input, "（0 = 全て）");
+    return [button("ZIP から版を置く…", "primary", () => pick(ctx), ZIP_HINT), el("span", "st-lead", ZIP_HINT), keep];
+  },
   render(ctx) {
     const u = ctx.update;
     if (!u || u.error) return [el("p", "st-lead", u?.error ?? "読み込んでいます…")];
     if (!u.reachable) return [el("p", "st-lead", u.why ?? "置き場に届きません")];
     const out = [];
     if (u.canManage) {
-      const bar = el("div", "st-bar");
-      const keep = el("label", "st-keep", "残す版の数 ");
-      const input = Object.assign(el("input"), { type: "number", min: "0", value: String(u.policy?.keep ?? 0), title: "版を置いたとき、新しい順にこの数だけ残す（配っている版と前に配った版は残す）" });
-      input.addEventListener("change", () => ctx.act(() => updateOp("policy", { keep: Math.max(0, Number(input.value) || 0) }), "残す版の数を変えました"));
-      keep.append(input, "（0 = 全て）");
-      bar.append(button("ZIP から版を置く…", "primary", () => pick(ctx), ZIP_HINT), el("span", "st-lead", ZIP_HINT), keep);
-      out.push(bar);
       if (ctx.draft) {
         const box = el("div", "st-form");
         box.append(el("span", "", `置く ZIP: ${ctx.draft.path.split(/[\\/]/).pop()}`),

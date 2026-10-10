@@ -571,9 +571,14 @@ details.card.more summary .h-note { margin-inline-start: 8px; }
 .st-nav-text { display: flex; flex-direction: column; min-width: 0; }
 .st-nav-text b { font-size: var(--fs-m); font-weight: 600; }
 .st-nav-badge { display: flex; align-items: center; gap: 6px; font-size: var(--fs-xs); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.settings-main { min-width: 0; min-height: 0; overflow: auto; padding: 24px 32px 40px; display: flex; flex-direction: column; gap: 18px; }
+.settings-main { min-width: 0; min-height: 0; overflow: auto; padding: 0 32px 40px; display: flex; flex-direction: column; gap: 18px; }
 .settings-main > * { width: 100%; max-width: 1180px; box-sizing: border-box; }
-.settings-head h2 { margin: 2px 0 4px; font-size: var(--fs-xl); font-weight: 600; }
+/* 見出し・主の操作・知らせは上に留める（案 I）。下を流れる中身が透けすぎないよう、地の色をほぼ不透明に */
+.settings-main > .settings-head { position: sticky; top: 0; z-index: 2; display: flex; flex-direction: column; gap: 4px; max-width: none; width: calc(100% + 64px);
+  margin-inline: -32px; padding: 20px 32px 12px; background: color-mix(in srgb, var(--bg) 94%, transparent); backdrop-filter: blur(4px); border-bottom: 1px solid var(--rule-soft); }
+.settings-head > * { max-width: 1180px; }
+.settings-tools { margin-top: 10px; }
+.settings-head h2 { margin: 2px 0 2px; font-size: var(--fs-xl); font-weight: 600; }
 .settings-head .eyebrow { margin: 0; font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.04em; color: var(--muted); }
 .settings-lead { margin: 0; font-size: var(--fs-s); color: var(--muted); }
 .st-pane { display: flex; flex-direction: column; gap: 18px; }

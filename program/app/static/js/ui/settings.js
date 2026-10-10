@@ -120,6 +120,9 @@ function render() {
   renderNav(ctx, panes);
   $("settings-title").textContent = pane.label;
   $("settings-lead").textContent = pane.lead?.(ctx) ?? "";
+  const tools = (pane.toolbar?.(ctx) ?? []).filter(Boolean);
+  $("settings-tools").replaceChildren(...tools);
+  $("settings-tools").hidden = !tools.length;
   const m = $("settings-message");
   m.hidden = !state.message;
   if (state.message) {

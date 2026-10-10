@@ -5,6 +5,7 @@
 //   lead(ctx) → 区分の説明の 1 行,
 //   badge(ctx) → { tone: ok | warn | bad | idle, text } | null … 目次に出す、いまの状態（開かずに分かる）,
 //   visible?(ctx) → 出すか（役割など、人によって無い区分）,
+//   toolbar?(ctx) → [Node] … 区分の主の操作（見出しの下に置き、見出しと一緒に上に留める。区分が長くても見える）,
 //   render(ctx) → [Node] … 中身（null は飛ばす）,
 // }
 // ctx = { update, shortcut（窓の答え）, confirm, draft, publishing, message（区分の中の途中の状態）,

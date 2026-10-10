@@ -346,12 +346,14 @@
       <div id="settings-nav"></div>
     </nav>
     <div class="settings-main" id="settings-main">
+      <!-- 区分の見出し・主の操作（区分の toolbar）・知らせは上に留める（区分が長くても、名前と次にすることが見える。案 I: docs/ui.md §20） -->
       <header class="settings-head">
         <p class="eyebrow">設定</p>
         <h2 id="settings-title">概要</h2>
         <p class="settings-lead" id="settings-lead"></p>
+        <div class="st st-bar settings-tools" id="settings-tools" hidden></div>
+        <p class="st-message" id="settings-message" hidden></p>
       </header>
-      <p class="st-message" id="settings-message" hidden></p>
       <div class="st" id="settings-body"></div>
     </div>
   </section>
