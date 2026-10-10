@@ -1,4 +1,5 @@
 // 変換データの部品の寸法を直す欄（利用者が選んだ案 H: 小さな断面図に札。docs/ui.md §17）。
+//   寸法の名前の横に、Inventor で作った部品の中での呼び名の札（名前つきの値 D0_0・参照寸法「参照」・対応なし「—」。案 I: docs/ui.md §21）
 //   部品の行を押すと、部品の一覧がこの欄に切り替わる（← で戻る。3D は見えたまま）。
 //   寸法は置き場所（全体・外周・穴 n・断面）の見出しで分け、直せる寸法だけを並べる。直せない寸法は理由とともに畳む。
 //   行にカーソルを合わせる（欄に入る）と、断面図でその辺が光り、札（「直径 250」）が付く。
@@ -9,6 +10,7 @@
 //   open(部品の番号, 元の変換データ) / close() / refresh()（取り消し・やり直しの後）/ isOpen
 
 import { applyDimension, dimensionsOf, placeOf } from "../convert/dimensions.js";
+import { inventorNames } from "../convert/parametric.js";
 import { describeSpec } from "../convert/preview.js";
 import { sketchMarkup } from "./sketch.js";
 
@@ -32,6 +34,7 @@ export class DimensionEditor {
   #focus = null; // 光らせる寸法の id
   #error = null; // { id, message, text }（直せなかった値と理由）
   #linked = null; // 直前の直しで一緒に変わった寸法
+  #inventor = new Map(); // 寸法の id → Inventor での呼び名（convert/parametric.js の inventorNames）
 
   constructor({ history, getSpec, commit, onOpen = () => {}, onClose = () => {} }) {
     Object.assign(this, { history, getSpec, commit, onOpen, onClose });
@@ -96,6 +99,7 @@ export class DimensionEditor {
       return;
     }
     const editable = dims.filter((d) => d.editable), fixed = dims.filter((d) => !d.editable);
+    this.#inventor = inventorNames(part);
     if (!this.#focus || !editable.some((d) => d.id === this.#focus)) this.#focus = (editable.find((d) => focusOf(d)) ?? editable[0])?.id ?? null;
     // 置き場所ごとの見出しと行（寸法の一覧の順を保つ）
     const places = [...new Set(editable.map((d) => placeOf(d, part)))];
@@ -131,6 +135,15 @@ export class DimensionEditor {
     input.id = `dim-${dim.id}`;
     label.htmlFor = input.id;
     label.append(el("span", null, name));
+    const inv = this.#inventor.get(dim.id);
+    if (inv) {
+      // Inventor で作った部品の中での呼び名（名前つきの値・参照寸法・対応なし）
+      const tag = el("span", "dim-inv", inv.kind === "param" ? inv.name : inv.kind === "driven" ? "参照" : "—");
+      tag.dataset.kind = inv.kind;
+      tag.title = inv.kind === "param" ? `Inventor のパラメータ ${inv.name}（パラメータの表でこの値を直すと形が変わります）`
+        : inv.kind === "driven" ? "Inventor では参照寸法（向かいの辺から決まるので、直接は直せません）" : inv.note;
+      label.append(tag);
+    }
     if (note) label.append(el("small", null, note));
     const error = this.#error?.id === dim.id ? this.#error : null;
     input.value = error ? error.text : fmt(dim.value);
@@ -170,7 +183,9 @@ export class DimensionEditor {
     const part = this.getSpec().parts[this.#index];
     const dim = dimensionsOf(part).find((d) => d.id === this.#focus);
     const focus = dim && focusOf(dim);
-    const label = focus ? `${names(dim, placeOf(dim, part)).name} ${fmt(dim.value)}` : "";
+    // 札は「直径 250」。Inventor の名前つきの値なら「直径 250 · D0_0」（図でも、どのパラメータか分かる。案 I: docs/ui.md §21）
+    const inv = this.#inventor.get(dim?.id);
+    const label = focus ? `${names(dim, placeOf(dim, part)).name} ${fmt(dim.value)}${inv?.kind === "param" ? ` · ${inv.name}` : ""}` : "";
     $("dim-sketch").innerHTML = sketchMarkup(part.sketch.loops, { width: 400, height: 200, focus, label });
   }
 

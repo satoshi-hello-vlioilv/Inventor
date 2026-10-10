@@ -443,3 +443,26 @@ export function solveSketch(part, plan, values = {}) {
 }
 
 const arcsOf = (loops, segs) => segs.filter(([k, i]) => loops[k][i].type === "arc");
+
+/**
+ * 寸法の欄の寸法（dimensions.js の dimensionsOf の id）ごとに、Inventor で作った部品の中での呼び名（寸法の欄に出す）。
+ *   { kind: "param", name } … 名前つきの値（パラメータの表で、この名前の値を直すと形が変わる）
+ *   { kind: "driven" }      … 参照寸法（向かいの辺などから決まる。Inventor では直せない）
+ *   { kind: "none", note }  … Inventor に対応する値が無い（形を保って拡大・縮小・一周の回転の角度）
+ * 計画の無い部品（近似）は空
+ */
+export function inventorNames(part, plan = part.parametric ?? null) {
+  const out = new Map();
+  if (!plan) return out;
+  const params = new Set(plan.params.map((p) => p.name));
+  const driven = new Set(plan.dimensions.filter((d) => d.driven && d.seg).map((d) => `L${d.seg[0]}.${d.seg[1]}`));
+  for (const d of dimensionsOf(part)) {
+    const name = d.id.replace(".", "_");
+    if (params.has(name)) out.set(d.id, { kind: "param", name });
+    else if (driven.has(d.id)) out.set(d.id, { kind: "driven" });
+    else if (d.kind === "scale") out.set(d.id, { kind: "none", note: "Inventor では、それぞれの寸法を同じ割合で直します" });
+    else if (d.kind === "angle") out.set(d.id, { kind: "none", note: "一周の回転なので、Inventor に角度の値はありません" });
+    else out.set(d.id, { kind: "none", note: "Inventor に対応する値がありません" });
+  }
+  return out;
+}
