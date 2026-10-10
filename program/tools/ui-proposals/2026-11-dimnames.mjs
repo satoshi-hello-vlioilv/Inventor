@@ -88,4 +88,46 @@ export const PROPOSALS = [
     css: SUMMARY + CHIP,
     ops: [],
   },
+  // 2 回目（1 回目は A と F が僅差）: A を元に、F・D の良い所と、A の弱い所（対応なしの「—」が分かりにくい）を直した複合案 3 つ
+  {
+    key: "G",
+    name: "A′ 札は名前つきの値と参照だけ。対応なしは説明の行に理由",
+    css: CHIP + `
+      .dim-inv[data-kind="none"] { display: none; }
+      .dim-row[data-id="S"] .dim-label small::after { content: "・Inventor では各寸法を同じ割合で直します"; }
+      .dim-row[data-id="a"] .dim-label::after { content: "Inventor に角度の値はありません（一周）"; display: block; font-size: var(--fs-xs); color: var(--muted); }
+    `,
+    ops: [],
+  },
+  {
+    key: "H",
+    name: "A＋短い要約（取り消しの帯に「Inventor の値 5」の札）",
+    css: CHIP + `
+      .dim-bar .dim-inv-summary:not([hidden]) { display: inline-block; margin: 0; padding: 1px 8px; border-radius: 99px; font-size: var(--fs-xs);
+        color: var(--accent); background: var(--accent-soft); white-space: nowrap; }
+    `,
+    ops: [["script", WATCH("dim-groups", `() => {
+      const s = document.getElementById("dim-inventor");
+      const bar = document.querySelector(".dim-bar .dim-count");
+      if (!s || !bar) return;
+      if (s.parentElement !== bar.parentElement) bar.after(s);
+      const n = document.querySelectorAll("#dim-groups .dim-inv[data-kind='param']").length;
+      const text = "Inventor の値 " + n;
+      if (s.textContent !== text) { s.title = s.textContent; s.textContent = text; }
+    }`)]],
+  },
+  {
+    key: "I",
+    name: "A＋断面図の札にも名前（光っている寸法）",
+    css: CHIP,
+    ops: [["script", WATCH("dim-sketch", `() => {
+      const row = document.querySelector("#dim-groups .dim-row.is-focus");
+      const tag = row?.querySelector(".dim-inv[data-kind='param']");
+      const text = document.querySelector("#dim-sketch svg text:last-of-type");
+      if (!tag || !text || text.textContent.includes(" · ")) return;
+      text.textContent = text.textContent + " · " + tag.textContent;
+      const rect = text.previousElementSibling;
+      if (rect?.tagName === "rect") rect.setAttribute("width", String(Number(rect.getAttribute("width")) + 7 * (tag.textContent.length + 3)));
+    }`)]],
+  },
 ];
