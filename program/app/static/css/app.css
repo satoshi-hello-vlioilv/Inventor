@@ -730,6 +730,7 @@ details.card.more summary .h-note { margin-inline-start: 8px; }
 .dim-row.is-focus { background: var(--accent-soft); }
 .dim-label { min-width: 0; font-size: var(--fs-s); cursor: text; }
 .dim-label small { display: block; font-size: var(--fs-xs); color: var(--muted); }
+.dim-inv, .dim-inv-summary { display: none; } /* Inventor での呼び名（置き方は案の比較で決める: ui-proposals/2026-11-dimnames） */
 .dim-field { display: inline-flex; align-items: baseline; gap: 4px; }
 .dim-field input { width: 88px; padding: 4px 8px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); color: var(--ink); font: 500 var(--fs-m) var(--font-num); text-align: right; }
 .dim-field input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }

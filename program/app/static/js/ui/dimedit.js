@@ -9,6 +9,7 @@
 //   open(部品の番号, 元の変換データ) / close() / refresh()（取り消し・やり直しの後）/ isOpen
 
 import { applyDimension, dimensionsOf, placeOf } from "../convert/dimensions.js";
+import { inventorNames } from "../convert/parametric.js";
 import { describeSpec } from "../convert/preview.js";
 import { sketchMarkup } from "./sketch.js";
 
@@ -32,6 +33,7 @@ export class DimensionEditor {
   #focus = null; // 光らせる寸法の id
   #error = null; // { id, message, text }（直せなかった値と理由）
   #linked = null; // 直前の直しで一緒に変わった寸法
+  #inventor = new Map(); // 寸法の id → Inventor での呼び名（convert/parametric.js の inventorNames）
 
   constructor({ history, getSpec, commit, onOpen = () => {}, onClose = () => {} }) {
     Object.assign(this, { history, getSpec, commit, onOpen, onClose });
@@ -96,6 +98,10 @@ export class DimensionEditor {
       return;
     }
     const editable = dims.filter((d) => d.editable), fixed = dims.filter((d) => !d.editable);
+    this.#inventor = inventorNames(part);
+    const params = editable.map((d) => this.#inventor.get(d.id)).filter((n) => n?.kind === "param").map((n) => n.name);
+    $("dim-inventor").hidden = !params.length;
+    $("dim-inventor").textContent = params.length ? `Inventor の名前つきの値 ${params.length}: ${params.join("・")}（パラメータの表で直せます）` : "";
     if (!this.#focus || !editable.some((d) => d.id === this.#focus)) this.#focus = (editable.find((d) => focusOf(d)) ?? editable[0])?.id ?? null;
     // 置き場所ごとの見出しと行（寸法の一覧の順を保つ）
     const places = [...new Set(editable.map((d) => placeOf(d, part)))];
@@ -131,6 +137,15 @@ export class DimensionEditor {
     input.id = `dim-${dim.id}`;
     label.htmlFor = input.id;
     label.append(el("span", null, name));
+    const inv = this.#inventor.get(dim.id);
+    if (inv) {
+      // Inventor で作った部品の中での呼び名（名前つきの値・参照寸法・対応なし）
+      const tag = el("span", "dim-inv", inv.kind === "param" ? inv.name : inv.kind === "driven" ? "参照" : "—");
+      tag.dataset.kind = inv.kind;
+      tag.title = inv.kind === "param" ? `Inventor のパラメータ ${inv.name}（パラメータの表でこの値を直すと形が変わります）`
+        : inv.kind === "driven" ? "Inventor では参照寸法（向かいの辺から決まるので、直接は直せません）" : inv.note;
+      label.append(tag);
+    }
     if (note) label.append(el("small", null, note));
     const error = this.#error?.id === dim.id ? this.#error : null;
     input.value = error ? error.text : fmt(dim.value);

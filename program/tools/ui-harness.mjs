@@ -246,6 +246,10 @@ export const STATES = [
     await p.click("#parts li button"); await sleep(400);
     if (await p.$("#dim-D0\\.0")) { await p.fill("#dim-D0\\.0", "250"); await p.press("#dim-D0\\.0", "Enter"); await sleep(800); }
   }, "[data-next], #build"],
+  // 寸法の欄（穴の板: 名前つきの値・参照寸法（向かいの辺）・Inventor に対応の無い「形を保って拡大・縮小」が並ぶ）
+  ["dimedit-plate", async (p) => {
+    await openFile(p, FIXTURE("plate-holes")); await p.click("#parts li button"); await sleep(600);
+  }, "[data-next], #build"],
   // 図面の 3D ソリッド（ブロックの入れ子のある DWG）。再配布できるサンプルが無いので、手元のファイルを UI_SOLIDS_DWG で渡したときだけ撮る
   ...(process.env.UI_SOLIDS_DWG ? [["solids3d", async (p) => {
     await openFile(p, process.env.UI_SOLIDS_DWG);

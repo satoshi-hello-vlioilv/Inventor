@@ -4,13 +4,14 @@
 //      同じ形になる数が基準より減らない（平行な辺が 3 組以上の形・段のある回転体は、どの寸法を参照にしても全ては合わない。docs/editing.md §4）
 //   3. 例: 穴の板の名前つきの値・向かいの辺は参照寸法・押し出し / 回転 / 面取りの値の式
 //   4. 変換データ: 版 4 で計画を添える・古い版を読むと計画を作る・寸法を直すと計画を作り直す（直した形に合う）
+//   5. 寸法の欄の Inventor での呼び名: 直せる寸法は全て、名前つきの値・参照寸法・対応なしのどれかになり、名前は計画の値にある
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
-import { applyDimension } from "../../app/static/js/convert/dimensions.js";
+import { applyDimension, dimensionsOf } from "../../app/static/js/convert/dimensions.js";
 import { VERSION, readSpec } from "../../app/static/js/convert/inventor.js";
-import { parametricPlan, solveSketch } from "../../app/static/js/convert/parametric.js";
+import { inventorNames, parametricPlan, solveSketch } from "../../app/static/js/convert/parametric.js";
 import { checkPlan, checkSpec, shapeDifference } from "../../tools/parametric-check.mjs";
 import { ROOT } from "./helpers.mjs";
 
@@ -77,4 +78,27 @@ test("変換データ: 版 4 で計画を添える。古い版を読むと計画
   assert.equal(edited.parametric.params.find((p) => p.name === "L0_0").value, 25);
   assert.deepEqual(checkPlan(edited).problems, []);
   assert.deepEqual(parametricPlan(edited), edited.parametric);
+});
+
+test("寸法の欄の Inventor での呼び名: 名前つきの値・参照寸法（向かいの辺）・対応なし（形を保って拡大・縮小・一周の角度）", () => {
+  const plate = part("plate-holes.inventor.json");
+  const names = inventorNames(plate);
+  const of = (id) => names.get(id);
+  assert.deepEqual([of("t"), of("D1.0"), of("L0.0")].map((n) => n.name), ["t", "D1_0", "L0_0"]);
+  assert.deepEqual([of("L0.2").kind, of("L0.3").kind, of("S").kind], ["driven", "driven", "none"]);
+  const reel = load("reel.inventor.json").parts.find((p) => p.kind === "revolve" && p.revolve.angle_deg === 360);
+  assert.equal(inventorNames(reel).get("a").kind, "none", "一周の回転には角度の値が無い");
+  // 全ての試験の部品: 直せる寸法は呼び名を持ち、名前つきの値の名前は計画の値の名前にある
+  for (const file of FILES) {
+    for (const p of load(file).parts.filter((x) => x.parametric)) {
+      const map = inventorNames(p);
+      const params = new Set(p.parametric.params.map((x) => x.name));
+      for (const d of dimensionsOf(p).filter((x) => x.editable)) {
+        const n = map.get(d.id);
+        assert.ok(n, `${file} ${p.key} ${d.id}`);
+        if (n.kind === "param") assert.ok(params.has(n.name), `${file} ${p.key} ${n.name}`);
+      }
+    }
+  }
+  assert.equal(inventorNames({ kind: "mesh" }).size, 0, "近似の部品には呼び名が無い");
 });
