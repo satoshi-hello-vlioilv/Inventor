@@ -126,4 +126,40 @@ export const PROPOSALS = [
     `,
     ops: [],
   },
+  // 2 回目（1 回目は A と B が僅差）: A と B の良い所を合わせた複合案 3 つ
+  {
+    key: "G",
+    name: "A′ 目次を少し細く＋中身を幅いっぱい（B の広さ）",
+    css: `
+      .settings { grid-template-columns: 232px minmax(0, 1fr); }
+      .settings-main > * { max-width: none; }
+    `,
+    ops: [],
+  },
+  {
+    key: "H",
+    name: "B′ 上のタブに状態の点と短い文（A の状態）",
+    css: `
+      .settings { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+      .settings-nav { flex-direction: row; align-items: center; gap: 18px; padding: 6px 24px; border-inline-end: 0; border-bottom: 1px solid var(--rule); overflow: visible; }
+      .settings-back { align-self: center; }
+      #settings-nav { flex-direction: row; gap: 18px; }
+      .st-nav-group { flex-direction: row; align-items: center; gap: 4px; padding-inline-start: 18px; border-inline-start: 1px solid var(--rule); }
+      .st-nav-label { margin: 0 6px 0 0; padding: 0; }
+      .st-nav-item { width: auto; grid-template-columns: 18px auto; padding: 6px 12px; }
+      .st-nav-item[aria-current="page"] { box-shadow: inset 0 -3px 0 var(--accent); }
+    `,
+    ops: [],
+  },
+  {
+    key: "I",
+    name: "A″ 区分の見出しと主の操作を上に留める（長い区分でも操作が見える）",
+    css: `
+      .settings-main { padding-top: 0; }
+      .settings-head { position: sticky; top: 0; z-index: 2; margin-inline: -32px; padding: 18px 32px 12px; width: calc(100% + 64px); max-width: none;
+        background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(4px); border-bottom: 1px solid var(--rule-soft); }
+      .st-pane > .st-bar:first-child { position: sticky; top: 104px; z-index: 1; padding: 8px 0; background: var(--bg); }
+    `,
+    ops: [],
+  },
 ];
