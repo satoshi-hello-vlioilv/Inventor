@@ -8,14 +8,16 @@
 // 対称にするのは、Inventor の回転・押し出しの「正方向」の解釈に左右されない形にするため。
 // 面取り付きの押し出しは、STEP に厳密な面で書けないため、元の形の三角形（mesh）も添える（Inventor では面取りを厳密に作る）。
 // 同じ形の部品は 1 つにまとめ、取り込んだシーン内の配置（instances）を並べる。
+// 断面の部品には、Inventor で直せる部品にする計画（parametric: スケッチの拘束・寸法と名前つきの値。convert/parametric.js）を添える。
 
 import { add, cross, dot, length, mul, sub } from "../core/vec.js";
 import { pointAt } from "./recognize/mesh.js";
 import { chamferIntegrals, distanceToLoop, insideSection, loopIntegrals, offsetIntoMaterial } from "./recognize/geometry2d.js";
 import { selfIntersectionNote } from "./recognize/intersect.js";
+import { parametricPlan } from "./parametric.js";
 
 export const FORMAT = "inventor-builder";
-export const VERSION = 3; // 2: 押し出しの面取り（chamfers）、3: 近似の部品（kind: mesh）と STEP 用の三角形（mesh）
+export const VERSION = 4; // 2: 押し出しの面取り（chamfers）、3: 近似の部品（kind: mesh）と STEP 用の三角形（mesh）、4: 拘束・寸法・名前つきの値（parametric）
 
 /** float32 由来の誤差を除く: 0.001 mm の格子から 0.0001 mm 以内なら格子に合わせ、それ以外は 0.000001 mm に丸める。 */
 export function snapValue(v) {
@@ -376,7 +378,7 @@ export function buildInventorSpec(source, recognition) {
         expect: { volume: round(expect.volume), area: round(expect.area) },
         instances,
       };
-    }),
+    }).map(withPlan),
     skipped: [], // 版 2 までは近似の部品をここに数えた（版 3 からは mesh の部品として作る）
   };
 }
@@ -396,7 +398,24 @@ export function readSpec(text) {
   if (!(spec.version >= 1 && spec.version <= VERSION)) throw new Error(`この版（version ${spec.version}）には対応していません。アプリを新しくしてください`);
   if (spec.units !== "mm") throw new Error("単位は mm のみ対応しています");
   if (!Array.isArray(spec.parts)) throw new Error("部品（parts）がありません");
-  return { ...spec, source: spec.source ?? {}, skipped: spec.skipped ?? [] };
+  // 拘束の計画は、いまの断面から作り直す（古い版・手で直した断面でも、断面に合った計画にする）
+  return { ...spec, version: VERSION, source: spec.source ?? {}, skipped: spec.skipped ?? [], parts: spec.parts.map(withPlan) };
+}
+
+/** 部品に、いまの断面に合った拘束の計画（parametric）を添える（近似の部品は外す） */
+export function withPlan(part) {
+  const { parametric, ...rest } = part;
+  const plan = rest.kind !== "mesh" && rest.sketch?.loops ? safePlan(rest) : null;
+  return plan ? { ...rest, parametric: plan } : rest;
+}
+
+/** 計画を作れない断面（壊れた変換データなど）は、計画なしで作る（形は作れる） */
+function safePlan(part) {
+  try {
+    return parametricPlan(part);
+  } catch {
+    return null;
+  }
 }
 
 /** 変換データを読みやすい JSON 文字列にする（数値の配列は 1 行にまとめる）。 */

@@ -1,6 +1,6 @@
 {
  "format": "inventor-builder",
- "version": 3,
+ "version": 4,
  "units": "mm",
  "source": {
   "file": "LS4_parts_viewer.html",
@@ -109,7 +109,308 @@
      "y": [0, 0, 1],
      "z": [-1, 0, 0]
     }
-   ]
+   ],
+   "parametric": {
+    "params": [
+     {
+      "name": "R0_8",
+      "value": 2,
+      "unit": "mm",
+      "comment": "断面の角の丸み"
+     },
+     {
+      "name": "R0_10",
+      "value": 2,
+      "unit": "mm",
+      "comment": "断面の角の丸み"
+     },
+     {
+      "name": "L0_2",
+      "value": 48,
+      "unit": "mm",
+      "comment": "断面の軸方向の辺"
+     },
+     {
+      "name": "L0_12",
+      "value": 9,
+      "unit": "mm",
+      "comment": "断面の軸方向の辺"
+     },
+     {
+      "name": "L0_6",
+      "value": 9,
+      "unit": "mm",
+      "comment": "断面の軸方向の辺"
+     }
+    ],
+    "constraints": [
+     {
+      "type": "horizontal",
+      "seg": [0, 0]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 2]
+     },
+     {
+      "type": "horizontal",
+      "seg": [0, 4]
+     },
+     {
+      "type": "parallel",
+      "segs": [
+       [0, 1],
+       [0, 5]
+      ]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 6]
+     },
+     {
+      "type": "horizontal",
+      "seg": [0, 7]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 9]
+     },
+     {
+      "type": "horizontal",
+      "seg": [0, 11]
+     },
+     {
+      "type": "vertical",
+      "seg": [0, 12]
+     },
+     {
+      "type": "parallel",
+      "segs": [
+       [0, 3],
+       [0, 13]
+      ]
+     },
+     {
+      "type": "tangent",
+      "segs": [
+       [0, 7],
+       [0, 8]
+      ],
+      "point": {
+       "loop": 0,
+       "seg": 7,
+       "end": "b"
+      }
+     },
+     {
+      "type": "tangent",
+      "segs": [
+       [0, 8],
+       [0, 9]
+      ],
+      "point": {
+       "loop": 0,
+       "seg": 8,
+       "end": "b"
+      }
+     },
+     {
+      "type": "tangent",
+      "segs": [
+       [0, 9],
+       [0, 10]
+      ],
+      "point": {
+       "loop": 0,
+       "seg": 9,
+       "end": "b"
+      }
+     },
+     {
+      "type": "tangent",
+      "segs": [
+       [0, 10],
+       [0, 11]
+      ],
+      "point": {
+       "loop": 0,
+       "seg": 10,
+       "end": "b"
+      }
+     }
+    ],
+    "dimensions": [
+     {
+      "type": "angle",
+      "segs": [
+       [0, 0],
+       [0, 13]
+      ],
+      "value": 45,
+      "name": "A0_0",
+      "text": [104.231099, -25],
+      "driven": false
+     },
+     {
+      "type": "angle",
+      "segs": [
+       [0, 1],
+       [0, 0]
+      ],
+      "value": 45,
+      "name": "A0_1",
+      "text": [121.284732, -22.715268],
+      "driven": false
+     },
+     {
+      "type": "radius",
+      "seg": [0, 8],
+      "value": 2,
+      "text": [112, 18.231099],
+      "expression": "R0_8",
+      "driven": false
+     },
+     {
+      "type": "radius",
+      "seg": [0, 10],
+      "value": 2,
+      "text": [117.231099, -13],
+      "expression": "R0_10",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 2],
+      "value": 48,
+      "text": [123.231099, 0],
+      "expression": "L0_2",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 12],
+      "value": 9,
+      "text": [96.768901, -19.5],
+      "expression": "L0_12",
+      "driven": false
+     },
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 2,
+       "end": "a"
+      },
+      "value": 120,
+      "text": [120, -3.231099],
+      "name": "D0_2",
+      "driven": false
+     },
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 6,
+       "end": "a"
+      },
+      "value": 100,
+      "text": [100, 16.268901],
+      "name": "D0_6",
+      "driven": false
+     },
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 12,
+       "end": "a"
+      },
+      "value": 100,
+      "text": [100, -22.731099],
+      "driven": false
+     },
+     {
+      "type": "x",
+      "sign": 1,
+      "point": {
+       "loop": 0,
+       "seg": 9,
+       "end": "a"
+      },
+      "value": 114,
+      "text": [114, -3.231099],
+      "name": "D0_9",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 1],
+      "value": 1.4142135623730951,
+      "text": [121.784732, -26.784732],
+      "name": "L0_1",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 3],
+      "value": 1.4142135623730951,
+      "text": [121.784732, 26.784732],
+      "name": "L0_3",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 5],
+      "value": 1.4142135623730951,
+      "text": [98.215268, 26.784732],
+      "name": "L0_5",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 13],
+      "value": 1.4142135623730951,
+      "text": [98.215268, -26.784732],
+      "name": "L0_13",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 6],
+      "value": 9,
+      "text": [96.768901, 19.5],
+      "expression": "L0_6",
+      "driven": false
+     },
+     {
+      "type": "length",
+      "seg": [0, 9],
+      "value": 26,
+      "text": [110.768901, 0],
+      "driven": true
+     },
+     {
+      "type": "y",
+      "sign": -1,
+      "point": {
+       "loop": 0,
+       "seg": 0,
+       "end": "a"
+      },
+      "value": 25,
+      "text": [97.768901, -25],
+      "name": "P0Y",
+      "driven": false
+     }
+    ],
+    "features": {
+     "chamfers": []
+    },
+    "free": 0
+   }
   }
  ],
  "skipped": []

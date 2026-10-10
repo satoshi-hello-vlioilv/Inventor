@@ -44,7 +44,7 @@ Node のテストでそのまま確かめる。
 | `formats/` | 形式ごとの読み取り（`ipt/`・`iam/`・`step/`）と、入口 `open.js`（形式の判定・モデルへの読み込み・利用者に見せる説明） |
 | `model/` | 形式によらない面・稜線: 曲線の計算とサンプリング（`curves.js`）、寸法の要約（`summary.js`）、表示用の面（`scene.js`） |
 | `html/` | three.js の HTML を隔離した iframe で動かし、表示中の形状を取り出す |
-| `convert/` | 単位（`units.js`）、メッシュの認識（`recognize/`: 立体に閉じる `shells.js`・回転体・押し出し・元の形との照らし合わせ・自己交差 `intersect.js`）と変換データ（`inventor.js`）、変換データの 3D 表示と説明（`preview.js`） |
+| `convert/` | 単位（`units.js`）、メッシュの認識（`recognize/`: 立体に閉じる `shells.js`・回転体・押し出し・元の形との照らし合わせ・自己交差 `intersect.js`）と変換データ（`inventor.js`）、変換データの 3D 表示と説明（`preview.js`）、寸法を直す（`dimensions.js`）、Inventor で直せる部品の拘束の計画（`parametric.js`） |
 | `viewer/` | 三角形分割・3D 表示・面と部品の説明 |
 | `ui/`・`desktop.js`・`main.js` | 次にすることの決め方（`flow.js`）・段階の帯（`steps.js`）・右の欄・サンプルの一覧・ファイルの受け付け・変換の節・シーンの単位（`units.js`）・「CAD ファイルを作る」（`build.js`）、窓（exe）とのやりとり、全体の連動 |
 
@@ -185,6 +185,7 @@ Node のテストでそのまま確かめる。
 - **変換データ**（`convert/inventor.js`）: 部品ごとに、断面スケッチ（直線・円弧・円）、回転／押し出しの指定、
   取り込んだシーン内の配置、体積・表面積の期待値を持つ。同じ形の部品は 1 つにまとめる（リール 459 部品 → 25 種類）。
   float32 由来の誤差を丸めるので、断面の座標は設計値（101・−25・R2 の中心 112, 13 など）そのものになる。
+  断面の部品には、Inventor で直せる部品にする計画（`convert/parametric.js`: 完全拘束にする幾何拘束・寸法拘束と名前つきの値。[editing.md](editing.md) §4）を添える。
 - **ビルダー**（`ipt_build/`、Python + pywin32）: Inventor API で部品と組立を作り、次の 2 つで結果を確かめる。
   1. Inventor が計算した体積・表面積 ⇔ 期待値（断面からの厳密計算）
   2. Inventor が計算したボディの外接箱（`SurfaceBody.PreciseRangeBox`。`RangeBox` は囲むことしか保証しない）⇔ 変換データから計算した外接箱。

@@ -51,6 +51,7 @@ class BuildRun:
                     "area": {"expect": r.part.expect_area, "inventor": r.area, "diff": r.area_diff},
                     "extent": {"ok": r.extent_check, "detail": r.extent_detail},
                     "instances": len(r.part.instances), "notes": [*r.part.notes, *r.notes],
+                    "parametric": r.parametric,  # 名前つきの値・拘束・寸法の数と、付けられなかったもの（版 4 の変換データ）
                 }
                 for r in self.results
             ],

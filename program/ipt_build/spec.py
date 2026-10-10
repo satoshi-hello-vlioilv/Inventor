@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 FORMAT = "inventor-builder"
-VERSIONS = (1, 2, 3)  # 2: 押し出しの面取り（chamfers）、3: 近似の部品（kind: mesh）と STEP 用の三角形（mesh）
+VERSIONS = (1, 2, 3, 4)  # 2: 押し出しの面取り（chamfers）、3: 近似の部品（kind: mesh）と STEP 用の三角形（mesh）、4: 拘束・寸法・名前つきの値（parametric）
 SAMPLES_PER_TURN = 16384  # 面取りの計算で円弧を折れ線にする細かさ（1 周の分割数）
 
 Point2 = tuple[float, float]
@@ -84,6 +84,20 @@ class Mesh:
 
 
 @dataclass(frozen=True)
+class Parametric:
+    """Inventor で直せる部品にする計画（アプリの convert/parametric.js が作る）。ビルダーはこの順に付ける:
+    ユーザー パラメータ（params）→ 幾何拘束（constraints）→ 寸法拘束（dimensions）→ フィーチャの値の式（distance・angle・chamfers）"""
+
+    params: tuple[dict, ...]  # {name, value, unit: mm | deg, comment}
+    constraints: tuple[dict, ...]  # {type: horizontal | vertical | parallel | tangent | onAxis, seg | segs | point, axis?}
+    dimensions: tuple[dict, ...]  # {type: diameter | radius | length | angle | x | y, seg | segs | point, value, text, expression? | name?, driven}
+    distance: str | None = None  # 押し出しの長さの式（パラメータの名前）
+    angle: str | None = None  # 回転の角度の式（360° 未満のとき）
+    chamfers: tuple[str, ...] = ()  # 面取りごとの大きさの式（chamfers と同じ順）
+    free: int = 0  # 拘束が足りない自由度の数（0 = 完全拘束）
+
+
+@dataclass(frozen=True)
 class Part:
     key: str
     name: str
@@ -97,6 +111,7 @@ class Part:
     chamfers: tuple[Chamfer, ...] = ()
     mesh: Mesh | None = None  # 近似の部品の形。面取り付きの押し出しでは STEP 用の代わりの形
     notes: tuple[str, ...] = ()  # アプリが見つけた注意（元の形が自分と交わる、など）
+    parametric: Parametric | None = None  # 版 4 から。無ければ寸法・拘束を付けずに作る
 
     @property
     def full_revolve(self) -> bool:
@@ -179,7 +194,9 @@ def _part(raw: dict) -> Part:
             if s.type == "circle" or math.dist(s.b, nxt.a) > 1e-6:
                 raise SpecError(f"{key} のループ {i}: {j} 番目の終点が次の始点とつながっていません")
     chamfers = tuple(_chamfer(c, key, kind, loops, raw) for c in raw.get("chamfers", []))
+    parametric = _parametric(raw.get("parametric"), key, loops, chamfers)
     return Part(
+        parametric=parametric,
         chamfers=chamfers,
         key=key,
         name=str(raw.get("name", key)),
@@ -193,6 +210,67 @@ def _part(raw: dict) -> Part:
         mesh=_mesh(raw.get("mesh"), key),
         notes=_notes(raw),
     )
+
+
+NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")  # Inventor のパラメータの名前
+DIMENSION_TYPES = ("diameter", "radius", "length", "angle", "x", "y")
+CONSTRAINT_TYPES = ("horizontal", "vertical", "parallel", "tangent", "onAxis")
+
+
+def _parametric(raw, key: str, loops, chamfers) -> Parametric | None:
+    """拘束の計画を確かめて読む（断面の部分・点の番号が断面の中にあるか・名前が使えるか・式の名前があるか）。"""
+    if raw is None:
+        return None
+    where = f"{key} の拘束の計画"
+    if not isinstance(raw, dict):
+        raise SpecError(f"{where}: 形式が違います")
+
+    def seg(ref) -> None:
+        if not (isinstance(ref, list) and len(ref) == 2 and all(isinstance(v, int) for v in ref)
+                and 0 <= ref[0] < len(loops) and 0 <= ref[1] < len(loops[ref[0]])):
+            raise SpecError(f"{where}: 断面の部分 {ref!r} がありません")
+
+    def point(ref) -> None:
+        if not isinstance(ref, dict) or ref.get("end") not in ("a", "b", "center"):
+            raise SpecError(f"{where}: 点 {ref!r} の形式が違います")
+        seg([ref.get("loop"), ref.get("seg")])
+
+    params = tuple(raw.get("params", []))
+    names = set()
+    for p in params:
+        if not (isinstance(p, dict) and isinstance(p.get("name"), str) and NAME.match(p["name"]) and isinstance(p.get("value"), (int, float))
+                and p.get("unit") in ("mm", "deg")):
+            raise SpecError(f"{where}: 名前つきの値 {p!r} の形式が違います")
+        names.add(p["name"])
+    constraints = tuple(raw.get("constraints", []))
+    for c in constraints:
+        if not isinstance(c, dict) or c.get("type") not in CONSTRAINT_TYPES:
+            raise SpecError(f"{where}: 拘束 {c!r} は扱えません")
+        for ref in ([c["seg"]] if "seg" in c else c.get("segs", [])):
+            seg(ref)
+        if "point" in c:
+            point(c["point"])
+    dimensions = tuple(raw.get("dimensions", []))
+    for d in dimensions:
+        if not isinstance(d, dict) or d.get("type") not in DIMENSION_TYPES or not isinstance(d.get("value"), (int, float)):
+            raise SpecError(f"{where}: 寸法 {d!r} は扱えません")
+        for ref in ([d["seg"]] if "seg" in d else d.get("segs", [])):
+            seg(ref)
+        if "point" in d:
+            point(d["point"])
+        expression = d.get("expression")
+        if expression is not None and expression.split(" ")[0] not in names:
+            raise SpecError(f"{where}: 寸法の式 {expression!r} の名前がありません")
+        if d.get("name") is not None and not NAME.match(d["name"]):
+            raise SpecError(f"{where}: 名前 {d['name']!r} は使えません")
+    features = raw.get("features", {}) or {}
+    chamfer_names = tuple(features.get("chamfers", []))
+    used = [n for n in (features.get("distance"), features.get("angle"), *chamfer_names) if n is not None]
+    if any(n not in names for n in used):
+        raise SpecError(f"{where}: フィーチャの値の名前がありません")
+    if chamfer_names and len(chamfer_names) != len(chamfers):
+        raise SpecError(f"{where}: 面取りの値の数が面取りの数と違います")
+    return Parametric(params, constraints, dimensions, features.get("distance"), features.get("angle"), chamfer_names, int(raw.get("free", 0)))
 
 
 def _notes(raw: dict) -> tuple[str, ...]:

@@ -14,9 +14,9 @@
 //   - 外形の幅・外径 … 断面を相似に拡大・縮小（全ての角度を保つ。斜めの辺が多い形の大きさはこれで直す）
 //   - 厚さ（押し出し）・回転の角度・面取り … その値だけ
 // 直した後に checkPart で確かめ（ループが閉じている・自分と交わらない・穴が外周の内・軸をまたがない・面取りが入る）、
-// 体積と表面積の期待値（expect）と、STEP 用の三角形（mesh。厳密な面で書けない形のとき）を作り直す。
+// 体積と表面積の期待値（expect）と、STEP 用の三角形（mesh。厳密な面で書けない形のとき）と、拘束の計画（parametric）を作り直す。
 
-import { expectedProperties, needsStepMesh } from "./inventor.js";
+import { expectedProperties, needsStepMesh, withPlan } from "./inventor.js";
 import { sampleLoop, solidMesh } from "./preview.js";
 import { chamferIntegrals } from "./recognize/geometry2d.js";
 
@@ -237,7 +237,7 @@ function refreshed(part) {
   const { mesh, ...rest } = part;
   const next = needsStepMesh(shape) ? { ...rest, mesh: solidMesh(rest) } : rest;
   const expect = expectedProperties(shapeOf({ ...next, mesh: undefined }));
-  return { ...next, expect: { volume: Math.round(expect.volume * 1e6) / 1e6, area: Math.round(expect.area * 1e6) / 1e6 } };
+  return withPlan({ ...next, expect: { volume: Math.round(expect.volume * 1e6) / 1e6, area: Math.round(expect.area * 1e6) / 1e6 } });
 }
 
 /**
@@ -259,6 +259,24 @@ export function applyDimension(part, id, value) {
   const changed = dims.filter((d) => d.id !== id && after.has(d.id) && Math.abs(after.get(d.id).value - d.value) > 1e-9)
     .map((d) => ({ id: d.id, label: d.label, before: d.value, after: after.get(d.id).value }));
   return { part: refreshed(next), changed };
+}
+
+/**
+ * 寸法 id を value にしたとき、一緒に変わるほかの寸法の id（形の確かめ・期待値の計算はしない。直せなければ null）。
+ * Inventor で直せる部品の計画（convert/parametric.js）が、どの寸法を参照寸法にするかを選ぶのに使う
+ */
+export function companions(part, id, value) {
+  const dims = dimensionsOf(part);
+  const dim = dims.find((d) => d.id === id);
+  if (!dim?.editable) return null;
+  let next;
+  try {
+    next = edited(part, dim, value);
+  } catch {
+    return null;
+  }
+  const after = new Map(dimensionsOf(next).map((d) => [d.id, d.value]));
+  return dims.filter((d) => d.id !== id && after.has(d.id) && Math.abs(after.get(d.id) - d.value) > 1e-9).map((d) => d.id);
 }
 
 // ---- 作れる形か -----------------------------------------------------------------------------

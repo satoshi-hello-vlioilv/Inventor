@@ -8,6 +8,9 @@
                等距離の面取り（ChamferFeatures.AddUsingDistance）をかける。同じ大きさの面取りは 1 つのフィーチャにまとめる
 対称にするのは、回転・押し出しの「正方向」の解釈に左右されず、変換データと同じ形にするため。
     近似     … 三角形のままの部品は、その部品だけの STEP（step.py が書いたもの）を Inventor で開き、.ipt として保存する
+直せる部品（変換データの版 4 の parametric）… 断面に幾何拘束・寸法拘束を付けて完全拘束にし、寸法の値・押し出しの長さ・回転の角度・
+               面取りの大きさを、名前つきの値（ユーザー パラメータ。アプリの寸法の欄と同じ名前）の式にする。Inventor でその値を変えると形が変わる。
+               付けられない拘束・寸法があっても、形はそのまま作る（作った形は同じ。知らせに数と理由を残す）
 
 Inventor API の長さの単位は cm、角度はラジアン。mm → cm の換算はこのモジュールの中だけで行う。
 作った部品の体積・表面積・外接箱を Inventor に計算させ、変換データの期待値と照合する。
@@ -35,7 +38,10 @@ K_ASSEMBLY_DOCUMENT = 12291  # DocumentTypeEnum.kAssemblyDocumentObject
 K_JOIN = 20481  # PartFeatureOperationEnum.kJoinOperation
 K_SYMMETRIC = 20995  # PartFeatureExtentDirectionEnum.kSymmetricExtentDirection
 XY_PLANE = 3  # 原点の作業平面: 1 = YZ, 2 = XZ, 3 = XY
-Y_AXIS = 2  # 原点の作業軸: 1 = X, 2 = Y, 3 = Z
+X_AXIS, Y_AXIS = 1, 2  # 原点の作業軸: 1 = X, 2 = Y, 3 = Z
+ORIGIN = 1  # 原点の作業点
+# DimensionOrientationEnum（寸法の向き。実物の Inventor ではまだ確かめていない。docs/inventor-builder.md §5）
+K_HORIZONTAL_DIM, K_VERTICAL_DIM, K_ALIGNED_DIM = 19201, 19202, 19203
 
 PROG_ID = "Inventor.Application"
 # Inventor が起動中・処理中で呼び出しを受け付けない（COM の RPC_E_CALL_REJECTED・RPC_E_SERVERCALL_RETRYLATER）。待ってやり直す
@@ -52,6 +58,7 @@ def cm(value_mm: float) -> float:
 
 def describe(part: Part) -> str:
     """iProperties の「説明」に入れる文。"""
+    named = f"・名前つきの値 {len(part.parametric.params)}" if part.parametric and part.parametric.params else ""
     if part.kind == "mesh":
         return f"近似（三角形 {len(part.mesh.triangles)} 枚のまま。円は多角形）（three.js から変換）"
     counts: dict[str, int] = {}
@@ -61,7 +68,7 @@ def describe(part: Part) -> str:
     section = "・".join(f"{SEGMENT_LABEL[k]} {v}" for k, v in counts.items())
     extent = f"{part.angle_deg:g}°" if part.kind == "revolve" else f"長さ {part.distance:g} mm"
     chamfer = "".join(f"・面取り C{d:g}（縁 {sum(c.distance == d for c in part.chamfers)} か所）" for d in sorted({c.distance for c in part.chamfers}))
-    return f"{KIND_LABEL[part.kind]} {extent}{chamfer}／断面 {section}（three.js から変換）"
+    return f"{KIND_LABEL[part.kind]} {extent}{chamfer}／断面 {section}{named}（three.js から変換）"
 
 
 @dataclass
@@ -74,6 +81,7 @@ class PartResult:
     extent_check: bool | None = None  # 外接箱の確認（None = 確認できない）
     extent_detail: str = ""
     notes: list[str] = field(default_factory=list)
+    parametric: dict | None = None  # 付けた名前つきの値・拘束・寸法の数と、付けられなかったもの（ParametricLog.summary）
 
     @property
     def volume_diff(self) -> float | None:
@@ -102,6 +110,27 @@ def com_error_text(error: Exception) -> str:
     return str(error)
 
 
+class ParametricLog:
+    """直せる部品にした結果: 作った名前つきの値・付けた拘束と寸法の数・付けられなかったもの"""
+
+    def __init__(self, plan):
+        self.plan = plan
+        self.created: set[str] = set()
+        self.constraints = self.dimensions = self.driven = 0
+        self.failed: list[str] = []
+
+    def fail(self, what: str, error: Exception) -> None:
+        self.failed.append(f"{what}: {com_error_text(error)}")
+
+    def value(self, name: str | None, number: float):
+        """フィーチャの値: 名前つきの値を作れていれば、その名前（式）。無ければ数（cm・ラジアン）"""
+        return name if name and name in self.created else number
+
+    def summary(self) -> dict:
+        return {"params": len(self.created), "constraints": self.constraints, "dimensions": self.dimensions, "driven": self.driven,
+                "free": self.plan.free, "failed": self.failed}
+
+
 class Builder:
     def __init__(self, app, part_template: str | None = None, assembly_template: str | None = None):
         self.app = app
@@ -123,12 +152,14 @@ class Builder:
         start, end = entity.StartSketchPoint, entity.EndSketchPoint
         return (start, end) if self._at(end, s.b) <= self._at(start, s.b) else (end, start)
 
-    def draw_loop(self, sketch, loop: tuple[Segment, ...]) -> None:
-        """1 つのループを、隣どうしで端点（スケッチ点）を共有する直線・円弧で描く。"""
+    def draw_loop(self, sketch, loop: tuple[Segment, ...]) -> list[dict]:
+        """1 つのループを、隣どうしで端点（スケッチ点）を共有する直線・円弧で描く。
+        部分ごとに {entity, a, b, center}（作った線と、s.a 側・s.b 側の端・中心のスケッチ点）を返す（拘束を付けるのに使う）"""
         if len(loop) == 1 and loop[0].type == "circle":
             s = loop[0]
-            sketch.SketchCircles.AddByCenterRadius(self._point(s.center), cm(s.radius))
-            return
+            circle = sketch.SketchCircles.AddByCenterRadius(self._point(s.center), cm(s.radius))
+            return [{"entity": circle, "a": None, "b": None, "center": circle.CenterSketchPoint}]
+        drawn = []
         first = previous = None
         for i, s in enumerate(loop):
             start = previous if previous is not None else self._point(s.a)
@@ -138,9 +169,11 @@ class Builder:
             else:
                 entity = sketch.SketchArcs.AddByCenterStartEndPoint(self._point(s.center), start, end, s.ccw)
             head, tail = self._ends(entity, s)
+            drawn.append({"entity": entity, "a": head, "b": tail, "center": entity.CenterSketchPoint if s.type == "arc" else None})
             if first is None:
                 first = head
             previous = tail
+        return drawn
 
     # ---- 面取り -----------------------------------------------------------------
     @staticmethod
@@ -160,12 +193,12 @@ class Builder:
             selected += [e for e, p in zip(edges, points) if distance_to_loop(p[:2], loop) <= EDGE_TOL]
         return selected
 
-    def add_chamfers(self, definition, part: Part) -> None:
-        """同じ大きさの面取りを 1 つのフィーチャにする。稜線は大きさごとに、その時点のボディから選び直す
-        （フィーチャを足すと形が作り直され、前に取り出した稜線は使えなくなる）"""
-        by_distance: dict[float, list] = {}
-        for chamfer in part.chamfers:
-            by_distance.setdefault(chamfer.distance, []).append(chamfer)
+    def add_chamfers(self, definition, part: Part, values: list | None = None) -> None:
+        """同じ値の面取りを 1 つのフィーチャにする（values: 面取りごとの値。名前つきの値の式なら面取りごとに別の値なので、1 つずつ）。
+        稜線は値ごとに、その時点のボディから選び直す（フィーチャを足すと形が作り直され、前に取り出した稜線は使えなくなる）"""
+        by_distance: dict = {}
+        for chamfer, value in zip(part.chamfers, values or [cm(c.distance) for c in part.chamfers]):
+            by_distance.setdefault(value, []).append(chamfer)
         for distance, chamfers in by_distance.items():
             body = definition.SurfaceBodies.Item(1)
             collection = self.app.TransientObjects.CreateEdgeCollection()
@@ -175,7 +208,7 @@ class Builder:
                     raise RuntimeError(f"面取りする稜線が見つかりません（{chamfer.label}）")
                 for edge in edges:
                     collection.Add(edge)
-            definition.Features.ChamferFeatures.AddUsingDistance(collection, cm(distance))
+            definition.Features.ChamferFeatures.AddUsingDistance(collection, distance)
 
     # ---- 部品 -------------------------------------------------------------------
     def build_part(self, part: Part, out_dir: Path) -> PartResult:
@@ -190,23 +223,33 @@ class Builder:
                 return self._finish(doc, doc.ComponentDefinition, part, out_dir, result)
             doc = self.app.Documents.Add(K_PART_DOCUMENT, self.part_template, True)
             definition = doc.ComponentDefinition
+            log = ParametricLog(part.parametric)
+            if part.parametric:
+                self.add_parameters(definition, part.parametric, log)
             sketch = definition.Sketches.Add(definition.WorkPlanes.Item(XY_PLANE))
-            for loop in part.loops:
-                self.draw_loop(sketch, loop)
+            drawn = [self.draw_loop(sketch, loop) for loop in part.loops]
+            if part.parametric:
+                self.constrain(definition, sketch, part.parametric, drawn, log)
             profile = sketch.Profiles.AddForSolid()
             features = definition.Features
+            plan = part.parametric
             if part.kind == "revolve":
                 axis = definition.WorkAxes.Item(Y_AXIS)
                 if part.full_revolve:
                     features.RevolveFeatures.AddFull(profile, axis, K_JOIN)
                 else:
-                    features.RevolveFeatures.AddByAngle(profile, axis, math.radians(part.angle_deg), K_SYMMETRIC, K_JOIN)
+                    angle = log.value(plan and plan.angle, math.radians(part.angle_deg))
+                    features.RevolveFeatures.AddByAngle(profile, axis, angle, K_SYMMETRIC, K_JOIN)
             else:
                 extrude = features.ExtrudeFeatures.CreateExtrudeDefinition(profile, K_JOIN)
-                extrude.SetDistanceExtent(cm(part.distance), K_SYMMETRIC)
+                extrude.SetDistanceExtent(log.value(plan and plan.distance, cm(part.distance)), K_SYMMETRIC)
                 features.ExtrudeFeatures.Add(extrude)
                 if part.chamfers:
-                    self.add_chamfers(definition, part)
+                    names = plan.chamfers if plan and plan.chamfers else [None] * len(part.chamfers)
+                    self.add_chamfers(definition, part, [log.value(n, cm(c.distance)) for n, c in zip(names, part.chamfers)])
+            result.parametric = log.summary() if part.parametric else None
+            if log.failed:
+                result.notes.append(f"寸法・拘束のうち {len(log.failed)} 個を付けられませんでした（形は同じ。最初の理由: {log.failed[0]}）")
             return self._finish(doc, definition, part, out_dir, result)
         except Exception as error:  # noqa: BLE001 — 1 部品の失敗で全体を止めない
             result.error = com_error_text(error)
@@ -217,6 +260,77 @@ class Builder:
                 except Exception:  # noqa: BLE001
                     result.notes.append("部品を閉じられませんでした")
         return result
+
+    # ---- 直せる部品（拘束・寸法・名前つきの値） -----------------------------------------
+    def add_parameters(self, definition, plan, log: ParametricLog) -> None:
+        """名前つきの値（ユーザー パラメータ）を作る。作れなかった名前は、式の代わりに数を使う（log.value）"""
+        user = definition.Parameters.UserParameters
+        for p in plan.params:
+            try:
+                parameter = user.AddByExpression(p["name"], f"{p['value']:.12g} {p['unit']}", p["unit"])
+                parameter.Comment = p.get("comment", "")
+                log.created.add(p["name"])
+            except Exception as error:  # noqa: BLE001 — 付けられなくても形は作る
+                log.fail(f"名前つきの値 {p['name']}", error)
+
+    def constrain(self, definition, sketch, plan, drawn: list[list[dict]], log: ParametricLog) -> None:
+        """計画の幾何拘束・寸法拘束を付ける（1 つずつ。付けられないものは数えて飛ばす）"""
+        projected: dict[str, object] = {}
+
+        def project(key: str, item):
+            if key not in projected:
+                projected[key] = sketch.AddByProjectingEntity(item)
+            return projected[key]
+
+        origin = lambda: project("origin", definition.WorkPoints.Item(ORIGIN))  # noqa: E731
+        axis = lambda name: project(name, definition.WorkAxes.Item(X_AXIS if name == "x" else Y_AXIS))  # noqa: E731
+        entity = lambda ref: drawn[ref[0]][ref[1]]["entity"]  # noqa: E731
+        point = lambda ref: drawn[ref["loop"]][ref["seg"]][ref["end"]]  # noqa: E731
+        gc, dc = sketch.GeometricConstraints, sketch.DimensionConstraints
+        for c in plan.constraints:
+            try:
+                kind = c["type"]
+                if kind == "horizontal":
+                    gc.AddHorizontal(entity(c["seg"]))
+                elif kind == "vertical":
+                    gc.AddVertical(entity(c["seg"]))
+                elif kind == "parallel":
+                    gc.AddParallel(*(entity(s) for s in c["segs"]))
+                elif kind == "tangent":
+                    gc.AddTangent(*(entity(s) for s in c["segs"]))
+                else:  # onAxis: 原点の軸の上（axis "y" = Y 軸の上 = X が 0）
+                    gc.AddCoincident(point(c["point"]), axis(c["axis"]))
+                log.constraints += 1
+            except Exception as error:  # noqa: BLE001
+                log.fail(f"拘束 {c['type']}", error)
+        for d in plan.dimensions:
+            try:
+                text = self._point(d["text"])
+                driven = bool(d.get("driven"))
+                kind = d["type"]
+                if kind == "diameter":
+                    dim = dc.AddDiameter(entity(d["seg"]), text, driven)
+                elif kind == "radius":
+                    dim = dc.AddRadius(entity(d["seg"]), text, driven)
+                elif kind == "length":
+                    line = drawn[d["seg"][0]][d["seg"][1]]
+                    dim = dc.AddTwoPointDistance(line["a"], line["b"], K_ALIGNED_DIM, text, driven)
+                elif kind in ("x", "y"):
+                    dim = dc.AddTwoPointDistance(origin(), point(d["point"]), K_HORIZONTAL_DIM if kind == "x" else K_VERTICAL_DIM, text, driven)
+                else:  # angle: 2 本の直線（1 本なら X 軸から）
+                    lines = [entity(s) for s in d["segs"]]
+                    dim = dc.AddTwoLineAngle(lines[0], lines[1] if len(lines) > 1 else axis("x"), text, driven)
+                if driven:
+                    log.driven += 1
+                    continue
+                name = (d.get("expression") or "").split(" ")[0]
+                if name and name in log.created:
+                    dim.Parameter.Expression = d["expression"]
+                elif d.get("name"):
+                    dim.Parameter.Name = d["name"]
+                log.dimensions += 1
+            except Exception as error:  # noqa: BLE001
+                log.fail(f"寸法 {d['type']}", error)
 
     def _finish(self, doc, definition, part: Part, out_dir: Path, result: PartResult) -> PartResult:
         """iProperties を入れ、体積・表面積・外接箱を Inventor に計算させて照合し、.ipt として保存する"""
