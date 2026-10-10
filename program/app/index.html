@@ -41,13 +41,12 @@
       <span class="kind-badge" id="file-kind">ファイル</span>
       <h1 id="file-name">開いていません</h1>
       <span class="badge" id="sample-badge" hidden>サンプル</span>
-      <span class="badge is-dirty" id="edit-dirty" hidden title="直した図面をまだ保存していません">変更あり</span>
       <button type="button" class="pill" id="received-switch" hidden title="受け取ったファイルを切り替える"></button>
     </div>
     <div class="appbar-actions">
-      <!-- 図面を DXF で保存（直していなくても、ほかの形式の図面を DXF に直して渡せる。ui/drawedit.js） -->
+      <!-- 図面を DXF で保存（直していなくても、ほかの形式の図面を DXF に直して渡せる。ui/drawedit.js）。直した後は主の色と点（案 F: docs/ui.md §22） -->
       <div class="save-dxf" id="save-dxf-group" data-mode="drawing" hidden>
-        <button type="button" class="secondary" id="save-dxf" title="図面を DXF で保存（AutoCAD・Inventor・Jw_cad などで開ける）">DXF で保存</button>
+        <button type="button" class="secondary" id="save-dxf" title="図面を DXF で保存（AutoCAD・Inventor・Jw_cad などで開ける）"><span class="dirty-dot" aria-hidden="true"></span>DXF で保存<span class="visually-hidden" id="save-dxf-dirty" hidden>（直した内容を保存していません）</span></button>
         <select id="dxf-version" aria-label="DXF の版" title="DXF の版（R2000 は古い CAD・Jw_cad 向け。日本語は Shift_JIS）">
           <option value="R2013">R2013</option>
           <option value="R2000">R2000</option>

@@ -4,7 +4,8 @@
 //   命令の間は図の上の帯（測ると同じ形）に「何をしているか・次にすること・数の欄・やめる」。カーソルの所に、選んだ図形の影を描く。
 //     点は測ると同じく、端点・中点・中心・交点に吸い付く。写すは続けて写せる（Esc でやめる）
 //   選んだ図形のカード: 画層を選ぶ・文字を直す（1 つの文字の図形を選んだとき）。直せない図形は理由を出す
-//   DXF で保存（見出し）: 版（R2013・R2000）を選んで保存の窓へ。書けなかったもの・変えたものを知らせる
+//   DXF で保存（見出し）: 版（R2013・R2000）を選んで保存の窓へ。書けなかったもの・変えたものを知らせる。
+//     直した後（保存していない）は、保存のボタンが主の色になり点が付く（利用者が選んだ案 F。docs/ui.md §22）
 //
 //   new DrawingEditTool({ viewer, edits, selected, units, notify, onSaved })
 //     edits … edit/drawing.js の DrawingEdits・selected() → 選んだ図形（entity の列）・units() → "mm" など・notify(text) … 知らせ
@@ -136,7 +137,9 @@ export class DrawingEditTool {
     $("edit-redo").disabled = !h.canRedo;
     $("edit-undo").title = h.undoLabel ? `取り消す: ${h.undoLabel}（Ctrl+Z）` : "取り消す（Ctrl+Z）";
     $("edit-redo").title = h.redoLabel ? `やり直す: ${h.redoLabel}（Ctrl+Y）` : "やり直す（Ctrl+Y）";
-    $("edit-dirty").hidden = !h.dirty;
+    // 直した後（保存していない）は、保存のボタンを主の色に（案 F。docs/ui.md §22）
+    $("save-dxf-group").classList.toggle("is-dirty", h.dirty);
+    $("save-dxf-dirty").hidden = !h.dirty;
     $("selection-edit").hidden = !entities.length;
     if (!entities.length) return;
     $("edit-reason").hidden = !why;

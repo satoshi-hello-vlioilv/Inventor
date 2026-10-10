@@ -759,7 +759,11 @@ details.card.more summary .h-note { margin-inline-start: 8px; }
 .save-dxf #save-dxf { border-start-end-radius: 0; border-end-end-radius: 0; }
 .save-dxf select { padding: 0 6px; border: 1px solid var(--rule); border-inline-start: 0; border-start-end-radius: 8px; border-end-end-radius: 8px;
   background: var(--surface); color: var(--ink); font: 500 var(--fs-xs) var(--font-num); cursor: pointer; }
-.badge.is-dirty { color: var(--caution-ink); border-color: var(--warn); background: var(--warn-soft); }
+/* 直した後（保存していない）: 保存を主の色に、点で知らせる（案 F） */
+.save-dxf .dirty-dot { display: none; width: 8px; height: 8px; margin-inline-end: 6px; border-radius: 50%; background: var(--warn); }
+.save-dxf.is-dirty #save-dxf { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
+.save-dxf.is-dirty #save-dxf:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
+.save-dxf.is-dirty .dirty-dot { display: inline-block; }
 .tool-group.edit-tools button:disabled { color: var(--muted); opacity: 0.45; cursor: default; background: transparent; }
 .tool-group.edit-tools #edit-undo, .tool-group.edit-tools #edit-redo { min-width: 36px; font-size: var(--fs-l); padding-block: 5px; }
 .tool-group.edit-tools [data-edit] kbd { margin-inline-start: 4px; line-height: 1; margin-block: -2px; }
@@ -778,3 +782,5 @@ details.card.more summary .h-note { margin-inline-start: 8px; }
 .edit-field select:disabled, .edit-field input:disabled { opacity: 0.55; }
 .edit-reason { margin: 0; font-size: var(--fs-xs); color: var(--caution-ink); }
 .edit-reason[hidden] { display: none; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.visually-hidden[hidden] { display: none; }
