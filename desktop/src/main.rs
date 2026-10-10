@@ -343,17 +343,21 @@ fn update_reply(plan: &UpdatePlan, path: &str) -> Option<Reply> {
     }
 }
 
-/// 窓を出さずに版を置く（CI・保守の道具）: Inventor3DTool.exe --publish-zip <ZIP> <置き場>。置いた版を配る版にする。
-/// 答えは 1 行の JSON（終了コード 0 = できた）
-fn publish_from_command_line(args: &[String]) -> Option<i32> {
-    let [flag, zip, dir] = args else { return None };
-    if flag != "--publish-zip" {
-        return None;
-    }
-    let dir = Path::new(dir);
-    let _ = std::fs::create_dir_all(dir.join(update::VERSIONS));
-    let result = update::publish_zip(dir, Path::new(zip), &update::who(), &update::Progress::default(), 0)
-        .and_then(|v| update::set_release(dir, v["version"].as_str().unwrap_or(""), &update::who()));
+/// 窓を出さずに使う道具（CI・保守）。答えは 1 行の JSON（終了コード 0 = できた）:
+///   Inventor3DTool.exe --publish-zip <ZIP> <置き場>   版を置き、配る版にする
+///   Inventor3DTool.exe --pack <リポジトリ> <ZIP>      配る ZIP（exe と動かすのに要る物だけ）を作る。注記は INVENTOR_TOOL_BUILD_COMMIT
+fn command_line(args: &[String]) -> Option<i32> {
+    let [flag, a, b] = args else { return None };
+    let result = match flag.as_str() {
+        "--publish-zip" => {
+            let dir = Path::new(b);
+            let _ = std::fs::create_dir_all(dir.join(update::VERSIONS));
+            update::publish_zip(dir, Path::new(a), &update::who(), &update::Progress::default(), 0)
+                .and_then(|v| update::set_release(dir, v["version"].as_str().unwrap_or(""), &update::who()))
+        }
+        "--pack" => update::pack(Path::new(a), Path::new(b), &std::env::var("INVENTOR_TOOL_BUILD_COMMIT").unwrap_or_default()),
+        _ => return None,
+    };
     let (code, out) = match result {
         Ok(v) => (0, v),
         Err(why) => (1, json!({"error": why})),
@@ -362,10 +366,47 @@ fn publish_from_command_line(args: &[String]) -> Option<i32> {
     Some(code)
 }
 
+/// 置き場の入口から入れた（--from-share）: この PC の exe を指すショートカットを、デスクトップとスタートメニューに作る
+/// （無い・ほかの exe を指す物だけ。作った物は、開いた画面が 1 度知らせる）。COM を窓の糸と分けるため、別の糸で作って待つ
+fn make_shortcuts_after_install(exe: &Path) {
+    let exe = exe.to_path_buf();
+    let made = std::thread::spawn(move || {
+        let s = shortcut::Shortcuts::system(exe, false);
+        (s.ensure(&["desktop", "start"]), s.status())
+    })
+    .join();
+    match made {
+        Ok((result, status)) => {
+            // 置き場ごとの状態と場所（入れた後に探せるように）
+            let places: Vec<String> = status["places"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|p| {
+                    format!(
+                        "{} {} {}",
+                        p["label"].as_str().unwrap_or(""),
+                        p["state"].as_str().unwrap_or(""),
+                        p["path"].as_str().unwrap_or("")
+                    )
+                })
+                .collect();
+            match result {
+                Ok(made) if !made.is_empty() => {
+                    log(&format!("INSTALL ショートカットを作った: {}（{}）", made.join("・"), places.join(" / ")))
+                }
+                Ok(_) => log(&format!("INSTALL ショートカットはもうある（{}）", places.join(" / "))),
+                Err(why) => log(&format!("INSTALL ショートカットを作れません（{why}）")),
+            }
+        }
+        Err(_) => log("INSTALL ショートカットを作る途中で止まりました"),
+    }
+}
+
 fn main() {
     let cwd = std::env::current_dir().unwrap_or_default();
     let raw: Vec<String> = std::env::args().skip(1).collect();
-    if let Some(code) = publish_from_command_line(&raw) {
+    if let Some(code) = command_line(&raw) {
         std::process::exit(code);
     }
     let (flags, file_args) = launch::split_args(raw);
@@ -382,6 +423,9 @@ fn main() {
             }
             Err(why) => log(&format!("INSTALL この PC へ写せません（{why}）。置き場から開く")),
         }
+    }
+    if flags.from_share.is_some() && selftest_path().is_none() {
+        make_shortcuts_after_install(&exe);
     }
     let plan = Arc::new(update_plan(&exe, &flags));
     let received = Arc::new(Received::default());

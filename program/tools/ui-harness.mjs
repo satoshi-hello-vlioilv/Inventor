@@ -53,7 +53,7 @@ export async function launch() {
       const page = await context.newPage();
       page.on("pageerror", (e) => console.warn(`[${theme}] page error: ${e.message}`));
       await dev("env?ready=1&inventor=1&python=1"); // 模擬の状態を既定に戻す（前のテーマで変えた物を持ち越さない）
-      await dev("shortcut?desktop=ok&start=missing");
+      await dev("shortcut?desktop=ok&start=missing&made=0"); await dev("samples?off=0");
       await dev("update?role=developer&reachable=1&news=0");
       await page.goto(base);
       await page.waitForSelector("button.sample-row", { state: "attached", timeout: 15000 });
@@ -214,9 +214,12 @@ export const STATES = [
   // 作り直して、不一致 2 つ・失敗 1 つが混じった結果（例外の見せ方を確かめる）
   ["mixed", async (p, dev) => { await dev("mix?mismatch=4,11&failed=19"); await startJob(p); await dev("step?n=100"); await sleep(1800); await dev("mix"); },
     "[data-next], #build-open"],
-  // 設定（右の引き出し）: 開発者が開いた様子・一般の利用者が開いた様子。起動のときのショートカットの問い（デスクトップに無いとき）
-  ["settings", async (p) => { await openSettings(p); }, "#settings-body .primary, #settings-close"],
-  ["settings-user", async (p, dev) => { await dev("update?role=user"); await p.click("#settings-close"); await openSettings(p); }, "#settings-close"],
+  // 設定のページ: 開発者が開いた様子（概要・版・置き場（古い形が残っている））・一般の利用者が開いた様子。
+  // 起動のときのショートカットの問い（デスクトップに無いとき）
+  ["settings", async (p) => { await openSettings(p); }, "#settings-body .primary, #settings-back"],
+  ["settings-versions", async (p) => { await settingsPane(p, "versions"); }, "#settings-body .primary, #settings-back"],
+  ["settings-share", async (p, dev) => { await dev("update?legacy=1"); await settingsPane(p, "share", true); }, "#settings-body .secondary, #settings-back"],
+  ["settings-user", async (p, dev) => { await dev("update?role=user&legacy=0"); await p.click("#settings-back"); await openSettings(p); await settingsPane(p, "versions"); }, "#settings-back"],
   // 起動でそろえた後の「変わったこと」（右下）と、設定の要点の下で読める様子
   ["news", async (p, dev) => {
     await dev("update?role=developer&news=1"); await p.reload();
@@ -227,9 +230,14 @@ export const STATES = [
     await p.reload(); await p.waitForSelector("#shortcut-offer:not([hidden])");
     if (await p.$("#start[open]")) await p.keyboard.press("Escape");
   }, "#shortcut-offer-make"],
+  // 置き場の入口から入れた直後（ショートカットを作った知らせ）と、サンプルの無い配る形の最初の画面
+  ["installed", async (p, dev) => {
+    await dev("shortcut?made=1"); await dev("samples?off=1");
+    await p.reload(); await p.waitForSelector("#shortcut-offer:not([hidden])"); await sleep(600);
+  }, "#shortcut-offer-no, #welcome-open"],
   // 変換データの寸法を直す（穴・面取り・直せない斜めの辺のある刃）。前の状態の問い・知らせは閉じる
   ["specedit", async (p, dev) => {
-    await dev("shortcut?desktop=ok"); await p.reload(); await sleep(600);
+    await dev("shortcut?desktop=ok&made=0"); await dev("samples?off=0"); await p.reload(); await sleep(600);
     if (await p.$("#start[open]")) await p.keyboard.press("Escape");
     await openFile(p, FIXTURE("blade"));
   }, "[data-next], #build"],
@@ -247,7 +255,19 @@ export const STATES = [
 
 async function openSettings(p) {
   await p.click("#show-settings");
-  await p.waitForSelector("#settings-body .st-section table, #settings-body .st-section .st-lead");
+  await p.waitForSelector("#settings-nav .st-nav-badge");
+  await sleep(300);
+}
+
+/** 設定のページで区分を選ぶ（reopen: 窓の答えを変えた後に、開き直して読み直す） */
+async function settingsPane(p, pane, reopen = false) {
+  if (reopen) {
+    await p.click("#settings-back");
+    await openSettings(p);
+  }
+  // 目次は案によって見えない（区分の升目から入る案など）ので、目次のボタンを直接押す
+  await p.evaluate((id) => document.querySelector(`#settings-nav [data-pane="${id}"]`).click(), pane);
+  await p.waitForFunction((id) => document.querySelector("#settings-nav [aria-current]")?.dataset.pane === id, pane, { timeout: 5000 });
   await sleep(300);
 }
 

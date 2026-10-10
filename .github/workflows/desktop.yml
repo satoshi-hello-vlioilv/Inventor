@@ -8,9 +8,12 @@
 #    画面は「STEP を作る」ボタンで STEP を作り、窓は INVENTOR_TOOL_SELFTEST に結果を書いて終わる（src/selftest.js）。
 #    結果と exe は Artifacts に置く。
 #
-# 4. main への push では、通った exe を最上位の Inventor3DTool.exe として main へ置く（publish）。
+# 4. 配る ZIP（exe と、program の中で動かすのに要る物だけ。サンプル・試験・道具は外す）を exe の --pack で作り、
+#    その ZIP で版の管理（置き場から入れる・そろえる）を本物の Windows で確かめる。
+# 5. main への push では、通った exe を最上位の Inventor3DTool.exe として main へ置く（publish）。
 #    利用者は main の ZIP を落として展開するので、exe も同じ ZIP で届く（exe と program の組がずれない）。
 #    置くのは「窓の元（desktop/・app_icon.py）が前に置いた exe と違う」ときだけ（program/Inventor3DTool.build.json の指紋）。
+#    配る ZIP は、版（program/version.json）ごとに 1 つ GitHub の Releases に置く（版の管理の「ZIP から版を置く」で選ぶ軽い ZIP）。
 name: desktop
 
 on:
@@ -107,25 +110,42 @@ jobs:
           if (Get-Process python -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "*hostedtoolcache*" }) { Write-Host "作る係（Python）が残っています"; exit 5 }
           if (-not $r.ok) { exit 1 }
 
-      # 版の管理（desktop/src/update.rs・launch.rs）を本物の Windows で: 置き場に版を置き（--publish-zip）、
-      # 置き場の入口 exe → この PC のフォルダへ写してそろえ、開き直す。2 つめの版では、動いている自分の exe を入れ替える
-      - name: 版の管理（置き場から入れる・起動でそろえる・動いている exe の入れ替え）
+      # 配る ZIP: exe（作った物）と、program の中で動かすのに要る物だけ（desktop/src/update.rs の PAYLOAD。サンプル・試験・道具は外す）
+      - name: 配る ZIP を作る（--pack）
+        if: ${{ !cancelled() }}
+        run: |
+          Copy-Item desktop\target\release\Inventor3DTool.exe .\Inventor3DTool.exe -Force
+          $ver = (Get-Content program\version.json -Raw | ConvertFrom-Json).version
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP\pack" | Out-Null
+          $zip = "$env:RUNNER_TEMP\pack\Inventor3DTool-$ver.zip"
+          $p = Start-Process -FilePath .\Inventor3DTool.exe -ArgumentList @('--pack', "`"$((Resolve-Path .).Path)`"", "`"$zip`"") -Wait -PassThru -NoNewWindow -RedirectStandardOutput "$env:RUNNER_TEMP\pack.txt"
+          Get-Content "$env:RUNNER_TEMP\pack.txt" -Encoding utf8 | Write-Host
+          if ($p.ExitCode -ne 0 -or -not (Test-Path $zip)) { Write-Host "配る ZIP を作れません"; exit 1 }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = [System.IO.Compression.ZipFile]::OpenRead($zip)
+          $names = $archive.Entries.FullName
+          $archive.Dispose()
+          $extra = $names | Where-Object { $_ -match '/program/(samples|tests|tools|config)/' }
+          if ($extra) { Write-Host "配らない物が入っています: $($extra | Select-Object -First 5)"; exit 2 }
+          Write-Host ("配る ZIP: {0} ファイル・{1:N1} MB" -f $names.Count, ((Get-Item $zip).Length / 1MB))
+
+      # 版の管理（desktop/src/update.rs・launch.rs）を本物の Windows で: 置き場に配る ZIP の版を置き（--publish-zip）、
+      # 置き場の入口 exe → この PC のフォルダへ写してそろえ、ショートカットを作り、開き直す。2 つめの版では、動いている自分の exe を入れ替える
+      - name: 版の管理（置き場から入れる・ショートカット・起動でそろえる・動いている exe の入れ替え）
         if: ${{ !cancelled() }}
         run: |
           $root = "$env:RUNNER_TEMP\upd"; $share = "$root\share"; $homeApp = "$root\home"
           New-Item -ItemType Directory -Force $share | Out-Null
           $exe = (Resolve-Path desktop\target\release\Inventor3DTool.exe).Path
           $base = (Get-Content program\version.json -Raw | ConvertFrom-Json).version
+          $packed = "$env:RUNNER_TEMP\pack\Inventor3DTool-$base.zip"
+          # 配る ZIP の版の番号だけを変えた ZIP（同じ番号は置き場が受け付けない）
           function Make-Zip([string]$ver) {
-            $dir = "$root\zip-$ver\Inventor-main"
-            New-Item -ItemType Directory -Force "$dir\program" | Out-Null
-            Copy-Item $exe "$dir\Inventor3DTool.exe"
-            robocopy program "$dir\program" /E /XD __pycache__ config tests samples /NFL /NDL /NJH /NJS | Out-Null
-            # robocopy は 8 未満が成功（1 = 写した）。残すと段の終了コードになるので 0 に戻す
-            if ($LASTEXITCODE -ge 8) { throw "robocopy が失敗しました（$LASTEXITCODE）" }
-            $global:LASTEXITCODE = 0
-            ('{"version": "' + $ver + '"}') | Set-Content -Encoding utf8 "$dir\program\version.json"
-            Compress-Archive -Path $dir -DestinationPath "$root\$ver.zip" -Force
+            $dir = "$root\zip-$ver"
+            Expand-Archive $packed $dir -Force
+            $inner = (Get-ChildItem $dir -Directory | Select-Object -First 1).FullName
+            ('{"version": "' + $ver + '"}') | Set-Content -Encoding utf8 "$inner\program\version.json"
+            Compress-Archive -Path $inner -DestinationPath "$root\$ver.zip" -Force
             return "$root\$ver.zip"
           }
           function Wait-For([scriptblock]$ok, [int]$sec) {
@@ -147,6 +167,28 @@ jobs:
           Start-Process -FilePath "$share\Inventor3DTool.exe"
           $installed = Wait-For { (Version-Of $homeApp) -eq $v1 -and (Running "$homeApp\Inventor3DTool.exe") } 120
           Write-Host "置き場の入口から入れた: $installed（版 $(Version-Of $homeApp)）"
+          # 置き場の最上位は入口の exe と versions だけ（配る版・役割・残す数は versions の中）
+          $top = (Get-ChildItem $share | ForEach-Object Name | Sort-Object) -join ","
+          $layout = $top -eq "Inventor3DTool.exe,versions" -and (Test-Path "$share\versions\release.json")
+          Write-Host "置き場の最上位: $top（形が正しい: $layout）"
+          # 入れたとき、デスクトップにこの PC の exe を指すショートカットを作った。名前は ASCII の型で探す
+          # （この段の台本の日本語は、PowerShell が別の文字コードで読むので、文字列のままでは名前が合わない）
+          $desk = [Environment]::GetFolderPath('Desktop')
+          $found = Wait-For { @(Get-ChildItem -LiteralPath $desk -Filter "Inventor 3D*.lnk" -ErrorAction SilentlyContinue).Count -gt 0 } 10
+          $lnk = if ($found) { (Get-ChildItem -LiteralPath $desk -Filter "Inventor 3D*.lnk" | Select-Object -First 1).FullName } else { "" }
+          # 指す先: ショートカットのファイルの中に、この PC の exe の道が（ANSI か UTF-16 で）書いてあるか
+          # （WScript.Shell の TargetPath はこの環境で空を返すので使わない。窓の自己確認は IShellLink で「この exe を指す」と記録する）
+          $want = "$homeApp\Inventor3DTool.exe"
+          $bytes = if ($found) { [IO.File]::ReadAllBytes($lnk) } else { [byte[]]@() }
+          $linked = $found -and ([Text.Encoding]::Unicode.GetString($bytes).Contains($want) -or [Text.Encoding]::Default.GetString($bytes).Contains($want))
+          Write-Host "デスクトップのショートカット: $linked（$lnk が $want を指すか）"
+          if (-not $linked) {
+            # 見つからないときの手がかり: デスクトップの場所と、見える .lnk の一覧
+            Write-Host "Desktop: $([Environment]::GetFolderPath('Desktop')) / DesktopDirectory: $([Environment]::GetFolderPath('DesktopDirectory'))"
+            foreach ($d in @([Environment]::GetFolderPath('Desktop'), "$env:PUBLIC\Desktop", [Environment]::GetFolderPath('Programs'))) {
+              Get-ChildItem -LiteralPath $d -Filter *.lnk -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $($_.FullName)" }
+            }
+          }
           Get-Process Inventor3DTool -ErrorAction SilentlyContinue | Stop-Process -Force
           Start-Sleep -Seconds 2
           if ((Publish (Make-Zip $v2)) -ne 0) { Write-Host "置き場に $v2 を置けません"; exit 12 }
@@ -157,6 +199,8 @@ jobs:
           Get-Content "$env:LOCALAPPDATA\Inventor3DTool\logs\desktop.log" -Tail 30 -Encoding utf8 -ErrorAction SilentlyContinue
           if (-not $installed) { exit 13 }
           if (-not $updated) { exit 14 }
+          if (-not $layout) { exit 15 }
+          if (-not $linked) { exit 16 }
           exit 0
 
       # 置く物をまとめる: exe・自己診断の結果・作った元の指紋（publish が比べる）
@@ -167,6 +211,7 @@ jobs:
           New-Item -ItemType Directory -Force $out | Out-Null
           if (Test-Path desktop\target\release\Inventor3DTool.exe) { Copy-Item desktop\target\release\Inventor3DTool.exe $out }
           if (Test-Path "$env:RUNNER_TEMP\selftest.json") { Copy-Item "$env:RUNNER_TEMP\selftest.json" $out }
+          if (Test-Path "$env:RUNNER_TEMP\pack") { Copy-Item "$env:RUNNER_TEMP\pack\*.zip" $out }
           "desktop:$(git rev-parse HEAD:desktop) icon:$(git rev-parse HEAD:program/tools/app_icon.py)" | Set-Content -NoNewline -Encoding ascii "$out\source.txt"
 
       - uses: actions/upload-artifact@v6
@@ -224,3 +269,16 @@ jobs:
             sleep $((2 ** i)); git pull --rebase origin main
           done
           exit 1
+      # 配る ZIP を Releases に置く（版ごとに 1 つ。同じ版がもう置いてあれば置かない: 版を上げた main だけが置く）
+      - name: 配る ZIP を Releases に置く
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          ver="$(python3 -c "import json;print(json.load(open('program/version.json',encoding='utf-8'))['version'])")"
+          zip="built/Inventor3DTool-$ver.zip"
+          if [ ! -f "$zip" ]; then echo "配る ZIP がありません: $zip"; exit 1; fi
+          if gh release view "v$ver" >/dev/null 2>&1; then echo "v$ver はもう Releases に置いてある"; exit 0; fi
+          gh release create "v$ver" "$zip" --target "$BUILT_SHA" --title "Inventor 3Dツール $ver" \
+            --notes "版の管理の「ZIP から版を置く」で選ぶ、配る ZIP（exe と、動かすのに要る物だけ。サンプル・試験・道具は含みません）。$(unzip -l "$zip" | tail -1)"

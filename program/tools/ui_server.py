@@ -14,8 +14,11 @@
     POST /__dev/mix?mismatch=4,11&failed=19       次に作る仕事で、その番目（1 から）の部品を不一致・失敗にする（無しで全て一致）
     POST /__dev/shortcut?desktop=missing&start=ok  ショートカットの状態を変える（ok・missing・other。窓の shortcut.rs と同じ形で答える）
     GET  /__dev/saved           保存の窓で「保存した」ファイル（名前・種類・中身の base64。窓の save.rs の代わりに覚えたもの）
-    POST /__dev/update?role=developer&reachable=1&news=1  版の管理の役割（developer・maintainer・user・unset）・置き場に届くか・
-                                                  そろえた後の「変わったこと」を見せるかを変える（update.rs と同じ形）
+    POST /__dev/update?role=developer&reachable=1&news=1&legacy=1  版の管理の役割（developer・maintainer・user・unset）・置き場に届くか・
+                                                  そろえた後の「変わったこと」を見せるか・最上位に古い形の管理のファイルが残っているかを変える
+                                                  （update.rs と同じ形）
+    POST /__dev/shortcut?made=1                   置き場の入口から入れて、ショートカットを作った後（開いた画面が 1 度知らせる）
+    POST /__dev/samples?off=1                     サンプルが無い（配る形。サンプルは配らない）
 """
 from __future__ import annotations
 
@@ -117,15 +120,17 @@ GIVEN: dict[str, Path] = {}
 PENDING: list[Path] = []
 SAVED: list[dict] = []  # 保存の窓で「保存した」ファイル（/__desktop/save-file の模擬）
 UPDATE = {"role": "developer", "reachable": True, "local": "2.1.0", "release": "2.1.0", "previous": "2.0.3", "keep": 5,
-          "versions": [("2.1.0", "2026-10-08T09:12:00Z", "sato@PC-SHIAGE01", "Inventor-main.zip", 812, 41_532_118),
+          "versions": [("2.1.0", "2026-10-08T09:12:00Z", "sato@PC-SHIAGE01", "Inventor3DTool-2.1.0.zip", 137, 7_412_118),
                        ("2.0.3", "2026-10-01T16:40:00Z", "sato@PC-SHIAGE01", "Inventor-main (3).zip", 790, 40_118_207),
                        ("2.0.2", "2026-09-24T11:05:00Z", "tanaka@PC-SHIAGE07", "Inventor-main (2).zip", 788, 40_002_311),
                        ("2.0.0", "2026-09-10T08:30:00Z", "sato@PC-SHIAGE01", "Inventor-main.zip", 702, 35_220_004)],
           "roles": {"developers": ["sato"], "maintainers": ["tanaka", "suzuki"]},
           "notes": {"2.1.0": "・設定の画面（ショートカット・版の管理）を足しました\n・3D の形を見やすくしました（陰影・全体表示）\n・PDF のページを番号の升目から選べます",
                     "2.0.3": "・Jw_cad の図面（.jww）を開けるようにしました"},
-          "news": False}
-SHORTCUTS = {"desktop": "ok", "start": "missing"}  # ショートカットの状態の模擬（既定はデスクトップにある: いつもの起動。無いときは /__dev/shortcut で）
+          "news": False, "legacy": False}
+SHORTCUTS = {"desktop": "ok", "start": "missing"}
+MADE: list[str] = []  # 置き場の入口から入れたときに作ったショートカット（/__dev/shortcut?made=1）
+SAMPLES_OFF = [False]  # サンプルが無い配る形（/__dev/samples?off=1）  # ショートカットの状態の模擬（既定はデスクトップにある: いつもの起動。無いときは /__dev/shortcut で）
 SHORTCUT_LABELS = {"desktop": "デスクトップ", "start": "スタートメニュー"}
 
 
@@ -144,7 +149,8 @@ def update_status() -> dict:
          "pending": UPDATE["release"] != UPDATE["local"], "policy": {"keep": UPDATE["keep"]},
          "versions": [{"version": a, "placedAt": b, "placedBy": c, "source": d, "commit": "acba55d", "files": e, "bytes": f, "notes": UPDATE["notes"].get(a, "")}
                       for a, b, c, d, e, f in UPDATE["versions"]],
-         "entry": {"path": base["dir"] + "\\Inventor3DTool.exe", "exists": True}}
+         "entry": {"path": base["dir"] + "\\Inventor3DTool.exe", "exists": True},
+         "legacy": ["release.json", "roles.json", "policy.json"] if UPDATE["legacy"] else []}
     if role in ("developer", "unset"):
         v["roles"] = UPDATE["roles"] if role == "developer" else {"developers": [], "maintainers": []}
     return v
@@ -152,7 +158,7 @@ def update_status() -> dict:
 
 def shortcut_status() -> dict:
     """窓の shortcut.rs と同じ形"""
-    return {"supported": True, "offer": SHORTCUTS["desktop"] != "ok", "target": "C:\\Users\\you\\Inventor3DTool\\Inventor3DTool.exe", "places": [{"place": k, "label": SHORTCUT_LABELS[k], "state": v,
+    return {"supported": True, "offer": SHORTCUTS["desktop"] != "ok", "made": list(MADE), "target": "C:\\Users\\you\\Inventor3DTool\\Inventor3DTool.exe", "places": [{"place": k, "label": SHORTCUT_LABELS[k], "state": v,
                                            "path": f"C:\\Users\\you\\{SHORTCUT_LABELS[k]}\\Inventor 3Dツール.lnk"} for k, v in SHORTCUTS.items()]}
 
 
@@ -241,6 +247,12 @@ class Handler(BaseHTTPRequestHandler):
                 for k in SHORTCUTS:
                     if k in query:
                         SHORTCUTS[k] = query[k][0]
+                if "made" in query:
+                    MADE[:] = [SHORTCUT_LABELS[k] for k in SHORTCUTS] if query["made"][0] == "1" else []
+                    if MADE:
+                        SHORTCUTS.update({k: "ok" for k in SHORTCUTS})
+            elif path == "/__dev/samples":
+                SAMPLES_OFF[0] = query.get("off", ["0"])[0] == "1"
             elif path == "/__dev/update":
                 if "role" in query:
                     UPDATE["role"] = query["role"][0]
@@ -248,6 +260,8 @@ class Handler(BaseHTTPRequestHandler):
                     UPDATE["reachable"] = query["reachable"][0] == "1"
                 if "news" in query:
                     UPDATE["news"] = query["news"][0] == "1"
+                if "legacy" in query:
+                    UPDATE["legacy"] = query["legacy"][0] == "1"
             elif path == "/__dev/env":
                 for k in ENV:
                     if k in query:
@@ -258,7 +272,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.headers.get("X-App-Token") != TOKEN:
             return self.json({"message": "この画面からの依頼ではありません"}, 403)
         if path == "/api/samples":
-            return self.json({"samples": samples()})
+            return self.json({"samples": [] if SAMPLES_OFF[0] else samples()})
         if path == "/api/launch" and method == "POST":
             return self.json(claim())
         if path.startswith("/api/files/"):
@@ -313,6 +327,9 @@ class Handler(BaseHTTPRequestHandler):
                 if asked.get("notes"):
                     UPDATE["notes"]["2.2.0"] = asked["notes"]
                 return self.json({"version": "2.2.0", "files": 820, "bytes": 41_900_000, "pruned": [], "notes": asked.get("notes", "")})
+            if op == "tidy":
+                tidied, UPDATE["legacy"] = (["roles.json", "policy.json", "release.json"] if UPDATE["legacy"] else []), False
+                return self.json({"tidied": tidied})
             if op == "policy":
                 UPDATE["keep"] = int(asked.get("keep") or 0)
                 return self.json({"keep": UPDATE["keep"]})
@@ -320,6 +337,9 @@ class Handler(BaseHTTPRequestHandler):
                 UPDATE["roles"] = {"developers": asked.get("developers", []), "maintainers": asked.get("maintainers", [])}
                 return self.json(UPDATE["roles"])
             return self.json({"saved": True})
+        if path == "/api/shortcut/seen":
+            MADE.clear()
+            return self.json(shortcut_status())
         if path == "/api/shortcut/decline":
             return self.json(shortcut_status())
         if path == "/api/shortcut":

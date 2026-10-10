@@ -1,12 +1,16 @@
 //! 版の管理（WaveLog の版の配り方に合わせ、版の削除・残す数・裏での写し・入れ替えの戻しを足した）。設計は docs/desktop.md §8。
 //!
-//! 置き場（共有のフォルダ。既定は Box Drive の DEFAULT_DIR。設定の update.dir で変えられる）:
-//!   release.json                  配る版 {"version","setAt","setBy","previous"}
-//!   versions\<版>\                版の中身（PAYLOAD）と manifest.json（ファイルごとの大きさ・sha256）
+//! 置き場（共有のフォルダ。既定は Box Drive の DEFAULT_DIR。設定の update.dir で変えられる）。最上位は入口の exe と versions だけ:
+//!   Inventor3DTool.exe            新しい PC の入口（配る版の exe の写し。押すとこの PC へ写して開き、ショートカットを作る: main.rs）
+//!   versions\release.json         配る版 {"version","setAt","setBy","previous"}
+//!   versions\roles.json           版を管理できる人 {"developers": [Windows のユーザー名], "maintainers": [...]}（全 PC で同じ）
+//!   versions\policy.json          残す版の数 {"keep": N}
+//!   versions\<版>\                版の中身（PAYLOAD: 動かすのに要る物だけ）と manifest.json（ファイルごとの大きさ・sha256）・notes.txt
 //!   versions\.<版>.<pid>.tmp\     置いている途中（"." で始まるので、一覧にも配る版にもならない）
 //!   versions\.<版>.<pid>.del\     消している途中
-//!   Inventor3DTool.exe            新しい PC の入口（配る版の exe の写し。押すとこの PC へ写して開く: main.rs）
-//!   roles.json                    版を管理できる人 {"developers": [Windows のユーザー名], "maintainers": [...]}（全 PC で同じ）
+//!   2.4.0 までは release.json・roles.json・policy.json を最上位に置いた（古い形）。読むときは versions の中が無ければ最上位を読み、
+//!   最上位に release.json が残っている間は同じ物を最上位にも書く（2.4.0 までの PC は最上位の release.json だけを見てそろえる）。
+//!   全ての PC が新しい版になったら、設定の「片付ける」で最上位から外す（tidy）
 //!
 //! 各 PC（アプリのフォルダ = exe と program の親。ふつうは入口から写した %USERPROFILE%\Inventor3DTool。ショートカットはここの exe を指す）:
 //!   .update\<版>.stage\           裏で写して確かめた次の版（.ready ができたら入れ替えられる）
@@ -37,6 +41,8 @@ const NEWS: &str = "news.json";
 pub const ROLES: &str = "roles.json";
 /// 置き場の決まり {"keep": 残す版の数（0 = 全て残す）}
 pub const POLICY: &str = "policy.json";
+/// 置き場の管理のファイル（versions の中。2.4.0 までは最上位）
+const META: [&str; 3] = [RELEASE, ROLES, POLICY];
 /// アプリの版を書いたファイル（program の中。版を上げるたびに書き換える: CLAUDE.md）
 pub const VERSION_FILE: &str = "program/version.json";
 /// ZIP に無ければ断るもの
@@ -72,18 +78,31 @@ pub fn local_version(program: &Path) -> Option<String> {
 
 // ---- 中身の決まり --------------------------------------------------------------------------------------------------
 
-/// ZIP・版の中で配るファイルか（"/" 区切りの相対の道）。exe・README と program の中（設定と .pyc を除く）
+/// 配るもの（最小の構成）: exe・README と、program の中で動かすのに要る物（画面・作る係・版の印）だけ。
+/// サンプル・試験・開発の道具・この PC の設定（program\config）・.pyc は配らない（版ごとに置き場と各 PC へ写すので軽く保つ）
+pub const PAYLOAD: [&str; 6] =
+    [EXE, "README.md", "program/version.json", "program/Inventor3DTool.build.json", "program/app", "program/ipt_build"];
+
+/// 安全な相対の道か（"/" 区切り。上へ出る・ドライブ・空の区切り・.pyc の置き場を含まない）
+fn clean_path(p: &str) -> bool {
+    !p.starts_with('/') && !p.split('/').any(|s| s.is_empty() || s == "." || s == ".." || s.contains(':') || s == "__pycache__")
+}
+
+/// ZIP から版を置くときに配るファイルか（PAYLOAD のどれか。その中のファイル）
 pub fn payload_path(p: &str) -> bool {
-    let segs: Vec<&str> = p.split('/').collect();
-    if p.starts_with('/') || segs.iter().any(|s| s.is_empty() || *s == "." || *s == ".." || s.contains(':') || *s == "__pycache__") {
-        return false;
-    }
-    match segs.as_slice() {
-        [EXE] | ["README.md"] => true,
-        ["program", "config", ..] => false,
-        ["program", _, ..] => true,
-        _ => false,
-    }
+    clean_path(p) && PAYLOAD.iter().any(|u| p == *u || p.strip_prefix(u).is_some_and(|rest| rest.starts_with('/')))
+}
+
+/// 置き場の版を写すときに受け入れるファイルか（payload_path より広い: 2.4.0 までに置いた版は program のサンプルなども含むので、
+/// 古い版へ戻すときも写せるように。設定と上へ出る道だけは断る）
+pub fn accepted_path(p: &str) -> bool {
+    clean_path(p)
+        && match p.split('/').collect::<Vec<_>>().as_slice() {
+            [EXE] | ["README.md"] => true,
+            ["program", "config", ..] => false,
+            ["program", _, ..] => true,
+            _ => false,
+        }
 }
 
 /// 入れ替える単位（exe・README.md・program の直下の 1 つずつ）
@@ -228,9 +247,51 @@ pub fn set_notes(dir: &Path, version: &str, text: &str) -> Result<Value, String>
     Ok(json!({"version": version, "notes": text}))
 }
 
+/// 置き場の管理のファイルを読む（versions の中。無ければ古い形の最上位）
+fn read_meta(dir: &Path, name: &str) -> std::io::Result<Vec<u8>> {
+    match std::fs::read(dir.join(VERSIONS).join(name)) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => std::fs::read(dir.join(name)),
+        r => r,
+    }
+}
+
+/// 置き場の管理のファイルを書く（versions の中）。古い形の最上位に release.json が残っている間は、最上位にも同じ物を書く
+/// （2.4.0 までの PC は最上位を読む。片付けるまで、古い PC も配る版へそろい、役割も食い違わない）
+fn write_meta(dir: &Path, name: &str, bytes: &[u8]) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir.join(VERSIONS))?;
+    write_atomic(&dir.join(VERSIONS).join(name), bytes)?;
+    if dir.join(RELEASE).is_file() {
+        write_atomic(&dir.join(name), bytes)?;
+    }
+    Ok(())
+}
+
+/// 最上位に残っている古い形の管理のファイル（無ければ空）
+pub fn legacy(dir: &Path) -> Vec<&'static str> {
+    META.into_iter().filter(|n| dir.join(n).is_file()).collect()
+}
+
+/// 古い形を片付ける: 最上位の管理のファイルを versions の中へ移す（versions の中にもう有れば、最上位の物を外す）。
+/// 答えは片付けた名前。これ以降、2.4.0 までの PC は配る版を見つけられない（そろわない）ので、全ての PC が新しい版になってから行う
+pub fn tidy(dir: &Path) -> Result<Value, String> {
+    std::fs::create_dir_all(dir.join(VERSIONS)).map_err(|e| format!("置き場へ書けません（{e}）"))?;
+    let mut moved = Vec::new();
+    // release.json は最後に（残っている間は write_meta が最上位にも書くので、先に外すと途中の失敗で食い違う）
+    for name in [ROLES, POLICY, RELEASE] {
+        let (top, inner) = (dir.join(name), dir.join(VERSIONS).join(name));
+        if !top.is_file() {
+            continue;
+        }
+        let done = if inner.is_file() { std::fs::remove_file(&top) } else { std::fs::rename(&top, &inner) };
+        done.map_err(|e| format!("{name} を片付けられません（{e}）"))?;
+        moved.push(name);
+    }
+    Ok(json!({"tidied": moved}))
+}
+
 /// 配る版（release.json。無ければ None = まだ選んでいない）
 pub fn release(dir: &Path) -> Result<Option<Value>, String> {
-    match std::fs::read(dir.join(RELEASE)) {
+    match read_meta(dir, RELEASE) {
         Ok(bytes) => serde_json::from_slice::<Value>(&bytes).map(Some).map_err(|e| format!("release.json を読めません（{e}）")),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(format!("release.json を読めません（{e}）")),
@@ -312,11 +373,15 @@ fn publish_inner(dir: &Path, zip_path: &Path, source: &str, by: &str, progress: 
     if dest.exists() {
         return Err(format!("版 {version} はもう置いてあります。版を上げた ZIP を選んでください（同じ番号で中身を変えると、もう写した PC と食い違うため）。"));
     }
-    let commit = index_of("program/Inventor3DTool.build.json")
-        .and_then(|i| read_entry(&mut zip, i).ok())
-        .and_then(|b| json_bytes(&b))
-        .and_then(|v| v["commit"].as_str().map(str::to_string))
-        .or_else(|| zip.comment().ne(b"").then(|| String::from_utf8_lossy(zip.comment()).trim().to_string())) // GitHub の ZIP は注記がコミット
+    // 中身のコミット: ZIP の注記（GitHub の ZIP と、配る ZIP（pack）は注記がコミット）。無ければ exe を作ったコミット
+    let commit = Some(String::from_utf8_lossy(zip.comment()).trim().to_string())
+        .filter(|c| !c.is_empty())
+        .or_else(|| {
+            index_of("program/Inventor3DTool.build.json")
+                .and_then(|i| read_entry(&mut zip, i).ok())
+                .and_then(|b| json_bytes(&b))
+                .and_then(|v| v["commit"].as_str().map(str::to_string))
+        })
         .unwrap_or_default();
 
     // 配るファイルだけを選ぶ: (番号, 版の中の道, 大きさ)
@@ -364,6 +429,66 @@ fn publish_inner(dir: &Path, zip_path: &Path, source: &str, by: &str, progress: 
     Ok(json!({"version": version, "files": files.len(), "bytes": total_bytes, "pruned": pruned}))
 }
 
+/// 配る ZIP を作る（main へ入ったときに CI が作る。exe と、リポジトリの中の PAYLOAD だけ）。中は "Inventor3DTool-<版>/" の下、
+/// 注記はコミット（commit が空なら program の build.json の commit）。答えは {version, files, bytes, zip}
+pub fn pack(root: &Path, out: &Path, commit: &str) -> Result<Value, String> {
+    let version = local_version(&root.join("program")).ok_or_else(|| format!("版を読めません（{}）", root.join(VERSION_FILE).display()))?;
+    let mut files = Vec::new();
+    let mut walk = vec![];
+    for unit in PAYLOAD {
+        let path = root.join(unit);
+        if path.is_file() {
+            files.push(unit.to_string());
+        } else if path.is_dir() {
+            walk.push(unit.to_string());
+        } else if REQUIRED.contains(&unit) {
+            return Err(format!("欠かせない物がありません: {unit}"));
+        }
+    }
+    while let Some(rel) = walk.pop() {
+        let entries = std::fs::read_dir(root.join(&rel)).map_err(|e| format!("{rel} を読めません（{e}）"))?;
+        for e in entries.flatten() {
+            let child = format!("{rel}/{}", e.file_name().to_string_lossy());
+            if e.path().is_dir() {
+                walk.push(child);
+            } else if payload_path(&child) {
+                files.push(child);
+            }
+        }
+    }
+    files.sort();
+    let missing: Vec<&str> = REQUIRED.iter().copied().filter(|r| !files.iter().any(|f| f == r)).collect();
+    if !missing.is_empty() {
+        return Err(format!("欠かせない物がありません: {}", missing.join("・")));
+    }
+    let commit = Some(commit.trim().to_string()).filter(|c| !c.is_empty()).unwrap_or_else(|| {
+        json_bytes(&std::fs::read(root.join("program/Inventor3DTool.build.json")).unwrap_or_default())
+            .and_then(|v| v["commit"].as_str().map(str::to_string))
+            .unwrap_or_default()
+    });
+    let tmp = out.with_extension(format!("{}.tmp", std::process::id()));
+    let write = || -> Result<u64, String> {
+        let mut z = zip::ZipWriter::new(std::fs::File::create(&tmp).map_err(|e| format!("{} を作れません（{e}）", out.display()))?);
+        let opt = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        let mut bytes = 0u64;
+        for rel in &files {
+            let data = std::fs::read(root.join(rel)).map_err(|e| format!("{rel} を読めません（{e}）"))?;
+            z.start_file(format!("{}-{version}/{rel}", crate::locate::APP_ID), opt).map_err(|e| e.to_string())?;
+            z.write_all(&data).map_err(|e| e.to_string())?;
+            bytes += data.len() as u64;
+        }
+        z.set_comment(commit.clone());
+        z.finish().map_err(|e| e.to_string())?;
+        Ok(bytes)
+    };
+    let bytes = write().inspect_err(|_| {
+        let _ = std::fs::remove_file(&tmp);
+    })?;
+    std::fs::rename(&tmp, out).map_err(|e| format!("{} を置けません（{e}）", out.display()))?;
+    let zipped = std::fs::metadata(out).map(|m| m.len()).unwrap_or(0);
+    Ok(json!({"version": version, "files": files.len(), "bytes": bytes, "zip": out, "zipBytes": zipped, "commit": commit}))
+}
+
 /// 配る版を選ぶ（前の版は previous に残す。戻すときも選び直すだけ）。新しい PC の入口 exe も置き直す
 pub fn set_release(dir: &Path, version: &str, by: &str) -> Result<Value, String> {
     if !versions(dir).iter().any(|v| v["version"] == version) {
@@ -372,7 +497,7 @@ pub fn set_release(dir: &Path, version: &str, by: &str) -> Result<Value, String>
     let previous =
         release(dir).ok().flatten().and_then(|r| r["version"].as_str().map(str::to_string)).filter(|p| p != version).unwrap_or_default();
     let rel = json!({"version": version, "setAt": now_text(), "setBy": by, "previous": previous});
-    write_atomic(&dir.join(RELEASE), &serde_json::to_vec_pretty(&rel).unwrap_or_default())
+    write_meta(dir, RELEASE, &serde_json::to_vec_pretty(&rel).unwrap_or_default())
         .map_err(|e| format!("release.json を書けません（{e}）"))?;
     let mut notes = Vec::new();
     // 新しい PC の入口（中身が同じなら書かない。開いている PC があると書けないので、知らせるだけ）
@@ -423,7 +548,7 @@ pub fn prune(dir: &Path, keep: usize) -> Vec<String> {
 /// 役割: "developer"（版の管理と役割の変更）・"maintainer"（版の管理）・"user"（見るだけ）。
 /// roles.json がまだ無ければ "unset"（最初の 1 人が自分を開発者にする）
 pub fn role_of(dir: &Path, user: &str) -> &'static str {
-    let Ok(bytes) = std::fs::read(dir.join(ROLES)) else { return "unset" };
+    let Ok(bytes) = read_meta(dir, ROLES) else { return "unset" };
     let roles: Value = serde_json::from_slice(&bytes).unwrap_or_default();
     let has = |k: &str| roles[k].as_array().into_iter().flatten().any(|u| u.as_str().is_some_and(|u| u.eq_ignore_ascii_case(user)));
     if has("developers") {
@@ -436,10 +561,7 @@ pub fn role_of(dir: &Path, user: &str) -> &'static str {
 }
 
 pub fn roles(dir: &Path) -> Value {
-    std::fs::read(dir.join(ROLES))
-        .ok()
-        .and_then(|b| serde_json::from_slice(&b).ok())
-        .unwrap_or_else(|| json!({"developers": [], "maintainers": []}))
+    read_meta(dir, ROLES).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_else(|| json!({"developers": [], "maintainers": []}))
 }
 
 /// 役割の一覧を書き換える（開発者だけ。roles.json が無いときは、自分を開発者にすることだけできる）。
@@ -470,7 +592,7 @@ pub fn set_roles(dir: &Path, by_user: &str, next: &Value) -> Result<Value, Strin
         return Err("開発者を 1 人は残してください（0 人にすると、誰も役割を戻せなくなります）".into());
     }
     let roles = json!({"developers": devs, "maintainers": maints, "setAt": now_text(), "setBy": by_user});
-    write_atomic(&dir.join(ROLES), &serde_json::to_vec_pretty(&roles).unwrap_or_default())
+    write_meta(dir, ROLES, &serde_json::to_vec_pretty(&roles).unwrap_or_default())
         .map_err(|e| format!("roles.json を書けません（{e}）"))?;
     Ok(roles)
 }
@@ -505,14 +627,13 @@ pub fn home_app() -> PathBuf {
 
 /// 置き場の決まり（残す版の数）
 pub fn policy(dir: &Path) -> Value {
-    let v: Value = std::fs::read(dir.join(POLICY)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+    let v: Value = read_meta(dir, POLICY).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
     json!({"keep": v["keep"].as_u64().unwrap_or(0)})
 }
 
 pub fn set_policy(dir: &Path, keep: u64) -> Result<Value, String> {
     let v = json!({"keep": keep});
-    write_atomic(&dir.join(POLICY), &serde_json::to_vec_pretty(&v).unwrap_or_default())
-        .map_err(|e| format!("policy.json を書けません（{e}）"))?;
+    write_meta(dir, POLICY, &serde_json::to_vec_pretty(&v).unwrap_or_default()).map_err(|e| format!("policy.json を書けません（{e}）"))?;
     Ok(v)
 }
 
@@ -538,7 +659,7 @@ pub fn status(program: &Path, progress: &Progress) -> Value {
         }
         sweep(&d);
         let rel = release(&d)?;
-        Ok((rel, versions(&d), role_of(&d, &u), roles(&d), policy(&d), d.join(EXE).is_file()))
+        Ok((rel, versions(&d), role_of(&d, &u), roles(&d), policy(&d), d.join(EXE).is_file(), legacy(&d)))
     });
     let base = json!({"dir": dir, "dirSource": source, "defaultDir": DEFAULT_DIR, "user": user, "local": local,
                       "publishing": progress.running(), "app": program.parent()});
@@ -551,7 +672,7 @@ pub fn status(program: &Path, progress: &Progress) -> Value {
             v["why"] = json!(format!("置き場が {} 秒で答えませんでした（Box Drive がつながっているか確かめてください）", REACH.as_secs()))
         }
         Some(Err(why)) => v["why"] = json!(why),
-        Some(Ok((rel, list, role, roles, policy, entry))) => {
+        Some(Ok((rel, list, role, roles, policy, entry, legacy))) => {
             let release_version = rel.as_ref().and_then(|r| r["version"].as_str().map(str::to_string));
             v["reachable"] = json!(true);
             v["release"] = rel.unwrap_or(Value::Null);
@@ -561,6 +682,7 @@ pub fn status(program: &Path, progress: &Progress) -> Value {
             v["canManage"] = json!(can_manage(role));
             v["policy"] = policy;
             v["entry"] = json!({"path": dir.join(EXE), "exists": entry});
+            v["legacy"] = json!(legacy);
             if role == "developer" || role == "unset" {
                 v["roles"] = roles;
             }
@@ -649,7 +771,7 @@ pub fn stage(app: &Path, dir: &Path, version: &str, progress: &Progress) -> Resu
     let units: Vec<String> = m["payload"].as_array().into_iter().flatten().filter_map(|u| u.as_str().map(str::to_string)).collect();
     if units.is_empty()
         || units.iter().any(|u| {
-            unit_of(u) != *u || !payload_path(&format!("{u}/x").replace(&format!("{EXE}/x"), EXE).replace("README.md/x", "README.md"))
+            unit_of(u) != *u || !accepted_path(&format!("{u}/x").replace(&format!("{EXE}/x"), EXE).replace("README.md/x", "README.md"))
         })
     {
         return Err("目録の中身の一覧がおかしいので、入れ替えません".into());
@@ -662,7 +784,7 @@ pub fn stage(app: &Path, dir: &Path, version: &str, progress: &Progress) -> Resu
     let copy = || -> Result<(), String> {
         for (i, f) in files.iter().enumerate() {
             let rel = f["path"].as_str().unwrap_or("");
-            if !payload_path(rel) || !units.contains(&unit_of(rel)) {
+            if !accepted_path(rel) || !units.contains(&unit_of(rel)) {
                 return Err(format!("目録に配らないはずのファイルがあります: {rel}"));
             }
             let data = std::fs::read(src.join(rel)).map_err(|e| format!("{rel} を写せません（{e}）"))?;
@@ -761,10 +883,11 @@ pub fn is_dev_tree(app: &Path) -> bool {
         && (app.join(".git").exists() || app.join("desktop").join("Cargo.toml").is_file())
 }
 
-/// 置き場から入れる（新しい PC）: 置き場の入口 exe か（同じフォルダに release.json と versions がある）
+/// 置き場から入れる（新しい PC）: 置き場の入口 exe か（同じフォルダに versions があり、配る版が決まっている。古い形の最上位の release.json も）
 pub fn is_share_entry(exe: &Path) -> Option<PathBuf> {
     let dir = exe.parent()?;
-    (exe.file_name()? == EXE && dir.join(RELEASE).is_file() && dir.join(VERSIONS).is_dir()).then(|| dir.to_path_buf())
+    let released = dir.join(VERSIONS).join(RELEASE).is_file() || dir.join(RELEASE).is_file();
+    (exe.file_name()? == EXE && dir.join(VERSIONS).is_dir() && released).then(|| dir.to_path_buf())
 }
 
 /// 配る版へそろえる（写して確かめ、入れ替える）。新しい PC（program がまだ無い）にも使う。
@@ -818,6 +941,9 @@ mod tests {
             ("desktop/Cargo.toml".into(), "[package]".into()),
             ("docs/a.md".into(), "doc".into()),
             ("README.md".into(), "readme".into()),
+            ("program/samples/ipt/a.ipt".into(), "sample".into()),
+            ("program/tests/test_a.py".into(), "test".into()),
+            ("program/tools/ui-check.mjs".into(), "tool".into()),
         ];
         files.extend(extra.iter().map(|(a, b)| (a.to_string(), b.to_string())));
         for (name, body) in files {
@@ -838,17 +964,31 @@ mod tests {
                 && !safe_version("1..\\x")
         );
         assert!(version_key("2.10.0") > version_key("2.9.0"));
-        assert!(payload_path(EXE) && payload_path("program/app/index.html") && payload_path("README.md"));
+        assert!(
+            payload_path(EXE)
+                && payload_path("program/app/index.html")
+                && payload_path("README.md")
+                && payload_path("program/version.json")
+        );
         for bad in [
             "program/config/appsettings.json",
             "desktop/Cargo.toml",
             "program/../x",
-            "program/a/__pycache__/b.pyc",
+            "program/app/__pycache__/b.pyc",
             "/program/x",
             "program/C:/x",
             "docs/a.md",
+            "program/samples/ipt/a.ipt",
+            "program/tests/test_layout.py",
+            "program/tools/ui-check.mjs",
+            "program/appendix/x",
         ] {
             assert!(!payload_path(bad), "{bad}");
+        }
+        // 写すときは広く受け入れる（2.4.0 までに置いた版はサンプルなども含む。古い版へ戻せるように）。設定と上へ出る道は断る
+        assert!(accepted_path("program/samples/ipt/a.ipt") && accepted_path("program/tools/x.mjs") && accepted_path(EXE));
+        for bad in ["program/config/appsettings.json", "program/../x", "docs/a.md", "program/a/__pycache__/b.pyc"] {
+            assert!(!accepted_path(bad), "{bad}");
         }
         assert_eq!((unit_of("program/app/js/a.js"), unit_of(EXE)), ("program/app".into(), EXE.into()));
         assert_eq!(civil_from_days(0), (1970, 1, 1));
@@ -873,6 +1013,9 @@ mod tests {
             d.join(EXE).is_file() && d.join("README.md").is_file() && !d.join("program/config").exists() && !d.join("desktop").exists()
         );
         assert!(!d.join("program/app/__pycache__").exists());
+        for gone in ["program/samples", "program/tests", "program/tools"] {
+            assert!(!d.join(gone).exists(), "サンプル・試験・道具は配らない: {gone}");
+        }
         let m: Value = serde_json::from_slice(&std::fs::read(d.join(MANIFEST)).unwrap()).unwrap();
         for f in m["files"].as_array().unwrap() {
             assert_eq!(f["sha256"].as_str().unwrap(), sha256_hex(&std::fs::read(d.join(f["path"].as_str().unwrap())).unwrap()));
@@ -1062,5 +1205,137 @@ mod tests {
         std::fs::remove_dir_all(&share).ok();
         std::fs::remove_dir_all(&zips).ok();
         std::fs::remove_dir_all(app.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn the_share_keeps_only_the_entry_and_versions_on_top_and_reads_the_old_layout() {
+        let share = temp("layout");
+        let zips = temp("layout-zips");
+        make_zip(&zips.join("a.zip"), "2.5.0", &[]);
+        // 新しい置き場: 管理のファイルは全て versions の中。最上位は入口の exe と versions だけ
+        set_roles(&share, "sato", &json!({"developers": ["sato"]})).unwrap();
+        set_policy(&share, 3).unwrap();
+        publish_zip(&share, &zips.join("a.zip"), "me", &Progress::default(), 0).unwrap();
+        set_release(&share, "2.5.0", "me").unwrap();
+        let mut top: Vec<String> =
+            std::fs::read_dir(&share).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        top.sort();
+        assert_eq!(top, [EXE, VERSIONS]);
+        assert!(META.iter().all(|n| share.join(VERSIONS).join(n).is_file()));
+        assert!(legacy(&share).is_empty() && is_share_entry(&share.join(EXE)).is_some());
+        assert_eq!((role_of(&share, "sato"), policy(&share)["keep"].as_u64()), ("developer", Some(3)));
+
+        // 古い形（2.4.0 まで: 最上位の release.json・roles.json・policy.json）も読み、片付けるまでは最上位にも同じ物を書く
+        let old = temp("layout-old");
+        std::fs::create_dir_all(old.join(VERSIONS)).unwrap();
+        publish_zip(&old, &zips.join("a.zip"), "me", &Progress::default(), 0).unwrap();
+        std::fs::write(old.join(RELEASE), r#"{"version": "2.5.0"}"#).unwrap();
+        std::fs::write(old.join(ROLES), r#"{"developers": ["tanaka"], "maintainers": []}"#).unwrap();
+        std::fs::write(old.join(POLICY), r#"{"keep": 2}"#).unwrap();
+        std::fs::write(old.join(EXE), "exe").unwrap();
+        assert_eq!(peek(&old, Some("2.4.0")), Peek::Differs("2.5.0".into()));
+        assert_eq!((role_of(&old, "tanaka"), policy(&old)["keep"].as_u64()), ("developer", Some(2)));
+        assert!(is_share_entry(&old.join(EXE)).is_some());
+        assert_eq!(legacy(&old), [RELEASE, ROLES, POLICY]);
+        set_release(&old, "2.5.0", "tanaka").unwrap();
+        let top_release: Value = serde_json::from_slice(&std::fs::read(old.join(RELEASE)).unwrap()).unwrap();
+        assert_eq!(top_release["setBy"], "tanaka", "2.4.0 までの PC が読む最上位にも書く");
+        assert!(old.join(VERSIONS).join(RELEASE).is_file());
+        // 片付ける: 最上位から versions の中へ（中に有る物は中を残す）。その後は最上位へ書かない
+        assert_eq!(tidy(&old).unwrap()["tidied"], json!([ROLES, POLICY, RELEASE]));
+        assert!(legacy(&old).is_empty());
+        assert_eq!((role_of(&old, "tanaka"), policy(&old)["keep"].as_u64()), ("developer", Some(2)));
+        set_policy(&old, 4).unwrap();
+        assert!(!old.join(POLICY).exists());
+        assert_eq!(peek(&old, Some("2.5.0")), Peek::Same);
+        assert_eq!(tidy(&old).unwrap()["tidied"], json!([]));
+        for d in [&share, &zips, &old] {
+            std::fs::remove_dir_all(d).ok();
+        }
+    }
+
+    #[test]
+    fn pack_makes_a_small_zip_that_can_be_published() {
+        // リポジトリの形: exe・README・program（配る物と配らない物）・docs・desktop
+        let repo = temp("repo");
+        let files = [
+            (EXE, "exe"),
+            ("README.md", "readme"),
+            (VERSION_FILE, r#"{"version": "2.5.0"}"#),
+            ("program/Inventor3DTool.build.json", r#"{"commit": "fromexe"}"#),
+            ("program/app/index.html", "<html>"),
+            ("program/app/static/js/main.js", "js"),
+            ("program/ipt_build/__main__.py", "py"),
+            ("program/ipt_build/__pycache__/x.pyc", "pyc"),
+            ("program/samples/ipt/a.ipt", "sample"),
+            ("program/tests/test_a.py", "test"),
+            ("program/tools/ui-check.mjs", "tool"),
+            ("program/config/appsettings.json", "{}"),
+            ("docs/a.md", "doc"),
+            ("desktop/Cargo.toml", "[package]"),
+        ];
+        for (rel, body) in files {
+            let path = repo.join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, body).unwrap();
+        }
+        let out = temp("pack-out").join("Inventor3DTool-2.5.0.zip");
+        let r = pack(&repo, &out, "abc999").unwrap();
+        assert_eq!((r["version"].as_str(), r["files"].as_u64()), (Some("2.5.0"), Some(7)));
+        let z = zip::ZipArchive::new(std::fs::File::open(&out).unwrap()).unwrap();
+        let mut names: Vec<String> = z.file_names().map(str::to_string).collect();
+        names.sort();
+        assert_eq!(
+            names,
+            [
+                "Inventor3DTool-2.5.0/Inventor3DTool.exe",
+                "Inventor3DTool-2.5.0/README.md",
+                "Inventor3DTool-2.5.0/program/Inventor3DTool.build.json",
+                "Inventor3DTool-2.5.0/program/app/index.html",
+                "Inventor3DTool-2.5.0/program/app/static/js/main.js",
+                "Inventor3DTool-2.5.0/program/ipt_build/__main__.py",
+                "Inventor3DTool-2.5.0/program/version.json",
+            ]
+        );
+        assert_eq!(z.comment(), b"abc999");
+        drop(z);
+        // 置き場へ置ける（中身のコミットは注記）
+        let share = temp("pack-share");
+        publish_zip(&share, &out, "me", &Progress::default(), 0).unwrap();
+        let m: Value = serde_json::from_slice(&std::fs::read(share.join(VERSIONS).join("2.5.0").join(MANIFEST)).unwrap()).unwrap();
+        assert_eq!((m["files"].as_array().unwrap().len(), m["commit"].as_str()), (7, Some("abc999")));
+        // 欠かせない物が無ければ作らない
+        std::fs::remove_file(repo.join("program/app/index.html")).unwrap();
+        assert!(pack(&repo, &out, "").unwrap_err().contains("program/app/index.html"));
+        for d in [&repo, &share, &out.parent().unwrap().to_path_buf()] {
+            std::fs::remove_dir_all(d).ok();
+        }
+    }
+
+    /// このリポジトリの配る中身が最小か（サンプル・試験・道具を含まず、exe を除いて BUDGET 以下）。大きさは出力に出す
+    #[test]
+    fn the_repository_payload_is_small() {
+        const BUDGET: u64 = 4 * 1024 * 1024;
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let (mut all, mut payload, mut count) = (0u64, 0u64, 0usize);
+        let mut walk = vec![String::from("program")];
+        while let Some(rel) = walk.pop() {
+            for e in std::fs::read_dir(repo.join(&rel)).unwrap().flatten() {
+                let child = format!("{rel}/{}", e.file_name().to_string_lossy());
+                if e.path().is_dir() {
+                    walk.push(child);
+                    continue;
+                }
+                let size = e.metadata().map(|m| m.len()).unwrap_or(0);
+                all += size;
+                if payload_path(&child) {
+                    payload += size;
+                    count += 1;
+                    assert!(!child.starts_with("program/samples/") && !child.starts_with("program/tests/"), "{child}");
+                }
+            }
+        }
+        println!("配る program: {count} ファイル・{:.1} MB（program 全体 {:.1} MB）", payload as f64 / 1048576.0, all as f64 / 1048576.0);
+        assert!(payload > 0 && payload <= BUDGET, "配る中身 {payload} バイト（基準 {BUDGET}）");
     }
 }

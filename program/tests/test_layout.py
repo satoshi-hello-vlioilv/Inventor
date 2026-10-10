@@ -54,6 +54,20 @@ class Layout(unittest.TestCase):
         self.assertIn(f"built/{EXE}", workflow, "CI が置く exe の名前")
         self.assertIn(f"{EXE} program/{APP_ID}.build.json", workflow.replace("'", ""), "CI は exe を最上位、作った元の控えを program に置く")
 
+    def test_the_distribution_is_minimal_and_released_by_ci(self):
+        """配る物（desktop/src/update.rs の PAYLOAD）は exe・README と、program の中で動かすのに要る物だけ。CI は配る ZIP を --pack で作り、
+        版ごとに Releases へ置く（main へ入れる準備: CLAUDE.md）"""
+        source = (DESKTOP / "src" / "update.rs").read_text(encoding="utf-8")
+        payload = re.findall(r'"([^"]+)"', re.search(r"pub const PAYLOAD: \[&str; \d+\] =\s*\[(.*?)\];", source, re.S).group(1))
+        self.assertEqual(set(payload) - {"EXE"}, {"README.md", "program/version.json", f"program/{APP_ID}.build.json", "program/app", "program/ipt_build"})
+        for unit in payload:
+            self.assertTrue((REPO / unit).exists(), unit)
+        for heavy in ("program/samples", "program/tests", "program/tools", "program/config"):
+            self.assertNotIn(heavy, payload, "サンプル・試験・道具・この PC の設定は配らない")
+        workflow = (REPO / ".github" / "workflows" / "desktop.yml").read_text(encoding="utf-8")
+        self.assertIn("'--pack'", workflow, "CI が配る ZIP を作る")
+        self.assertIn('gh release create "v$ver"', workflow, "配る ZIP を版ごとに Releases へ置く")
+
     def test_the_app_version_is_readable_by_the_window(self):
         """版の管理（desktop/src/update.rs）は program/version.json の version で版を見分ける（ZIP から置く・各 PC がそろえる）"""
         import json

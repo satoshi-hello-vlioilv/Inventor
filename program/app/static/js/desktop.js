@@ -76,12 +76,14 @@ export const openBuildFolder = () => post("/api/build/open");
 
 // ---- 設定: ショートカット・版の管理（desktop/src/shortcut.rs・update.rs。docs/desktop.md §8） ----
 
-/** ショートカットの状態 { supported, offer, target, places: [{ place, label, state: ok | missing | other, path }] } */
+/** ショートカットの状態 { supported, offer, target, made（入れたときに作った置き場の名前）, places: [{ place, label, state: ok | missing | other, path }] } */
 export const shortcutStatus = async () => (await request("/api/shortcut")).json();
 /** 置き場（desktop・start）にショートカットを作る（作り直す）。答えは作った後の状態 */
 export const createShortcut = (place) => post("/api/shortcut", { place });
 /** 起動のときの「デスクトップに作りますか」に「作らない」と答えた（次からは尋ねない） */
 export const declineShortcut = () => post("/api/shortcut/decline");
+/** 置き場の入口から入れたときに作ったショートカットの知らせ（made）を見た（次からは出さない） */
+export const seenShortcutNotice = () => post("/api/shortcut/seen");
 
 /** 版の管理の状態（置き場・配る版・版の一覧・役割。置き場に届かなければ reachable: false と理由 why） */
 export const updateStatus = async () => (await request("/api/update")).json();
@@ -107,5 +109,5 @@ export async function saveFile({ name, title, filter, content }) {
   return (await post("/__desktop/save-file", { name, title, filter, data: base64(bytes) })).path ?? null;
 }
 
-/** 版の管理の操作: publish {path}・release {version}・delete {version}・policy {keep}・roles {developers, maintainers}・settings {dir} */
+/** 版の管理の操作: publish {path, notes}・release {version}・notes {version, notes}・delete {version}・policy {keep}・roles {developers, maintainers}・settings {dir}・tidy {}・seen {} */
 export const updateOp = (op, body) => post(`/api/update/${op}`, body);

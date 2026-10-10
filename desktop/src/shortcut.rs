@@ -35,6 +35,8 @@ pub struct Shortcuts {
     /// 「作らない」と答えた印のファイル（あれば尋ねない。設定の画面からはいつでも作れる）
     pub offer_allowed: bool,
     pub declined: Option<PathBuf>,
+    /// 置き場の入口から入れたときに作ったショートカットの記録（開いた画面が 1 度知らせ、見たら消す）
+    pub notice: Option<PathBuf>,
 }
 
 pub const DESCRIPTION: &str = "部品・組立・STEP・図面を見る／three.js の 3D を CAD にする";
@@ -46,6 +48,7 @@ impl Shortcuts {
             target,
             offer_allowed,
             declined: Some(crate::locate::local_root().join("shortcut_declined.json")),
+            notice: Some(crate::locate::local_root().join("shortcut_made.json")),
             places: vec![
                 Place { key: "desktop", label: "デスクトップ", dir: crate::system::desktop_dir() },
                 Place { key: "start", label: "スタートメニュー", dir: crate::system::start_menu_dir() },
@@ -77,7 +80,46 @@ impl Shortcuts {
         let supported = cfg!(windows) && !places.is_empty();
         let desktop_missing = places.iter().any(|p| p["place"] == "desktop" && p["state"] != "ok");
         let declined = self.declined.as_ref().is_some_and(|f| f.is_file());
-        json!({"supported": supported, "places": places, "target": self.target, "offer": supported && self.offer_allowed && desktop_missing && !declined})
+        let made: Value = self
+            .notice
+            .as_ref()
+            .and_then(|f| std::fs::read(f).ok())
+            .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+            .map(|v| v["made"].clone())
+            .unwrap_or(json!([]));
+        json!({"supported": supported, "places": places, "target": self.target, "made": made,
+               "offer": supported && self.offer_allowed && desktop_missing && !declined})
+    }
+
+    /// 置き場の入口から入れたとき: keys の置き場のうち、この exe を指していない物を作る（作り直す）。
+    /// 作った物の名前を記録し（画面が 1 度知らせる）、答えにする。1 つも作れず失敗があれば、その理由
+    pub fn ensure(&self, keys: &[&str]) -> Result<Vec<String>, String> {
+        let status = self.status();
+        let (mut made, mut failed) = (Vec::new(), Vec::new());
+        for p in status["places"].as_array().into_iter().flatten().filter(|p| keys.iter().any(|k| p["place"] == *k) && p["state"] != "ok") {
+            match self.create(p["place"].as_str().unwrap_or("")) {
+                Ok(_) => made.push(p["label"].as_str().unwrap_or("").to_string()),
+                Err(why) => failed.push(why),
+            }
+        }
+        if let (Some(f), false) = (&self.notice, made.is_empty()) {
+            if let Some(d) = f.parent() {
+                let _ = std::fs::create_dir_all(d);
+            }
+            let _ = std::fs::write(f, json!({"made": made, "at": SystemTimeText::now()}).to_string());
+        }
+        if made.is_empty() && !failed.is_empty() {
+            return Err(failed.join(" / "));
+        }
+        Ok(made)
+    }
+
+    /// 入れたときに作った知らせを見た（次からは知らせない）
+    pub fn seen(&self) -> Value {
+        if let Some(f) = &self.notice {
+            let _ = std::fs::remove_file(f);
+        }
+        self.status()
     }
 
     /// 「作らない」と答えた（次からは尋ねない）
@@ -213,6 +255,7 @@ mod tests {
             write: fake_write,
             offer_allowed: true,
             declined: Some(root.join("declined.json")),
+            notice: Some(root.join("made.json")),
         }
     }
 
@@ -244,6 +287,26 @@ mod tests {
 
         assert!(s.create("none").unwrap_err().contains("場所が分かりません"));
         assert!(s.create("nope").unwrap_err().contains("知らない置き場"));
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn ensures_shortcuts_after_install_and_tells_once() {
+        let root = std::env::temp_dir().join(format!("inv-shortcut-ensure-{}", std::process::id()));
+        let s = shortcuts(&root);
+        let pair = |a: &str, b: &str| (a.to_string(), b.to_string());
+        // 入れたとき: デスクトップとスタートメニューに作り、作った物を 1 度知らせる
+        assert_eq!(s.ensure(&["desktop", "start"]).unwrap(), ["デスクトップ", "スタートメニュー"]);
+        let v = s.status();
+        assert_eq!(states(&v), vec![pair("desktop", "ok"), pair("start", "ok")]);
+        assert_eq!(v["made"], json!(["デスクトップ", "スタートメニュー"]));
+        assert_eq!(v["offer"], false, "作った後は尋ねない");
+        assert_eq!(s.seen()["made"], json!([]), "見たら知らせない");
+        // もう一度入口から開いても、この exe を指す物は作り直さない（知らせも出さない）。ほかの exe を指す物だけ直す
+        assert!(s.ensure(&["desktop", "start"]).unwrap().is_empty());
+        assert_eq!(s.status()["made"], json!([]));
+        std::fs::write(root.join("Desktop").join(format!("{}.lnk", crate::locate::APP_NAME)), "D:\\old\\Inventor3DTool.exe").unwrap();
+        assert_eq!(s.ensure(&["desktop", "start"]).unwrap(), ["デスクトップ"]);
         std::fs::remove_dir_all(&root).ok();
     }
 
