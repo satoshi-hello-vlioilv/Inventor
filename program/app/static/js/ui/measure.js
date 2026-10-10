@@ -28,6 +28,7 @@ export class MeasureTool {
   #done = null; // 測った結果 { a, b, m }
   #picked = []; // 選んだ図形の entity（描き直して scene.items の番号が変わっても、同じ図形を選び直す）
 
+  /** onSelect … 選んだ図形のカードを描き直した後（選び直した・測った・描き直した） */
   constructor({ viewer, context, readout, onSelect = () => {} }) {
     this.viewer = viewer;
     this.context = context;
@@ -39,7 +40,6 @@ export class MeasureTool {
       this.#picked = selection.items.map((i) => items[i]?.entity);
       this.viewer.select(selection.items);
       this.#renderCards();
-      this.onSelect();
     } });
     $("measure").addEventListener("click", () => this.toggle(!this.#active));
     $("measure-stop").addEventListener("click", () => this.toggle(false));
@@ -185,5 +185,6 @@ export class MeasureTool {
         .map(([k, n]) => `${k} ${n}`).join("・");
       list("selection-info", [["種類", count((it) => typeLabel(it.type))], ["画層", count((it) => it.layer)]]);
     }
+    this.onSelect(); // カードを描き直したら、直す欄（画層・文字）を付け直す（ui/drawedit.js）
   }
 }

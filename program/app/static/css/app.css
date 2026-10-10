@@ -779,7 +779,8 @@ details.card.more summary .h-note { margin-inline-start: 8px; }
 .edit-field { display: grid; grid-template-columns: 4em minmax(0, 1fr); align-items: center; gap: 8px; font-size: var(--fs-s); color: var(--muted); }
 .edit-field[hidden] { display: none; }
 .edit-field select, .edit-field input { min-width: 0; padding: 5px 8px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; }
-.edit-field select:disabled, .edit-field input:disabled { opacity: 0.55; }
+.edit-field select:disabled, .edit-field input:disabled, .selection-card dd > #edit-layer:disabled { opacity: 0.55; }
+.selection-card dd > #edit-layer { width: 100%; min-width: 0; margin-block: -3px; padding: 2px 6px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; }
 .edit-reason { margin: 0; font-size: var(--fs-xs); color: var(--caution-ink); }
 .edit-reason[hidden] { display: none; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

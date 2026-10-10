@@ -29,6 +29,8 @@ export class DrawingEditTool {
 
   constructor({ viewer, edits, selected, items, units, notify }) {
     Object.assign(this, { viewer, edits, selected, items, units, notify });
+    // 画層の選ぶ欄は、選んだ図形の表の行へ動かす（表は描き直されるので、id で引かずに持っておく）
+    this.layerSelect = $("edit-layer");
     for (const button of document.querySelectorAll("[data-edit]")) {
       button.addEventListener("click", () => (button.dataset.edit === "remove" ? this.remove() : this.start(button.dataset.edit)));
     }
@@ -39,7 +41,7 @@ export class DrawingEditTool {
       event.preventDefault();
       this.#applyNumbers();
     });
-    $("edit-layer").addEventListener("change", (event) => this.#run(() => this.edits.setLayer(this.selected(), event.target.value)));
+    this.layerSelect.addEventListener("change", (event) => this.#run(() => this.edits.setLayer(this.selected(), event.target.value)));
     $("edit-text").addEventListener("change", (event) => {
       const [entity] = this.selected();
       if (entity && event.target.value !== entity.text) this.#run(() => this.edits.setText(entity, event.target.value));
@@ -140,18 +142,26 @@ export class DrawingEditTool {
     // 直した後（保存していない）は、保存のボタンを主の色に（案 F。docs/ui.md §22）
     $("save-dxf-group").classList.toggle("is-dirty", h.dirty);
     $("save-dxf-dirty").hidden = !h.dirty;
-    $("selection-edit").hidden = !entities.length;
-    if (!entities.length) return;
+    if (!entities.length) {
+      $("selection-edit").hidden = true;
+      return;
+    }
     $("edit-reason").hidden = !why;
     $("edit-reason").textContent = why ?? "";
-    const select = $("edit-layer");
+    const select = this.layerSelect;
     const layers = [...this.edits.drawing.layers.keys()];
     const current = new Set(entities.map((e) => e.layer));
     select.replaceChildren(...(current.size > 1 ? [new Option(`（${current.size} つの画層）`, "", true, true)] : []),
       ...layers.map((name) => new Option(name, name, false, current.size === 1 && current.has(name))));
     select.disabled = Boolean(why);
+    // 画層の選ぶ欄は、選んだ図形の表の「画層」の行に入れる（無ければ下の欄に）
+    const row = [...$("selection-info").querySelectorAll("dt")].find((dt) => dt.textContent === "画層")?.nextElementSibling;
+    if (row) row.replaceChildren(select);
+    else $("edit-layer-row").append(select);
+    $("edit-layer-row").hidden = Boolean(row);
     const text = entities.length === 1 && TEXTS.has(entities[0].type) ? entities[0] : null;
     $("edit-text-row").hidden = !text;
+    $("selection-edit").hidden = !text && !why && Boolean(row);
     if (text && document.activeElement !== $("edit-text")) $("edit-text").value = text.text ?? "";
     $("edit-text").disabled = Boolean(why);
   }

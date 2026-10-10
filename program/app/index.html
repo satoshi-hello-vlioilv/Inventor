@@ -265,9 +265,9 @@
       <section class="card selection-card" id="selection-card" hidden>
         <h2>選んだ図形<span class="h-note" id="selection-note">Esc で外す</span></h2>
         <dl class="topology" id="selection-info"></dl>
-        <!-- 選んだ図形を直す: 画層・文字（ui/drawedit.js） -->
+        <!-- 選んだ図形を直す: 画層・文字（ui/drawedit.js）。画層の選ぶ欄は、上の表の「画層」の行に入れる（同じことを 2 回出さない） -->
         <div class="selection-edit" id="selection-edit" hidden>
-          <label class="edit-field">画層 <select id="edit-layer"></select></label>
+          <label class="edit-field" id="edit-layer-row">画層 <select id="edit-layer"></select></label>
           <label class="edit-field" id="edit-text-row" hidden>文字 <input type="text" id="edit-text"></label>
           <p class="edit-reason" id="edit-reason" hidden></p>
         </div>
