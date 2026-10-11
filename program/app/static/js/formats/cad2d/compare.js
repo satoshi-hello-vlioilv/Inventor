@@ -103,7 +103,7 @@ function near(a, b, tol, blockA, blockB) {
 }
 
 /** 基準の点（種類ごとの代表の点。無い種類は、値の中の最初の座標: PDF の線の道筋・ハッチングの境界など） */
-function anchor(e) {
+export function anchor(e) {
   const p = e.p ?? e.center ?? e.a ?? e.points?.[0] ?? e.vertices?.[0]?.p ?? e.controls?.[0] ?? e.fit?.[0] ?? e.p10 ?? e.base ?? null;
   if (Array.isArray(p)) return p;
   let found = null;

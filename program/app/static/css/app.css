@@ -35,6 +35,8 @@
   --sheet-ink: #1b2430; /* 図面の色番号 7（前景色） */
   --sheet-contrast: 3; /* 図面の色の、地に対するコントラスト比の下限（届かない色を前景の側へ寄せる。白地のシアン・黄など） */
   --font-drawing: "IBM Plex Sans JP", "Yu Gothic UI", "Meiryo", sans-serif; /* 図面の文字（SHX・TrueType の代わり） */
+  /* 旧版と比べる（docs/ui.md §27）: 同じ = 控えめな灰・足した = 緑・変わった = 琥珀・消した = 赤・変わる前の形 = 淡い赤・改訂の雲 = 紫（指した図形の青と分ける） */
+  --diff-same: #b5bdc7; --diff-added: #1b7f3f; --diff-changed: #c27c12; --diff-removed: #c62f26; --diff-before: #e9aaa5; --diff-cloud: #7a3db8;
   --shadow-1: 0 1px 2px rgba(16, 24, 40, 0.06), 0 2px 10px rgba(16, 24, 40, 0.06);
   --shadow-2: 0 -6px 18px rgba(16, 24, 40, 0.07);
   --shadow-3: 0 24px 64px rgba(10, 20, 30, 0.28);
@@ -53,6 +55,7 @@
     --warn: #e0a84e; --warn-soft: rgba(224, 168, 78, 0.14); --caution-ink: #e8bd75; --on-warn: #1a2129;
     --steel: #b8c1cb; --mark-ok: #6fcf8a; --approx: #c89b58; --edge: #0f141a; --axis-x: #ff6a5c; --axis-y: #4cc46c; --axis-z: #5e9dff;
     --sheet: #1b222b; --sheet-ink: #e8edf2;
+    --diff-same: #4a5664; --diff-added: #5fd38a; --diff-changed: #f0b14a; --diff-removed: #ff7a70; --diff-before: #8a4a46; --diff-cloud: #c6a2f7;
     --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4); --shadow-2: 0 -6px 18px rgba(0, 0, 0, 0.35); --shadow-3: 0 24px 64px rgba(0, 0, 0, 0.6);
     color-scheme: dark;
   }
@@ -65,6 +68,7 @@
   --warn: #e0a84e; --warn-soft: rgba(224, 168, 78, 0.14); --caution-ink: #e8bd75; --on-warn: #1a2129;
   --steel: #b8c1cb; --mark-ok: #6fcf8a; --approx: #c89b58; --edge: #0f141a; --axis-x: #ff6a5c; --axis-y: #4cc46c; --axis-z: #5e9dff;
     --sheet: #1b222b; --sheet-ink: #e8edf2;
+  --diff-same: #4a5664; --diff-added: #5fd38a; --diff-changed: #f0b14a; --diff-removed: #ff7a70; --diff-before: #8a4a46; --diff-cloud: #c6a2f7;
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4); --shadow-2: 0 -6px 18px rgba(0, 0, 0, 0.35); --shadow-3: 0 24px 64px rgba(0, 0, 0, 0.6);
   color-scheme: dark;
 }
@@ -240,6 +244,27 @@ kbd { font: 500 var(--fs-xs)/1.35 var(--font-num); padding: 0 5px; border: 1px s
 .measure-band .measure-snaps { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .measure-band button { font: 500 var(--fs-s)/1 var(--font-ui); padding: 6px 10px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); color: var(--ink); cursor: pointer; white-space: nowrap; }
 .measure-band button:hover { border-color: var(--accent); background: var(--accent-soft); }
+/* 旧版と比べる帯（測ると同じ形。docs/ui.md §27） */
+.compare-band .compare-files { font: 500 var(--fs-s) var(--font-num); color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.compare-step { display: inline-flex; gap: 6px; align-items: center; font: 600 var(--fs-s) var(--font-num); white-space: nowrap; }
+.app.is-comparing #edit-tools { display: none; } /* 比べている間は直さない */
+#compare[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+/* 欄の「旧版との違い」: 数の札と、違いの一覧（色は図の上の色と同じ） */
+.side-scroll > .compare-card { order: -4; }
+[data-diff="same"] { --tone: var(--diff-same); --tone-ink: var(--muted); }
+[data-diff="added"] { --tone: var(--diff-added); --tone-ink: var(--diff-added); }
+[data-diff="changed"] { --tone: var(--diff-changed); --tone-ink: var(--caution-ink); }
+[data-diff="removed"] { --tone: var(--diff-removed); --tone-ink: var(--diff-removed); }
+/* 違いの行（案 H: docs/ui.md §27）: 改訂の雲と同じ番号 ｜ 結果 ｜ 何がどう変わったか（値）と、その下に図形の種類・画層。番号の順に並び、
+   今見ている違い（順に見る）の行は雲の色で囲む */
+.diff-list .feature { grid-template-columns: 1.8em minmax(3.6em, max-content) 1fr; row-gap: 0; border-inline-start: 3px solid var(--tone); padding-inline-start: 10px; cursor: pointer; }
+.diff-list .diff-no { grid-row: span 2; align-self: start; display: grid; place-items: center; height: 22px; border-radius: 50%;
+  background: var(--diff-cloud); color: var(--surface); font: 700 var(--fs-xs) var(--font-num); }
+.diff-list .diff-no:empty { visibility: hidden; }
+.diff-list .feature .kind { grid-row: span 2; color: var(--tone-ink); }
+.diff-list .feature .sub { grid-column: 3; font: 600 var(--fs-m) var(--font-num); color: var(--ink); overflow-wrap: anywhere; }
+.diff-list .feature .dim { grid-column: 3; font: 400 var(--fs-xs) var(--font-ui); color: var(--muted); }
+.diff-list .feature.is-current { border-radius: 8px; background: color-mix(in srgb, var(--diff-cloud) 10%, var(--surface)); box-shadow: inset 0 0 0 1.5px var(--diff-cloud); }
 .measure-card dd:first-of-type { font: 700 var(--fs-l) var(--font-num); color: var(--accent); } /* 距離は大きく（結果の要） */
 .measure-card dt:first-of-type { align-self: center; }
 .selection-card dd, .measure-card dd { overflow-wrap: anywhere; }

@@ -140,3 +140,34 @@ test("違いのまとまり: 近い違いは 1 つ、離れた違いは別。番
   assert.deepEqual(pts.slice(0, 2), pts.slice(-2), "閉じている");
   for (let i = 0; i < pts.length; i += 2) assert.ok(pts[i] <= 0 || pts[i] >= 10 || pts[i + 1] <= 0 || pts[i + 1] >= 4, "外形の外側を通る");
 });
+
+test("寄る（viewer2d の fitView）: 範囲の中心が、重ねた帯を除いた場所の真ん中に来て、範囲が収まる（原点が範囲の外でも）", async () => {
+  const { fitView } = await import("../../app/static/js/viewer2d/viewer2d.js");
+  const size = { width: 1000, height: 600 }, insets = { top: 100, right: 200 };
+  for (const [box, origin] of [[{ min: [10, 20], max: [30, 30] }, [0, 0]], [{ min: [-80, 5], max: [-60, 45] }, [150, -40]], [{ min: [0, 0], max: [400, 100] }, [200, 50]]]) {
+    const v = fitView(box, origin, size, insets);
+    const screen = (x, y) => [(x - origin[0]) * v.scale + v.x, -(y - origin[1]) * v.scale + v.y];
+    const [cx, cy] = screen((box.min[0] + box.max[0]) / 2, (box.min[1] + box.max[1]) / 2);
+    assert.ok(Math.abs(cx - 400) < 1e-9 && Math.abs(cy - 350) < 1e-9, `中心 ${cx}, ${cy}`);
+    const [[x0, y0], [x1, y1]] = [screen(box.min[0], box.max[1]), screen(box.max[0], box.min[1])];
+    assert.ok(x0 >= 0 && x1 <= 800 && y0 >= 100 && y1 <= 600, "帯の内側に収まる");
+  }
+});
+
+test("違いの一覧の行: 何がどう変わったかを値で（穴の径・動いた量・文字の違う所）。足した・消した図形はその図形の説明", async () => {
+  const { changeDetail } = await import("../../app/static/js/ui/compare.js");
+  const older = await readDrawing(bytesOf(path.join(ROOT, "tests/fixtures/drawings/compare/A1_円筒_部品図_旧版.dxf")), "old.dxf");
+  const newer = await readDrawing(bytesOf(path.join(ROOT, "samples/dwg/A1_円筒_部品図.dxf")), "new.dxf");
+  const r = compareDrawings(older, newer);
+  const detail = (status, handle) => changeDetail(r.items.find((x) => x.status === status && (x.newer ?? x.older).handle === handle), "mm");
+  assert.equal(detail("changed", "9D"), "Φ6 mm → Φ6.6 mm");
+  assert.equal(detail("changed", "CE"), "動いた 6 mm");
+  assert.equal(detail("changed", "104"), "「調質」を足した");
+  assert.match(detail("added", "DC"), /^Φ/);
+  assert.match(detail("removed", r.items.find((x) => x.status === "removed").older.handle), /^長さ /);
+  // 文字の違いは語の単位で（語の途中で切らない）・消した語・長い所は切る
+  const text = (from, to) => changeDetail({ status: "changed", older: { type: "TEXT", text: from }, newer: { type: "TEXT", text: to }, changes: ["text"] }, "mm");
+  assert.equal(text("板厚 t6.0 SS400", "板厚 t6.6 SS400"), "「t6.0」→「t6.6」");
+  assert.equal(text("材質 S45C 調質", "材質 S45C"), "「調質」を消した");
+  assert.equal(text("A", "A " + "あ".repeat(40)), `「${"あ".repeat(24)}…」を足した`);
+});

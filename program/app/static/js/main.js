@@ -22,6 +22,7 @@ import { drawingToSfc, sfcNotes } from "./formats/cad2d/to-sxf.js";
 import { saveSpec, setSpec } from "./ui/convert.js";
 import { DimensionEditor } from "./ui/dimedit.js";
 import { DrawingEditTool } from "./ui/drawedit.js";
+import { DrawingCompare } from "./ui/compare.js";
 import { MeasureTool } from "./ui/measure.js";
 import { SAVE_FORMATS, SaveMenu } from "./ui/savemenu.js";
 import { flow, onFlow, setNext, updateFlow } from "./ui/flow.js";
@@ -141,7 +142,8 @@ const drawingEdits = new DrawingEdits({ onChange: () => {
   editTool.refresh();
 } });
 /** 選んだ図形（scene.items の番号）。ビューポートの中に見えている図形（モデルの図形）は除く */
-const selectedItems = () => (sheet?.scene ? measureTool.selection.items.filter((i) => sheet.scene.items[i] && sheet.scene.items[i].viewport === undefined) : []);
+// 旧版と比べている間は直さない（重ねて描いた図形には、旧版の図形も入る）
+const selectedItems = () => (sheet?.scene && !compare.active ? measureTool.selection.items.filter((i) => sheet.scene.items[i] && sheet.scene.items[i].viewport === undefined) : []);
 const editTool = new DrawingEditTool({
   viewer: drawingViewer,
   edits: drawingEdits,
@@ -151,6 +153,31 @@ const editTool = new DrawingEditTool({
   notify: (text) => showNotice(text),
 });
 $("measure").addEventListener("click", () => editTool.stop()); // 測ると直す命令は同時にしない
+
+// 旧版と比べる（docs/ui.md §27・ui/compare.js）。旧版は裏の計算で読む（待つ間の表示。取りやめられる）
+const DRAWING_ACCEPT = ACCEPT.split(",").filter((ext) => /^\.(dwg|dxf|pdf|jww|sfc|p21)$/i.test(ext)).join(",");
+const compare = new DrawingCompare({
+  viewer: drawingViewer,
+  open: async (file) => {
+    const own = new AbortController();
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const model = await waitFor((onProgress) => runTask("readModel", [bytes, file.name, {}], { signal: AbortSignal.any([scope.signal, own.signal]), onProgress }),
+        { title: "旧版を開いています", detail: file.name, cancel: () => own.abort() });
+      if (model.kind === "drawing") {
+        editTool.stop();
+        return model;
+      }
+      showAlert(`${file.name}: 図面ではないので、比べられません（図面の .dwg・.dxf・.pdf・.jww・.sfc・.p21 を選んでください）。`);
+    } catch (error) {
+      if (!isAbort(error)) showAlert(`${file.name}: ${explainError(error)}`);
+    }
+    return null;
+  },
+  render: (fit) => sheet?.view === "sheet" && renderSheet(fit),
+  highlight: (items) => highlightItems(items),
+});
+$("compare-input").accept = DRAWING_ACCEPT;
 for (const b of document.querySelectorAll("[data-edit]")) b.addEventListener("click", () => measureTool.toggle(false), { capture: true });
 
 // 図面の保存（見出しの「保存」と形式の札。ui/savemenu.js）: DXF は図面全体、SXF は見ているレイアウトと画層の表示のとおり
@@ -363,7 +390,8 @@ function showDrawing(model, header) {
   setMode("drawing");
   renderHeader(header);
   current = null;
-  sheet = { model, layout: 0, layers: new Map(), scene: null, rows: new Map(), view: "sheet", shown3d: new Map(), trees3d: new Map() };
+  sheet = { model, name: header.name, layout: 0, layers: new Map(), scene: null, rows: new Map(), view: "sheet", shown3d: new Map(), trees3d: new Map() };
+  compare.reset(); // 別の図面を開いたら、比べるのをやめる
   editTool.stop();
   drawingEdits.open(model.drawing);
   $("save-group").hidden = false;
@@ -456,8 +484,10 @@ function renderSheet(fit) {
   const { drawing } = sheet.model;
   const layout = drawing.layouts[sheet.layout];
   const pick = (on) => new Set([...sheet.layers].filter(([, v]) => v === on).map(([k]) => k));
-  sheet.scene = buildScene(drawing, layout, { hidden: pick(false), shown: pick(true), measure: measureText });
+  const options = { hidden: pick(false), shown: pick(true), measure: measureText };
+  sheet.scene = compare.active ? compare.scene(drawing, layout, options, sheet.name) : buildScene(drawing, layout, options);
   drawingViewer.show(sheet.scene, { fit });
+  compare.shown();
   if (fit) { // 別の図面・レイアウト
     editTool.stop();
     measureTool.reset();
@@ -470,7 +500,7 @@ function renderSheet(fit) {
     return !(l?.off || l?.frozen);
   };
   $("app").dataset.layout = layout.model ? "model" : "paper"; // 地の色をモデルと紙で変えられるように（CSS）
-  sheet.rows = renderDrawingPanel({ drawing, describe: describeDrawing(drawing, sheet.scene), layout, visible,
+  sheet.rows = renderDrawingPanel({ drawing, describe: describeDrawing(drawing, compare.active ? compare.newerScene : sheet.scene), layout, visible,
     display: (color) => drawingViewer.displayColor(color) }, {
     onToggle: (name) => {
       sheet.layers.set(name, !visible(name));
@@ -605,7 +635,7 @@ addEventListener("keydown", (event) => {
     event.preventDefault();
     return;
   }
-  if (editTool.key(event) || measureTool.key(event)) event.preventDefault();
+  if (editTool.key(event) || measureTool.key(event) || compare.key(event)) event.preventDefault();
 });
 
 /** 図面の図形の強調（読み出しの文と、画層の行の印） */
@@ -619,7 +649,8 @@ function highlightItems(items, text, layer) {
 function onDrawingHover(index) {
   const item = index === null ? null : sheet?.scene?.items[index];
   const { drawing } = sheet?.model ?? {};
-  if (item) highlightItems([index], describeItem(item, drawing.units.name, drawing.layers.get(item.layer)?.scale ?? 1), item.layer);
+  const compared = compare.hover(index); // 旧版と比べている間は、比べた結果（同じ・変わった・足した・消した）
+  if (item) highlightItems([index], compared ?? describeItem(item, drawing.units.name, drawing.layers.get(item.layer)?.scale ?? 1), item.layer);
   else highlightItems([]);
 }
 

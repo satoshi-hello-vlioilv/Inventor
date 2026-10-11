@@ -77,6 +77,7 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 7.5v10.5a1.5 1.5 0 0 0 1.5 1.5h14a1.5 1.5 0 0 0 1.5-1.5v-8a1.5 1.5 0 0 0-1.5-1.5h-7l-2-2.5H5a1.5 1.5 0 0 0-1.5 1.5z"/></svg><span class="label">ファイルを開く</span><kbd>Ctrl+O</kbd>
       </button>
       <input type="file" id="file-input" multiple hidden><!-- 受け付ける形式は main.js が formats/open.js の並びから入れる -->
+      <input type="file" id="compare-input" hidden><!-- 旧版の図面（比べる。受け付ける形式は main.js が入れる） -->
     </div>
   </header>
 
@@ -133,6 +134,7 @@
         <button type="button" id="toggle-edges" aria-pressed="true" data-mode="empty ipt asm html spec model3d">稜線</button>
         <button type="button" class="is-check" id="toggle-lineweight" aria-pressed="true" data-mode="drawing" title="線の太さ（画層・図形の設定）で描く">線の太さ</button>
         <button type="button" id="measure" aria-pressed="false" data-mode="drawing" title="2 点の間を測る（M）。端点・中点・中心・交点に吸い付く">測る <kbd>M</kbd></button>
+        <button type="button" id="compare" aria-pressed="false" data-mode="drawing" title="旧版の図面を選んで比べる。違いに色と改訂の雲・番号を付け、番号の順に 1 つずつ寄れる（N）">旧版と比べる</button>
         <button type="button" id="fit" title="全体が収まるように表示（図面はダブルクリックでも）">全体表示</button>
       </div>
       <!-- 図面を直す（ui/drawedit.js）: 選んだ図形を動かす・写す・回す・消す。取り消し・やり直し -->
@@ -149,6 +151,16 @@
       <!-- 測っている間だけ出す案内の帯（ツールバーの下の行。ui/measure.js） -->
       <div class="measure-row" id="measure-band" hidden>
         <div class="measure-band" role="status"><b>測る</b><span id="measure-step">1 点目をクリック</span><span class="measure-snaps">端点・中点・中心・交点に吸い付く</span><button type="button" id="measure-stop">やめる <kbd>Esc</kbd></button></div>
+      </div>
+      <!-- 旧版と比べている間だけ出す帯（測ると同じ形。main.js の比べる・ui/compare.js。docs/ui.md §27）。比べている 2 つのファイル・違いを順に見る・やめる -->
+      <div class="measure-row" id="compare-band" hidden>
+        <div class="measure-band compare-band" role="status">
+          <b>旧版と比べる</b><span class="compare-files" id="compare-files"></span>
+          <span class="compare-step">
+            <button type="button" id="compare-prev" title="前の違い（Shift+N）" aria-label="前の違い">‹</button><span id="compare-step-text"></span><button type="button" id="compare-next" title="次の違いへ寄る（N）">次の違い <kbd>N</kbd></button>
+          </span>
+          <button type="button" id="compare-stop">やめる <kbd>Esc</kbd></button>
+        </div>
       </div>
       <!-- 直す命令の間だけ出す案内の帯（測ると同じ形。ui/drawedit.js） -->
       <div class="measure-row" id="edit-band" hidden>
@@ -272,6 +284,13 @@
         <h2>図面<span class="h-note" id="drawing-note"></span></h2>
         <dl class="topology" id="drawing-info"></dl>
         <p class="hint-text is-warn" id="drawing-unsupported" hidden></p>
+      </section>
+
+      <!-- 旧版との違い（旧版と比べている間だけ。main.js が出し入れするので data-mode は付けない。ui/compare.js） -->
+      <section class="card compare-card" id="compare-card" hidden>
+        <h2>旧版との違い<span class="h-note" id="compare-note"></span></h2>
+        <div class="tally" id="compare-counts"></div>
+        <ul class="features diff-list" id="compare-list"></ul>
       </section>
 
       <!-- 測った結果・選んだ図形（図面で測る・図形を押すと出す。ui/measure.js が出し入れするので data-mode は付けない） -->

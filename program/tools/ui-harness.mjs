@@ -233,6 +233,22 @@ export const STATES = [
   // 保存の形式のメニュー（見出しの札。docs/ui.md §23）
   ["save-menu", async (p) => { await p.click("#save-format"); await sleep(300); }, "#save-menu [aria-checked=\"true\"]"],
   ["layout", async (p) => { await p.click("#layout-tabs button:nth-child(2)"); await sleep(600); await hoverDrawing(p); }, "[data-next], #open"],
+  // 旧版と比べる（docs/ui.md §27）: A1 の図面（新版）を開き直し、旧版（穴の径・注記・ねじ穴・面取りの線・寸法の位置が違う。
+  // tools/make-compare-fixture.mjs）を選ぶ。変わった穴にカーソルを合わせた様子（読み出しに比べた結果）も撮る
+  ["compare", async (p) => {
+    await openSample(p, DRAWING);
+    const older = path.join(PROGRAM, "tests/fixtures/drawings/compare/A1_円筒_部品図_旧版.dxf"); // 中身で渡す（openFile と同じ）
+    await p.setInputFiles("#compare-input", { name: path.basename(older), mimeType: "application/octet-stream", buffer: fs.readFileSync(older) });
+    await p.waitForSelector("#compare-band:not([hidden])");
+    await sleep(800);
+    await hoverDrawing(p);
+  }, "#compare-next"],
+  ["compare-next", async (p) => { // 次の違いへ（N）: 1 番の違いへ寄り、一覧の 1 番の行を囲む。指した図形の強調を消して、違いの色のまま見る
+    await p.mouse.move(4, 4);
+    await p.evaluate(() => document.activeElement?.blur()); // 前の操作のボタンに、キーで出るフォーカスの枠を残さない
+    await p.keyboard.press("n");
+    await sleep(500);
+  }, "#compare-next"],
   // PDF: ページの多い図面（ページ送り）・3D を含む PDF（主役の場所のタブ: 3D → 図面）
   ["pages", async (p) => { await openFile(p, await manyPages()); }, "[data-next], #open"],
   ["pages-pop", async (p) => { await p.click("#layout-tabs .pager-now"); await p.waitForSelector("#page-pop:not([hidden])"); await sleep(200); }, "#page-pop [aria-current=\"true\"]"],
