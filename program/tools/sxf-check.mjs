@@ -13,17 +13,35 @@ import path from "node:path";
 import { readDrawing } from "../app/static/js/formats/cad2d/index.js";
 import { buildScene } from "../app/static/js/viewer2d/scene.js";
 
-/** 線と塗りの縁の線分 [x0, y0, x1, y1] */
-function segments(scene) {
+/** 線と塗りの縁の線分 [x0, y0, x1, y1]。area（{ min, max }）があれば、その中だけ（構築線のような長い線を、見える所だけに） */
+export function segments(scene, area = null) {
   const out = [];
   const closed = (ring) => [...ring, ring[0], ring[1]];
   const polylines = [...scene.strokes.flatMap((s) => s.lines.map((line) => line.points)), ...scene.fills.flatMap((f) => f.rings.map(closed))];
   for (const p of polylines) for (let i = 0; i + 3 < p.length; i += 2) out.push([p[i], p[i + 1], p[i + 2], p[i + 3]]);
+  return clipped(out, area);
+}
+
+/** 線分を枠（{ min, max }）で切る（Liang–Barsky）。枠が無ければそのまま */
+export function clipped(segs, c) {
+  if (!c) return segs;
+  const out = [];
+  for (const [x0, y0, x1, y1] of segs) {
+    let t0 = 0, t1 = 1;
+    const dx = x1 - x0, dy = y1 - y0;
+    let ok = true;
+    for (const [p, q] of [[-dx, x0 - c.min[0]], [dx, c.max[0] - x0], [-dy, y0 - c.min[1]], [dy, c.max[1] - y0]]) {
+      if (p === 0) ok &&= q >= 0;
+      else if (p < 0) t0 = Math.max(t0, q / p);
+      else t1 = Math.min(t1, q / p);
+    }
+    if (ok && t0 <= t1) out.push([x0 + dx * t0, y0 + dy * t0, x0 + dx * t1, y0 + dy * t1]);
+  }
   return out;
 }
 
 /** 線分を間隔 step で区切った点 */
-function samples(segs, step) {
+export function samples(segs, step) {
   const out = [];
   for (const [x0, y0, x1, y1] of segs) {
     const n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / step));
@@ -33,20 +51,16 @@ function samples(segs, step) {
 }
 
 /** 点 a のうち、線分 b のどれかの近く（tol）にあるものの割合（線分を格子の升に配って探す。点どうしで比べると、区切りのずれが差に見える） */
-function near(a, b, tol) {
+export function near(a, b, tol) {
   if (!a.length) return b.length ? 0 : 1;
-  const cell = Math.max(tol * 4, 0.5), grid = new Map();
+  // 升の大きさ: 線分の長さの中央値（線分は 1〜2 升に収まる。線が一部に集まった図でも 1 つの升の線分が増えすぎない）。許す差の 2 倍より小さくしない
+  const lengths = b.filter((_, i) => i % Math.ceil(b.length / 10000) === 0).map((s) => Math.hypot(s[2] - s[0], s[3] - s[1])).sort((p, q) => p - q);
+  const cell = Math.max(tol * 2, lengths[lengths.length >> 1] ?? 0), grid = new Map(), long = [];
   for (const s of b) {
     const [x0, x1] = [Math.min(s[0], s[2]) - tol, Math.max(s[0], s[2]) + tol], [y0, y1] = [Math.min(s[1], s[3]) - tol, Math.max(s[1], s[3]) + tol];
     const cells = (Math.floor(x1 / cell) - Math.floor(x0 / cell) + 1) * (Math.floor(y1 / cell) - Math.floor(y0 / cell) + 1);
-    if (cells > 4096) { // 長い線分は、通る升だけに配る
-      const n = Math.ceil(Math.hypot(s[2] - s[0], s[3] - s[1]) / cell) + 1;
-      const keys = new Set();
-      for (let k = 0; k <= n; k++) {
-        const x = s[0] + ((s[2] - s[0]) * k) / n, y = s[1] + ((s[3] - s[1]) * k) / n;
-        for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) keys.add(`${Math.floor(x / cell) + dx},${Math.floor(y / cell) + dy}`);
-      }
-      for (const k of keys) (grid.get(k) ?? grid.set(k, []).get(k)).push(s);
+    if (cells > 4096) { // 長い線分（構築線・枠など）は升に配らず、別の並びで全ての点と比べる（数は少ない）
+      long.push(s);
       continue;
     }
     for (let cx = Math.floor(x0 / cell); cx <= Math.floor(x1 / cell); cx++) {
@@ -59,7 +73,8 @@ function near(a, b, tol) {
     return Math.hypot(x0 + dx * t - x, y0 + dy * t - y);
   };
   let hit = 0;
-  for (const q of a) if ((grid.get(`${Math.floor(q[0] / cell)},${Math.floor(q[1] / cell)}`) ?? []).some((s) => distance(q, s) <= tol)) hit++;
+  const close = (q) => (s) => distance(q, s) <= tol;
+  for (const q of a) if ((grid.get(`${Math.floor(q[0] / cell)},${Math.floor(q[1] / cell)}`) ?? []).some(close(q)) || long.some(close(q))) hit++;
   return hit / a.length;
 }
 
@@ -87,11 +102,11 @@ function sceneOf(drawing, { arrows }) {
   return buildScene(drawing, layout, { shown: new Set(drawing.layers.keys()) });
 }
 
-/** 2 つの図面を比べる → { precision, recall, points: [a, b], texts: [一致, a, b] } */
-export function compareDrawings(a, b, { tol = 0.05, arrows = false } = {}) {
+/** 2 つの図面を比べる → { precision, recall, points: [a, b], texts: [一致, a, b] }。area … 比べる範囲（無ければ全て） */
+export function compareDrawings(a, b, { tol = 0.05, arrows = false, area = null } = {}) {
   const sa = sceneOf(a, { arrows }), sb = sceneOf(b, { arrows });
   const step = 0.2;
-  const ga = segments(sa), gb = segments(sb);
+  const ga = segments(sa, area), gb = segments(sb, area);
   const pa = samples(ga, step), pb = samples(gb, step);
   const ta = texts(sa).filter((t) => t.text), tb = texts(sb).filter((t) => t.text);
   const textHit = ta.filter((t) => tb.some((u) => sameText(t, u))).length;

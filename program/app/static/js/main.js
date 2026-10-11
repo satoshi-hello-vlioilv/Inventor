@@ -19,10 +19,12 @@ import { SourceFrame } from "./html/frame.js";
 import { DrawingEdits } from "./edit/drawing.js";
 import { History } from "./edit/history.js";
 import { drawingToDxf, dxfNotes } from "./formats/cad2d/to-dxf.js";
+import { drawingToSfc, sfcNotes } from "./formats/cad2d/to-sxf.js";
 import { saveSpec, setSpec } from "./ui/convert.js";
 import { DimensionEditor } from "./ui/dimedit.js";
 import { DrawingEditTool } from "./ui/drawedit.js";
 import { MeasureTool } from "./ui/measure.js";
+import { SAVE_FORMATS, SaveMenu } from "./ui/savemenu.js";
 import { onFlow, setNext, updateFlow } from "./ui/flow.js";
 import "./ui/steps.js";
 import { claimLaunch, listSamples, onLaunch, saveFile } from "./desktop.js";
@@ -138,20 +140,33 @@ const editTool = new DrawingEditTool({
 $("measure").addEventListener("click", () => editTool.stop()); // 測ると直す命令は同時にしない
 for (const b of document.querySelectorAll("[data-edit]")) b.addEventListener("click", () => measureTool.toggle(false), { capture: true });
 
-$("save-dxf").addEventListener("click", async () => {
+// 図面の保存（見出しの「保存」と形式の札。ui/savemenu.js）: DXF は図面全体、SXF は見ているレイアウトと画層の表示のとおり
+const saveMenu = new SaveMenu({ onSave: (format) => saveDrawing(format) });
+async function saveDrawing(format) {
   if (!sheet) return;
-  const version = $("dxf-version").value;
+  const spec = SAVE_FORMATS[format];
+  const base = $("file-name").textContent.replace(/\.[^.]+$/, "");
+  const name = `${base}.${spec.extension}`;
   try {
-    const { bytes, notes } = drawingToDxf(sheet.model.drawing, { version });
-    const name = `${$("file-name").textContent.replace(/\.[^.]+$/, "")}.dxf`;
-    const path = await saveFile({ name, title: `DXF（${version}）で保存`, filter: { label: "DXF", extensions: ["dxf"] }, content: bytes });
+    let bytes, notes;
+    if (spec.kind === "sxf") {
+      const { drawing } = sheet.model;
+      const pick = (on) => new Set([...sheet.layers].filter(([, v]) => v === on).map(([k]) => k));
+      ({ bytes, notes } = drawingToSfc(drawing, drawing.layouts[sheet.layout], { hidden: pick(false), shown: pick(true), fileName: name,
+        measure: (t, line) => drawingViewer.measureText(t, line) }));
+      notes = sfcNotes(notes);
+    } else {
+      ({ bytes, notes } = drawingToDxf(sheet.model.drawing, { version: spec.version }));
+      notes = dxfNotes(notes);
+    }
+    const path = await saveFile({ name, title: `${spec.label} で保存`, filter: { label: spec.label, extensions: [spec.extension] }, content: bytes });
     if (!path) return;
     drawingEdits.history.markSaved();
-    showNotice([`${path} に保存しました（DXF ${version}）。`, ...dxfNotes(notes)].join(" "));
+    showNotice([`${path} に保存しました（${spec.label}）。`, ...notes.map((n) => `${n}。`)].join(" "));
   } catch (error) {
-    showAlert(`DXF で保存できませんでした: ${error.message}`);
+    showAlert(`${spec.label} で保存できませんでした: ${error.message}`);
   }
-});
+}
 
 function showMessage(id, message) {
   $(id).textContent = message;
@@ -174,7 +189,8 @@ function setMode(mode) {
   if (mode !== "drawing") {
     editTool.stop();
     drawingEdits.open(null);
-    $("save-dxf-group").hidden = true;
+    $("save-group").hidden = true;
+    saveMenu.close(false);
     measureTool.reset();
     sheet = null;
     drawingViewer.clear();
@@ -331,7 +347,7 @@ function showDrawing(model, header) {
   sheet = { model, layout: 0, layers: new Map(), scene: null, rows: new Map(), view: "sheet", shown3d: new Map(), trees3d: new Map() };
   editTool.stop();
   drawingEdits.open(model.drawing);
-  $("save-dxf-group").hidden = false;
+  $("save-group").hidden = false;
   renderLayoutTabs();
   renderSheet(true);
   const models = model.drawing.models3d ?? [];

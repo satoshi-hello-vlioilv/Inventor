@@ -754,16 +754,31 @@ details.card.more summary .h-note { margin-inline-start: 8px; }
 .dim-save-note:empty { display: none; }
 
 /* ---- 図面を直す（ui/drawedit.js。docs/editing.md §6）---- */
-.save-dxf { display: flex; align-items: stretch; }
-.save-dxf[hidden] { display: none; }
-.save-dxf #save-dxf { border-start-end-radius: 0; border-end-end-radius: 0; }
-.save-dxf select { padding: 0 6px; border: 1px solid var(--rule); border-inline-start: 0; border-start-end-radius: 8px; border-end-end-radius: 8px;
-  background: var(--surface); color: var(--ink); font: 500 var(--fs-xs) var(--font-num); cursor: pointer; }
+/* 保存（ui/savemenu.js。docs/ui.md §23）: 「保存」と今の形式の札。札を押すと形式のメニュー */
+.save-group { position: relative; display: flex; align-items: stretch; }
+.save-group[hidden] { display: none; }
+.save-group #save { border-start-end-radius: 0; border-end-end-radius: 0; }
+.save-group .save-format { padding-inline: 10px; border-inline-start: 0; border-start-start-radius: 0; border-end-start-radius: 0;
+  font: 600 var(--fs-xs) var(--font-num); color: var(--muted); }
+.save-group .save-format::after { content: "▾"; margin-inline-start: 6px; }
+.save-group .save-format[aria-expanded="true"] { color: var(--accent); border-color: var(--accent); }
+.save-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 40; width: 360px; padding: 6px; display: grid; gap: 2px;
+  background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; box-shadow: var(--shadow-3); }
+.save-menu[hidden] { display: none; }
+.save-menu button { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; padding: 8px 10px; border: 0; border-radius: 8px;
+  background: transparent; color: var(--ink); text-align: start; cursor: pointer; }
+.save-menu button:hover, .save-menu button:focus-visible { background: var(--surface-2); outline: none; }
+.save-menu button[aria-checked="true"] { background: var(--accent-soft); }
+.save-menu button[aria-checked="true"] b { color: var(--accent); }
+.save-menu b { font-size: var(--fs-m); }
+.save-menu kbd { align-self: center; }
+.save-menu small { grid-column: 1 / -1; color: var(--muted); font-size: var(--fs-xs); line-height: 1.5; }
+.save-menu hr { margin: 4px 6px; border: 0; border-top: 1px solid var(--rule); }
 /* 直した後（保存していない）: 保存を主の色に、点で知らせる（案 F） */
-.save-dxf .dirty-dot { display: none; width: 8px; height: 8px; margin-inline-end: 6px; border-radius: 50%; background: var(--warn); }
-.save-dxf.is-dirty #save-dxf { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
-.save-dxf.is-dirty #save-dxf:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
-.save-dxf.is-dirty .dirty-dot { display: inline-block; }
+.save-group .dirty-dot { display: none; width: 8px; height: 8px; margin-inline-end: 6px; border-radius: 50%; background: var(--warn); }
+.save-group.is-dirty #save { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
+.save-group.is-dirty #save:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
+.save-group.is-dirty .dirty-dot { display: inline-block; }
 .tool-group.edit-tools button:disabled { color: var(--muted); opacity: 0.45; cursor: default; background: transparent; }
 .tool-group.edit-tools #edit-undo, .tool-group.edit-tools #edit-redo { min-width: 36px; font-size: var(--fs-l); padding-block: 5px; }
 .tool-group.edit-tools [data-edit] kbd { margin-inline-start: 4px; line-height: 1; margin-block: -2px; }
