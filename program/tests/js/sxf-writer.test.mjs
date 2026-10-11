@@ -8,7 +8,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { readDrawing } from "../../app/static/js/formats/cad2d/index.js";
 import { createDrawing, unitsOf } from "../../app/static/js/formats/cad2d/model.js";
-import { drawingToSfc, pitchOf, sfcNotes, sfcString, sheetPlan } from "../../app/static/js/formats/cad2d/to-sxf.js";
+import { MAX_TEXT_BYTES, degrees360, drawingToSfc, pitchOf, sfcNotes, sfcString, sheetPlan, splitText } from "../../app/static/js/formats/cad2d/to-sxf.js";
 import { readSxf } from "../../app/static/js/formats/sxf/index.js";
 import { roundTrip } from "../../tools/sxf-write-check.mjs";
 import { ROOT } from "./helpers.mjs";
@@ -175,4 +175,29 @@ test("画層の名前: Shift_JIS にして重なる名前は番号を足して�
   for (const name of ["😀", "🍣"]) d.layers.set(name, { ...d.layers.get("0"), name });
   const layers = features(drawingToSfc(d, d.layouts[0]).bytes).filter((f) => f.name === "layer").map((f) => f.params[0]);
   assert.deepEqual(layers, ["?", "?_2"]);
+});
+
+test("角度は 0 以上 360 未満（書く桁に丸めた後も。ezsxf は 360 の円弧を捨てる）", () => {
+  assert.equal(degrees360(-1e-12), 0);
+  assert.equal(degrees360(2 * Math.PI - 1e-10), 0);
+  assert.equal(degrees360(-Math.PI / 2), 270);
+  assert.equal(degrees360(7 * Math.PI), 180);
+  const d = drawingOf([entity("ARC", { center: [0, 0, 0], radius: 1, start: -1e-12, end: Math.PI / 2 })]);
+  const arc = features(drawingToSfc(d, d.layouts[0]).bytes).find((f) => f.name === "arc");
+  assert.deepEqual(arc.params.slice(8), ["0", "90"]);
+});
+
+test("長い文字の行は Shift_JIS で 256 バイト以内に分け、左から続けて並べる。書く高さが 0 の文字は書かない（SXF の決まり）", () => {
+  const long = "漢".repeat(200); // 400 バイト
+  assert.deepEqual(splitText(long).map((p) => p.length), [128, 72]);
+  const d = drawingOf([entity("TEXT", { p: [0, 0, 0], height: 3, rotation: 0, text: long, widthFactor: 1, halign: 0, valign: 0 }),
+    entity("TEXT", { p: [0, 50, 0], height: 1e-9, rotation: 0, text: "小さい", widthFactor: 1, halign: 0, valign: 0 })]);
+  const { bytes, notes } = drawingToSfc(d, d.layouts[0]);
+  const texts = features(bytes).filter((f) => f.name === "text_string");
+  assert.deepEqual(texts.map((f) => f.params[3].length), [128, 72]);
+  for (const f of texts) assert.ok(new TextEncoder().encode(f.params[3]).length / 3 * 2 <= MAX_TEXT_BYTES);
+  const [x0, x1] = texts.map((f) => Number(f.params[4])), w0 = Number(texts[0].params[7]);
+  assert.ok(Math.abs(x1 - x0 - w0) < 1e-5, "2 つめは 1 つめの右の端から");
+  assert.equal(notes.split, 1);
+  assert.equal(notes.dropped.get("高さ 0 の文字"), 1);
 });

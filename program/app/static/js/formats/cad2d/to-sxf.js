@@ -12,7 +12,8 @@
 //   塗り … 境界の複合曲線（見えない）＋塗り（fill_area_style_colour）。穴は内側の境界（含まれる深さで外側と穴を分ける）
 //   文字 … 1 行ずつ text_string。基準点は揃え（左・中・右）の下（基線）、幅は画面で描いた幅（SXF の読み手は幅に合わせて描く）
 //   点 … 点マーカー。画像は書かない（SXF の画像は別のファイルが要る）
-// 用紙: 紙のレイアウトで用紙の大きさが分かれば（SXF・PDF・Jw_cad。DXF・DWG は範囲 limits に描いたものが収まるとき）、その用紙
+// 用紙: 紙のレイアウトで用紙の大きさが分かれば（SXF・PDF・Jw_cad。DXF・DWG は範囲 limits に描いたものが収まるとき。範囲の単位は
+//   知られた用紙の大きさから見分ける）、その用紙
 //   （A0〜A4 は種類で、ほかは自由な大きさ）に直に書く。
 //   モデル（と大きさの分からない紙のレイアウト）は部分図（sfig_org の種類 1）にし、収まるいちばん大きい尺度（1:1・1:2・1:5 …）と、
 //   その尺度で収まるいちばん小さい用紙（A4〜A0）に置く（用紙の真ん中）。図の中の座標・長さは元のまま（単位が分かれば mm に直す）
@@ -33,7 +34,9 @@ export const MARGIN = 10; // 用紙の縁から図までの余白（mm）
 const SCALES = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000];
 const DOT_MM = 0.25; // 破線の点（長さ 0）の長さ（用紙の mm）
 const FOREGROUND = 8; // 前景色 → white
-const MAX_LAYERS = 256, MAX_USER_COLOURS = 240;
+// SXF の表の上限（番号の最大: 画層 256・色 256・線種 32・線幅 16。ezsxf の読みで確かめた）
+const MAX_LAYERS = 256, MAX_USER_COLOURS = 240, MAX_USER_TYPES = 16, MAX_USER_WIDTHS = 6;
+export const MAX_TEXT_BYTES = 256; // 文字列の長さの上限（Shift_JIS のバイト。ezsxf の読みで確かめた）
 const DEG = 180 / Math.PI;
 // 長さの単位（model.js の units.name）→ mm
 const MM = { inch: 25.4, ft: 304.8, mi: 1609344, mm: 1, cm: 10, m: 1000, km: 1e6, "µin": 25.4e-6, mil: 0.0254, yd: 914.4, "Å": 1e-7, nm: 1e-6,
@@ -57,17 +60,27 @@ function sheetOf(w, h) {
   return { type: 9, orientation: 1, width: Math.ceil(w - 1e-6), height: Math.ceil(h - 1e-6) };
 }
 
+// 知られた用紙の大きさ（mm。A 判と米国の判）。紙のレイアウトの範囲の単位を見分ける
+const KNOWN_PAPERS = [...SHEETS.map(([, w, h]) => [w, h]), [279.4, 215.9], [355.6, 215.9], [431.8, 279.4], [558.8, 431.8], [863.6, 558.8], [1117.6, 863.6]];
+const isKnownPaper = (w, h) => KNOWN_PAPERS.some(([a, b]) => (Math.abs(w - a) <= 0.02 * a && Math.abs(h - b) <= 0.02 * b) || (Math.abs(w - b) <= 0.02 * b && Math.abs(h - a) <= 0.02 * a));
+
 /**
- * 紙のレイアウトの用紙（図面の座標の { min, max }）: 読んだ用紙の大きさ（SXF・PDF・Jw_cad）か、DXF・DWG のレイアウトの範囲（limits）。
- * limits は既定の値（12×9 など）のままのことも多いので、描いたものが範囲に収まるとき（はみ出しが範囲の 5% まで）だけ使う
+ * 紙のレイアウトの用紙 → { box（図面の座標の { min, max }）, k（図面の長さ → mm）} | null。
+ * 読んだ用紙の大きさ（SXF・PDF・Jw_cad。mm）か、DXF・DWG のレイアウトの範囲（limits）。limits は既定の値（0,0〜12,9）のままのことも多いので、
+ * 既定の値でなく、描いたものが範囲に収まるとき（はみ出しが範囲の 5% まで）だけ使う。範囲の単位はモデルの単位と違うことがある
+ * （モデルは mm、紙はインチなど）ので、範囲が知られた用紙の大きさになる倍率（図面の単位・インチ・mm の順）を選ぶ。どれでもなければ図面の単位
  */
-function paperOf(layout, extents) {
-  if (layout.paper) return layout.paper;
+function paperOf(layout, extents, unit) {
+  if (layout.paper) return { box: layout.paper, k: 1 };
   const [min, max] = layout.limits ?? [];
   if (layout.model || !min || !max || !(max[0] > min[0] && max[1] > min[1]) || !extents) return null;
+  if (min[0] === 0 && min[1] === 0 && max[0] === 12 && max[1] === 9) return null; // AutoCAD の既定の範囲（インチの 12×9）のまま
   const tol = 0.05 * Math.max(max[0] - min[0], max[1] - min[1]);
   const within = extents.min[0] >= min[0] - tol && extents.min[1] >= min[1] - tol && extents.max[0] <= max[0] + tol && extents.max[1] <= max[1] + tol;
-  return within ? { min, max } : null;
+  if (!within) return null;
+  const [w, h] = [max[0] - min[0], max[1] - min[1]];
+  const k = [unit, 25.4, 1].find((f) => isKnownPaper(w * f, h * f)) ?? unit;
+  return { box: { min, max }, k };
 }
 
 /**
@@ -78,13 +91,13 @@ function paperOf(layout, extents) {
  */
 export function sheetPlan(drawing, layout, extents) {
   const unit = MM[drawing.units?.name] ?? 1;
-  const paper = paperOf(layout, extents);
+  const paper = paperOf(layout, extents, unit);
   if (paper) {
-    const k = layout.paper ? 1 : unit;
-    const [w, h] = [(paper.max[0] - paper.min[0]) * k, (paper.max[1] - paper.min[1]) * k];
+    const { box, k } = paper;
+    const [w, h] = [(box.max[0] - box.min[0]) * k, (box.max[1] - box.min[1]) * k];
     // 読んだ SXF の用紙は、その名前のまま（レイアウトの名前は「名前 A3」のように大きさを足してある）
     const name = drawing.format === "sxf" && drawing.sheet ? drawing.sheet.name : layout.name;
-    return { sheet: { ...sheetOf(w, h), name }, figure: null, k, origin: paper.min };
+    return { sheet: { ...sheetOf(w, h), name }, figure: null, k, origin: box.min };
   }
   const k = unit;
   const min = extents ? extents.min : [0, 0], max = extents ? extents.max : [0, 0];
@@ -125,7 +138,7 @@ const MARKS = { drawing_attribute: "3" };
 
 class Writer {
   features = [];
-  notes = { dropped: new Map(), quotes: 0, diameters: 0, unmapped: 0, mirrored: 0, faint: 0, layers: 0, colours: 0, scale: null, sheet: null, units: null };
+  notes = { dropped: new Map(), split: 0, quotes: 0, diameters: 0, unmapped: 0, mirrored: 0, faint: 0, layers: 0, colours: 0, types: 0, widths: 0, scale: null, sheet: null, units: null };
 
   add(name, ...params) {
     this.features.push({ name, params });
@@ -169,6 +182,13 @@ class Tables {
   }
 
   /** 画層の番号。SFC に書く名前（sfcString）が重なる画層（Shift_JIS に無い文字だけ違うなど）は、名前に番号を足して分ける */
+  /** 表の上限を越えて近いものにまとめた値（種類の数を知らせる） */
+  #mergedValues = { colours: new Set(), types: new Set(), widths: new Set() };
+  #merged(kind, value) {
+    this.#mergedValues[kind].add(value);
+    this.w.notes[kind] = this.#mergedValues[kind].size;
+  }
+
   layer(name) {
     const key = String(name ?? "0");
     if (!this.layers.has(key)) {
@@ -193,7 +213,7 @@ class Tables {
     if (pre >= 0) return this.#use(pre + 1);
     if (!this.colours.has(rgb)) {
       if (this.userColours.length >= MAX_USER_COLOURS) {
-        this.w.notes.colours++;
+        this.#merged("colours", rgb);
         return this.#nearest(rgb);
       }
       this.userColours.push(rgb);
@@ -222,10 +242,22 @@ class Tables {
     if (pre >= 0) return this.#useType(pre + 1);
     const key = pitch.map(fmt).join(",");
     if (!this.types.has(key)) {
+      if (this.userTypes.length >= MAX_USER_TYPES) {
+        this.#merged("types", key);
+        return this.#nearestType(pitch);
+      }
       this.userTypes.push(pitch);
       this.types.set(key, 16 + this.userTypes.length);
     }
     return this.types.get(key);
+  }
+  /** いちばん近い線種（数の同じピッチの差の和。数が違えば 1 周期の差に大きな重み） */
+  #nearestType(pitch) {
+    const period = (p) => p.reduce((a, b) => a + Math.abs(b), 0);
+    const d = (q) => (q.length === pitch.length ? q.reduce((s, v, i) => s + Math.abs(Math.abs(v) - pitch[i]), 0) : 1e3 + Math.abs(period(q) - period(pitch)));
+    const all = [...LINETYPES.slice(1).map(([, q], i) => [q, i + 2]), ...this.userTypes.map((q, i) => [q, 17 + i])];
+    const [, code] = all.reduce((best, c) => (d(c[0]) < d(best[0]) ? c : best));
+    return code < 17 ? this.#useType(code) : code;
   }
   #usedTypes = new Set();
   #useType(code) {
@@ -242,6 +274,13 @@ class Tables {
       return pre + 1;
     }
     if (!this.widths.has(w)) {
+      if (this.userWidths.length >= MAX_USER_WIDTHS) { // いちばん近い線幅に
+        this.#merged("widths", w);
+        const all = [...WIDTHS.map((v, i) => [v, i + 1]), ...this.userWidths.map((v, i) => [v, 11 + i])];
+        const [, code] = all.reduce((best, c) => (Math.abs(c[0] - w) < Math.abs(best[0] - w) ? c : best));
+        if (code < 10) this.#usedWidths.add(code);
+        return code;
+      }
       this.userWidths.push(w);
       this.widths.set(w, 10 + this.userWidths.length);
     }
@@ -390,7 +429,7 @@ export function drawingToSfc(drawing, layout, { hidden, shown, fileName = "drawi
   const { k, origin, figure } = plan;
   const toPaper = figure ? k * figure.ratio : k; // 図面の長さ → 用紙の mm
   const P = figure ? ([x, y]) => [x * k, y * k] : ([x, y]) => [(x - origin[0]) * k, (y - origin[1]) * k];
-  if (k !== 1) w.notes.units = drawing.units.name;
+  if (k !== 1) w.notes.units = k === MM[drawing.units?.name] ? drawing.units.name : "inch"; // 紙の範囲をインチと見分けたとき（paperOf）
   if (figure && figure.ratio !== 1) w.notes.scale = Math.round(1 / figure.ratio);
   w.notes.sheet = plan.sheet;
 
@@ -497,6 +536,12 @@ export function drawingToSfc(drawing, layout, { hidden, shown, fileName = "drawi
   return { bytes, notes: w.notes, plan };
 }
 
+/** 角度（ラジアン）→ 度の 0 以上 360 未満（SXF の決まり）。書く桁（小数 6 桁）に丸めてから 360 を 0 に（−0.0000001° が 360 にならないように） */
+export function degrees360(rad) {
+  const v = Math.round(((((rad * DEG) % 360) + 360) % 360) * 1e6) / 1e6;
+  return v >= 360 ? v - 360 : v;
+}
+
 /** 押し出しの向きが +Z（か無い）: 図形の座標がそのまま図面の XY */
 function upright(e) {
   const n = e.extrusion;
@@ -506,7 +551,7 @@ function upright(e) {
 /** SXF の同じ図形（座標は P で図の中・用紙の座標に、長さは k 倍） */
 function nativeFeatures(e, st, P, k) {
   const pt = (p) => P(p).map(F);
-  const angle = (a) => F(((((a * DEG) % 360) + 360) % 360));
+  const angle = (a) => F(degrees360(a));
   switch (e.type) {
     case "LINE": return [["line", ...st, ...pt(e.a), ...pt(e.b)]];
     case "CIRCLE": return [["circle", ...st, ...pt(e.center), F(e.radius * k)]];
@@ -558,12 +603,35 @@ function segmentQuads(pts, width) {
   return out;
 }
 
+/** Shift_JIS のバイト数（SFC に書いた後の文字で数える） */
+const sjisBytes = (text) => encodeShiftJis(sfcString(text), () => "?").bytes.length;
+
+/** 文字列を、Shift_JIS で MAX_TEXT_BYTES バイト以内のまとまりに分ける（文字の途中では分けない） */
+export function splitText(text) {
+  const out = [];
+  let current = "";
+  for (const ch of text) {
+    if (current && sjisBytes(current + ch) > MAX_TEXT_BYTES) {
+      out.push(current);
+      current = "";
+    }
+    current += ch;
+  }
+  if (current) out.push(current);
+  return out;
+}
+
 /**
  * 文字 → 1 行ずつ text_string。基準点 = 揃え（1 左・2 中・3 右）の下（基線）。幅は画面で描いた幅（2 点の間に収める文字は、その長さ）。
- * 鏡に映した文字は、映さずに同じ場所に書く（SXF に無い）
+ * Shift_JIS で 256 バイトを越える行は、越えないまとまりに分けて、左から続けて並べる（幅は測った幅の比で分ける）。
+ * 書く高さが 0 になる文字は書かない（SXF の決まり）。鏡に映した文字は、映さずに同じ場所に書く（SXF に無い）
  */
 function textFeatures(t, layer, tables, w, P, k, measure) {
   if (!(t.height > 0) || !t.lines.length) return [];
+  if (fmt(t.height * k) === "0") {
+    w.drop("高さ 0 の文字");
+    return [];
+  }
   const width = (line) => (measure ? measure(t, line) : estimateTextWidth(line, t.height));
   const factor = t.widthFactor || 1;
   const lines = t.mtext && t.width > 0 ? wrapLines(t.lines, t.width / factor, width) : t.lines;
@@ -571,7 +639,10 @@ function textFeatures(t, layer, tables, w, P, k, measure) {
   const offsets = baselineOffsets(t, lines.length);
   const c = Math.cos(t.rotation), s = Math.sin(t.rotation);
   const col = t.align === "center" ? 1 : t.align === "right" ? 2 : 0;
+  const angle = F(degrees360(t.rotation));
   const out = [];
+  const put = (text, at, h, len, base) => out.push(["text_string", I(tables.layer(layer)), I(tables.colour(t.color)), I(tables.font(t.font?.family)), S(text),
+    ...P(at).map(F), F(h * k), F(len * k), F(0), angle, F((t.oblique ?? 0) * DEG), I(base), I(1)]);
   lines.forEach((line, i) => {
     if (!line.trim()) return;
     let h = t.height, len = width(line) * factor;
@@ -580,10 +651,17 @@ function textFeatures(t, layer, tables, w, P, k, measure) {
       len = t.fit.length;
     }
     const up = offsets[i] * t.height;
-    const [x, y] = P([t.x - s * up, t.y + c * up]);
-    const angle = ((((t.rotation * DEG) % 360) + 360) % 360);
-    out.push(["text_string", I(tables.layer(layer)), I(tables.colour(t.color)), I(tables.font(t.font?.family)), S(line), F(x), F(y), F(h * k), F(len * k),
-      F(0), F(angle), F((t.oblique ?? 0) * DEG), I(col + 1), I(1)]);
+    const anchor = [t.x - s * up, t.y + c * up];
+    const parts = splitText(line);
+    if (parts.length === 1) return put(line, anchor, h, len, col + 1);
+    w.notes.split++;
+    const widths = parts.map(width), sum = widths.reduce((a, b) => a + b, 0) || 1;
+    let along = -(col / 2) * len; // 行の左の端から
+    parts.forEach((part, j) => {
+      const l = (widths[j] / sum) * len;
+      put(part, [anchor[0] + c * along, anchor[1] + s * along], h, l, 1);
+      along += l;
+    });
   });
   return out;
 }
@@ -609,11 +687,14 @@ export function sfcNotes(notes) {
   const dropped = [...notes.dropped].filter(([, n]) => n > 0);
   if (dropped.length) out.push(`書かなかったもの: ${dropped.map(([type, n]) => `${type} ${n}`).join("・")}`);
   if (notes.faint) out.push(`薄く描いた塗り・線 ${notes.faint} つ（細かすぎるハッチング・透明な塗り）は書かない`);
+  if (notes.split) out.push(`長い文字の行 ${notes.split} つは、SXF の上限（256 バイト）に収まるよう分けて、続けて並べた`);
   if (notes.mirrored) out.push(`鏡に映した文字 ${notes.mirrored} つは、映さずに同じ場所に書いた`);
   if (notes.quotes) out.push(`文字の ' ${notes.quotes} つは ’ にした（SXF の文字の区切りと紛れる）`);
   if (notes.diameters) out.push(`直径の記号 ⌀ ${notes.diameters} つは φ にした（Shift_JIS に無い。日本の図面の書き方）`);
   if (notes.unmapped) out.push(`Shift_JIS に無い文字 ${notes.unmapped} つは ? にした`);
   if (notes.layers) out.push(`画層が 256 を越えたので、越えた分は 256 番めの画層に入れた（${notes.layers} 個）`);
   if (notes.colours) out.push(`色が多すぎるので、${notes.colours} 個は近い色にした`);
+  if (notes.types) out.push(`線種が多すぎるので（SXF は利用者の線種 16 まで）、${notes.types} 種は近い線種にした`);
+  if (notes.widths) out.push(`線幅が多すぎるので（SXF は既定の 9 つのほかに 6 つまで）、${notes.widths} 種は近い線幅にした`);
   return out;
 }

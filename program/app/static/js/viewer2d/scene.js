@@ -555,7 +555,8 @@ export function buildScene(drawing, layout, { hidden = new Set(), shown = new Se
         const vertices = e.points.map((p) => [p[0], p[1], e.elevation ?? 0]);
         vertexSnaps(item, vertices, e.bulges, e.closed, place(ctx, axes()));
         const pts = bulged(vertices, e.bulges ?? [], e.closed, e.elevation ?? 0);
-        const width = (e.constWidth || Math.max(0, ...(e.widths ?? []).flat())) * ctx.scale;
+        // 頂点ごとの幅の最大（引数に広げない: 頂点の多いポリラインで呼び出しの上限を越える）
+        const width = (e.constWidth || (e.widths ?? []).reduce((m, [a, b]) => Math.max(m, a, b), 0)) * ctx.scale;
         return stroke(st(), item, pts.map(place(ctx, axes())), width);
       }
       case "POLYLINE": return polyline(e, st(), ctx, item);

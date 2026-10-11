@@ -17,6 +17,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { encodeShiftJis } from "../app/static/js/core/sjis.js";
 import { readDrawing } from "../app/static/js/formats/cad2d/index.js";
 import { drawingToSfc, sfcNotes, sfcString } from "../app/static/js/formats/cad2d/to-sxf.js";
 import { buildScene } from "../app/static/js/viewer2d/scene.js";
@@ -60,11 +61,32 @@ function dashPeriod(dashes, toPaper) {
   return dashes.reduce((sum, d) => sum + (d === 0 ? 0.25 : Math.abs(d) * toPaper), 0);
 }
 
-/** 線の種類の鍵: 色・線幅（1/100 mm）・破線の 1 周期（用紙の mm） */
-const strokeKey = (colour, lw, period) => `${colourKey(colour)}|${lw}|${period ? period.toPrecision(4) : "実線"}`;
+/**
+ * 線の種類の鍵: 色・線幅（1/100 mm）・破線の 1 周期（用紙の mm。相対 1e-4 の内の周期はそろえる）。
+ * 書き出しが線幅・線種を近いものにまとめたとき（SXF の表の上限。知らせに出る）は、それを鍵から外して形だけ比べる
+ */
+function strokeKeys({ widths, types }) {
+  const canon = periods();
+  return (colour, lw, period) => {
+    const p = canon(period);
+    return `${colourKey(colour)}|${widths ? "線幅をまとめた" : lw}|${types ? "線種をまとめた" : p ? p.toPrecision(6) : "実線"}`;
+  };
+}
+
+/** 破線の周期の代表（相対 1e-4 の内の周期は、先に出てきた周期にそろえる。書いた値の丸めで鍵が分かれないように） */
+function periods() {
+  const seen = [];
+  return (v) => {
+    if (!v) return 0;
+    const same = seen.find((u) => Math.abs(u - v) <= 1e-4 * u);
+    if (same !== undefined) return same;
+    seen.push(v);
+    return v;
+  };
+}
 
 /** 書く前: 線（種類ごとの線分）・塗り・文字の行・点（図の中の座標。切り取りの枠も） */
-function expected(scene, plan, measure) {
+function expected(scene, plan, measure, strokeKey) {
   const map = frames(plan).toContent;
   const toPaper = plan.figure ? plan.k * plan.figure.ratio : plan.k;
   const strokes = new Map(), fills = [], texts = [], points = [];
@@ -96,6 +118,7 @@ function expected(scene, plan, measure) {
   }
   for (const t of scene.texts) {
     if (!(t.height > 0) || (t.clip && !inBox([t.x, t.y], t.clip))) continue;
+    if (t.height * plan.k < 5e-7) continue; // 書く高さ（小数 6 桁）が 0 の文字は書かない（SXF の決まり。知らせに出る）
     const width = (line) => (measure ? measure(t, line) : estimateTextWidth(line, t.height));
     const lines = t.mtext && t.width > 0 ? wrapLines(t.lines, t.width / (t.widthFactor || 1), width) : t.lines;
     const offsets = baselineOffsets(t, lines.length);
@@ -105,7 +128,26 @@ function expected(scene, plan, measure) {
       const up = offsets[i] * t.height;
       let h = t.height;
       if (t.fit?.mode === "aligned" && i === 0 && width(line) > 0) h *= t.fit.length / width(line);
-      texts.push({ text: sfcString(line.trim()), at: map([t.x - Math.sin(t.rotation) * up, t.y + Math.cos(t.rotation) * up]), f, h: h * plan.k, rotation: t.rotation });
+      const at = [t.x - Math.sin(t.rotation) * up, t.y + Math.cos(t.rotation) * up];
+      // Shift_JIS で 256 バイトを越える行は、越えないまとまりに分けて左から続けて並べる（SXF の上限。分け方は書き出しとは別に書く）
+      const pieces = [];
+      for (const ch of line) {
+        const last = pieces.at(-1);
+        if (last !== undefined && encodeShiftJis(sfcString(last + ch), () => "?").bytes.length <= 256) pieces[pieces.length - 1] = last + ch;
+        else pieces.push(ch);
+      }
+      if (pieces.length === 1) {
+        texts.push({ text: sfcString(line.trim()), at: map(at), f, h: h * plan.k, rotation: t.rotation });
+        return;
+      }
+      const len = t.fit && i === 0 ? t.fit.length : width(line) * (t.widthFactor || 1);
+      const total = pieces.reduce((sum, p) => sum + width(p), 0) || 1;
+      let along = -f * len;
+      for (const piece of pieces) {
+        const p = [at[0] + Math.cos(t.rotation) * along, at[1] + Math.sin(t.rotation) * along];
+        texts.push({ text: sfcString(piece.trim()), at: map(p), f: 0, h: h * plan.k, rotation: t.rotation });
+        along += (width(piece) / total) * len;
+      }
     });
   }
   for (const p of scene.points) if (inBox([p.x, p.y], p.clip)) points.push(map([p.x, p.y]));
@@ -113,7 +155,7 @@ function expected(scene, plan, measure) {
 }
 
 /** 読み直した描画（用紙の座標 → 図の中の座標。破線の周期は用紙の mm のまま） */
-function actual(scene, plan) {
+function actual(scene, plan, strokeKey) {
   const { fromSheet, unscale } = frames(plan);
   const strokes = new Map(), fills = [];
   for (const s of scene.strokes) {
@@ -207,8 +249,9 @@ export function roundTrip(drawing, layout, { measure = null } = {}) {
   const shown = new Set(drawing.layers.keys());
   const { bytes, notes, plan } = drawingToSfc(drawing, layout, { measure, now: new Date("2026-10-10T00:00:00Z") });
   const back = readDrawing(bytes, "書き出し.sfc");
-  const before = expected(buildScene(drawing, layout), plan, measure);
-  const after = actual(buildScene(back, back.layouts[0], { shown: new Set(back.layers.keys()) }), plan);
+  const key = strokeKeys(notes); // 書く前と読み直しで共有する（破線の周期の代表）
+  const before = expected(buildScene(drawing, layout), plan, measure, key);
+  const after = actual(buildScene(back, back.layouts[0], { shown: new Set(back.layers.keys()) }), plan, key);
   const failures = [];
   const { width: W, height: H } = plan.sheet;
   const { fromSheet } = frames(plan);
@@ -256,11 +299,14 @@ export function viaEzsxf(bytes, back, sheet) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sxfw-"));
   const sfc = path.join(dir, "out.sfc"), dxf = path.join(dir, "out.dxf");
   fs.writeFileSync(sfc, bytes);
-  const r = spawnSync("python3", ["-I", "-c", "import sys, ezsxf; ezsxf.to_dxf(sys.argv[1], sys.argv[2], strict=True)", sfc, dxf], { encoding: "utf8" });
+  // 読みの警告（決まりに反して捨てた図形など）は、捨てずに数えて出す
+  const script = "import sys, json, ezsxf; w = ezsxf.parse_sfc(open(sys.argv[1], 'rb').read())['warnings']; ezsxf.to_dxf(sys.argv[1], sys.argv[2], strict=True); print(json.dumps(w))";
+  const r = spawnSync("python3", ["-I", "-c", script, sfc, dxf], { encoding: "utf8" });
   try {
     if (r.status !== 0) return /No module named 'ezsxf'/.test(r.stderr) ? null : { error: r.stderr.trim().split("\n").at(-1) };
     const other = readDrawing(new Uint8Array(fs.readFileSync(dxf)), "out.dxf");
-    return compareDrawings(back, other, { area: { min: [-sheet.width, -sheet.height], max: [2 * sheet.width, 2 * sheet.height] } });
+    const warnings = JSON.parse(r.stdout.trim().split("\n").at(-1) || "[]").map((w) => w.message ?? String(w));
+    return { ...compareDrawings(back, other, { area: { min: [-sheet.width, -sheet.height], max: [2 * sheet.width, 2 * sheet.height] } }), warnings };
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -302,7 +348,8 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
         `  用紙 ${sheet.type === 9 ? `${sheet.width}×${sheet.height}` : `A${sheet.type}`}${r.plan.figure ? ` 1:${Math.round(1 / r.plan.figure.ratio)}` : ""}  ${(r.bytes.length / 1024).toFixed(0)} KB`;
       if (ez) {
         const e = viaEzsxf(r.bytes, r.back, r.plan.sheet);
-        line += e === null ? "  ezsxf なし" : e.error ? `  ezsxf 失敗: ${e.error}` : `  ezsxf ${pct(e.precision)}/${pct(e.recall)} 文字 ${e.texts.join("/")}`;
+        line += e === null ? "  ezsxf なし" : e.error ? `  ezsxf 失敗: ${e.error}` :
+          `  ezsxf ${pct(e.precision)}/${pct(e.recall)} 文字 ${e.texts.join("/")}${e.warnings.length ? `  ezsxf の警告 ${e.warnings.length}: ${e.warnings[0]}` : ""}`;
       }
       console.log(line);
       for (const f of r.failures.slice(0, verbose ? Infinity : 3)) console.log(`  ${f}`);
