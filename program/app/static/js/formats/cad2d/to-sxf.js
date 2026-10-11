@@ -422,7 +422,7 @@ function pointInRing([x, y], r) {
 // ---- 書く ---------------------------------------------------------------------------------------------------------
 
 export function drawingToSfc(drawing, layout, { hidden, shown, fileName = "drawing.sfc", measure = null, now = new Date() } = {}) {
-  const scene = buildScene(drawing, layout, { hidden, shown });
+  const scene = buildScene(drawing, layout, { hidden, shown, measure });
   const plan = sheetPlan(drawing, layout, scene.extents);
   const w = new Writer();
   const tables = new Tables(w);

@@ -1,6 +1,7 @@
 // 図面のモデル（model.js）→ DXF（ASCII）。直した 2D の図面を、AutoCAD・Inventor・ほかの CAD で開ける形で渡す。
-//   prepareForDxf(drawing) → { drawing: 書ける形に整えた写し, notes }
-//   drawingToDxf(drawing, { version }) → { bytes（DXF のファイルの中身）, notes, drawing: 書いた図面（prepareForDxf の写し） }
+//   prepareForDxf(drawing, { measure }) → { drawing: 書ける形に整えた写し, notes }
+//   drawingToDxf(drawing, { version, measure }) → { bytes（DXF のファイルの中身）, notes, drawing: 書いた図面（prepareForDxf の写し） }
+//     measure(文字, 1 行) → 幅（画面のフォントで測る。マルチ引出線の文字の枠・下線の長さ。無ければ見積もる）
 //   dxfNotes(notes) → 書けなかったもの・変えたものの説明（画面と評価で使う）
 //
 // 版: R2013（AC1027。既定。文字は UTF-8）と R2000（AC1015。文字は Shift_JIS（ANSI_932）、Shift_JIS に無い文字は \U+XXXX で逃がす。
@@ -14,8 +15,13 @@
 //   - 図形: ハンドルが無い・16 進でない・重なるものは新しいハンドルに。参照する画層・線種・文字スタイルが無ければ足す。
 //     線の太さは AutoCAD の決まった値の近いものに。書けない図形（3D の立体など）・値の壊れた図形・無いブロックを参照する図形は書かない
 //   - DXF に無いもの: 画層の縮尺（Jw_cad）・外部参照（ブロックとして書く）
+//   - 注記: 表（ACAD_TABLE）は中身のブロックの参照（INSERT）に、マルチ引出線は線・矢印・文字に分けて書く（annotation.js。DXF のまま書くには
+//     引出線のスタイルなどのオブジェクトが要る）。幾何公差（TOLERANCE）はそのまま書き、寸法スタイルの表と、図形ごとの上書き（拡張データ）も書く
 
 import { encodeShiftJis } from "../../core/sjis.js";
+import { estimateTextWidth } from "../../viewer2d/text.js";
+import { annotationParts, resolveParts } from "./annotation.js";
+import { DIM_VARS, dimVar } from "./model.js";
 
 export const DXF_VERSIONS = { R2013: "AC1027", R2000: "AC1015" };
 const DEG = 180 / Math.PI;
@@ -61,7 +67,7 @@ const lineweight = (w, layer = false) => {
 /** 書ける図形の種類（書き方は WRITERS） */
 const writable = (e) => Object.hasOwn(WRITERS, e.type);
 
-export function prepareForDxf(source) {
+export function prepareForDxf(source, { measure = null } = {}) {
   const notes = { dropped: new Map(), converted: new Map(), renamed: new Map(), lineweights: 0, added: new Map(), layerScales: 0, xrefs: 0, handles: 0, emptyModel: false };
   const blocks = [...source.blocks.values()];
   const layouts = [...source.layouts].sort((a, b) => Number(b.model) - Number(a.model) || (a.tabOrder ?? 0) - (b.tabOrder ?? 0));
@@ -96,6 +102,22 @@ export function prepareForDxf(source) {
       return dashTypes.get(key).name;
     }).map((x, i) => ({ ...x, handle: i === 0 ? e.handle : null }));
   };
+  // 表 → 中身のブロックの参照。マルチ引出線 → 部品（線・矢印・文字。最初の部品が元のハンドルを継ぐ）
+  const width = (line, h) => (measure ? measure({ height: h }, line) : estimateTextWidth(line, h));
+  const convert = (e) => {
+    if (e.type === "PATH") return pathEntities(e);
+    if (e.type === "ACAD_TABLE") {
+      count(notes.converted, "ACAD_TABLE");
+      const d = e.direction ?? [1, 0, 0];
+      return [{ ...e, type: "INSERT", direction: undefined, scale: e.scale ?? [1, 1, 1], rotation: Math.atan2(d[1], d[0]), columns: 1, rows: 1,
+        columnSpacing: 0, rowSpacing: 0, attribs: [] }];
+    }
+    if (e.type === "MULTILEADER") {
+      count(notes.converted, "MULTILEADER");
+      return resolveParts(annotationParts(e, source, width), e).map((x, i) => ({ ...x, handle: i === 0 ? e.handle : null, ltscale: e.ltscale ?? 1 }));
+    }
+    return [e];
+  };
   const styleNames = withDefault([...source.styles.keys()].filter((n) => n !== ""), "Standard");
   const visit = (e) => {
     layerNames.add(e.layer || "0");
@@ -103,7 +125,7 @@ export function prepareForDxf(source) {
     if (TEXTS.has(e.type) && e.style) styleNames.add(e.style);
     for (const a of e.attribs ?? []) visit(a);
   };
-  const converted = new Map(kept.map((b) => [b, b.entities.flatMap((e) => (e.type === "PATH" ? pathEntities(e) : [e]))]));
+  const converted = new Map(kept.map((b) => [b, b.entities.flatMap(convert)]));
   for (const b of kept) converted.get(b).forEach(visit);
   for (const l of source.layers.values()) if (l.linetype && !SPECIAL_LINETYPES[String(l.linetype).toUpperCase()]) linetypeNames.add(l.linetype);
   // 線種の ByBlock・ByLayer・Continuous は大文字・小文字に関わらず 1 つ
@@ -113,6 +135,7 @@ export function prepareForDxf(source) {
   const linetypeMap = renamer(linetypeOthers, { reserved: [...specials.values()] });
   for (const n of linetypeNames) if (specials.has(String(n).toLowerCase())) linetypeMap.set(n, specials.get(String(n).toLowerCase()));
   const styleMap = renamer([...styleNames]);
+  const dimstyleMap = renamer(withDefault([...(source.dimstyles?.keys() ?? [])], "Standard"));
   for (const [kind, map] of [["画層", layerMap], ["線種", linetypeMap], ["文字スタイル", styleMap], ["ブロック", blockNames]]) {
     const changed = [...map].filter(([from, to]) => from !== to && !(kind === "ブロック" && layoutBlock.has(from)) && !(kind === "線種" && specials.has(String(from).toLowerCase())));
     if (changed.length) notes.renamed.set(kind, changed);
@@ -151,6 +174,7 @@ export function prepareForDxf(source) {
     const out = { ...e, handle: handle(e.handle), layer: layerMap.get(e.layer || "0") };
     if (e.linetype !== undefined) out.linetype = e.linetype === "BYLAYER" ? "BYLAYER" : ltOf(e.linetype);
     if (TEXTS.has(e.type) && e.style !== undefined) out.style = styleMap.get(e.style);
+    if (e.type === "TOLERANCE") out.dimstyle = dimstyleMap.get(e.dimstyle) ?? dimstyleMap.get([...dimstyleMap.keys()].find((n) => n.toLowerCase() === String(e.dimstyle).toLowerCase())) ?? "Standard";
     if (e.block !== undefined) out.block = blockNames.get(e.block);
     if (e.lineweight !== undefined) {
       out.lineweight = lineweight(e.lineweight);
@@ -210,6 +234,13 @@ export function prepareForDxf(source) {
     const to = styleMap.get(name);
     drawing.styles.set(to, { name: to, font: s?.font || "txt", bigFont: s?.bigFont ?? "", height: Number.isFinite(s?.height) ? s.height : 0,
       widthFactor: s?.widthFactor || 1, oblique: Number.isFinite(s?.oblique) ? s.oblique : 0 });
+  }
+  // 寸法スタイル: 読んだ図面のものは、幾何公差が使う値を全て書く（読み手の既定に頼らない）。無い図面は Standard だけ（drawingToDxf の既定の値）
+  drawing.dimstyles = new Map();
+  for (const [from, to] of dimstyleMap) {
+    if (!source.dimstyles?.has(from)) continue;
+    const values = Object.fromEntries(Object.keys(DIM_VARS).map((code) => [code, dimVar(source, from, null, Number(code))]));
+    drawing.dimstyles.set(to, { name: to, values, textStyle: styleMap.get(source.dimstyles.get(from).textStyle) ?? "Standard" });
   }
   return { drawing, notes };
 }
@@ -299,7 +330,7 @@ export function dxfNotes(notes) {
   if (notes.emptyModel) out.push("モデル空間の無い図面なので、図形は紙のレイアウトに書いた（開くとレイアウトが出る）");
   return out;
 }
-const NAMES = { ACIS: "3D の立体（ACIS）", PATH: "パス（塗り → ハッチング・線 → ポリラインかスプライン）", IMAGE: "画像（DXF では別のファイルが要る）",
+const NAMES = { ACAD_TABLE: "表（中身のブロックの参照として）", MULTILEADER: "マルチ引出線（線・矢印・文字に分けて）", ACIS: "3D の立体（ACIS）", PATH: "パス（塗り → ハッチング・線 → ポリラインかスプライン）", IMAGE: "画像（DXF では別のファイルが要る）",
   "DIMENSION arc": "弧の長さの寸法（見た目のまま、長さの寸法として）", "INSERT（ブロックが無い）": "ブロックの無いブロック参照", "DIMENSION（ブロックが無い）": "見た目のブロックの無い寸法" };
 
 // ---- 書く ---------------------------------------------------------------------------------------------------------
@@ -385,6 +416,9 @@ function textBody(t, e) {
   if (e.align) t.point(11, e.align);
   t.extrusion(e.extrusion);
 }
+
+/** 色（色番号か { index, rgb? }）→ 色番号 */
+const colorIndexOf = (c) => (typeof c === "number" ? c : c?.index ?? 0);
 
 const DIMENSION_KINDS = ["linear", "aligned", "angular", "diameter", "radius", "angular3", "ordinate"];
 const HATCH_EDGE = { line: 1, arc: 2, ellipse: 3, spline: 4 };
@@ -674,6 +708,27 @@ const WRITERS = {
     e.points.forEach((p, i) => t.point(10 + i, p));
     if (e.invisibleEdges) t.int(70, e.invisibleEdges);
   },
+  TOLERANCE(t, e) {
+    t.str(100, "AcDbFcf");
+    t.str(3, e.dimstyle ?? "Standard");
+    t.point(10, e.p);
+    t.str(1, e.text ?? "");
+    t.point(11, e.direction ?? [1, 0, 0]);
+    t.extrusion(e.extrusion);
+    // 寸法変数の上書き（拡張データ ACAD の DSTYLE: 1070 の番号と値の組。色は整数・ほかは実数）
+    const overrides = Object.entries(e.overrides ?? {}).filter(([code]) => Object.hasOwn(DIM_VARS, code));
+    if (overrides.length) {
+      t.str(1001, "ACAD");
+      t.str(1000, "DSTYLE");
+      t.str(1002, "{");
+      for (const [code, v] of overrides) {
+        t.int(1070, Number(code));
+        if (code === "176" || code === "178") t.int(1070, colorIndexOf(v));
+        else t.num(1040, v);
+      }
+      t.str(1002, "}");
+    }
+  },
   LEADER(t, e) {
     t.str(100, "AcDbLeader");
     t.str(3, "Standard");
@@ -794,10 +849,10 @@ function roughExtents(entities) {
   return Number.isFinite(min[0]) ? [min, max] : [[0, 0], [100, 100]];
 }
 
-export function drawingToDxf(source, { version = "R2013" } = {}) {
+export function drawingToDxf(source, { version = "R2013", measure = null } = {}) {
   const acadver = DXF_VERSIONS[version];
   if (!acadver) throw new Error(`DXF の版 ${version} は書けません（${Object.keys(DXF_VERSIONS).join("・")}）`);
-  const { drawing, notes } = prepareForDxf(source);
+  const { drawing, notes } = prepareForDxf(source, { measure });
   const t = new Tags(acadver);
   let seed = 0;
   for (const b of drawing.blocks.values()) {
@@ -949,9 +1004,14 @@ export function drawingToDxf(source, { version = "R2013" } = {}) {
     table("VIEW", [], () => {});
     table("UCS", [], () => {});
     table("APPID", ["ACAD"], (name) => record("APPID", tables.APPID, "AcDbRegAppTableRecord", name));
-    table("DIMSTYLE", ["Standard"], (name) => {
-      record("DIMSTYLE", tables.DIMSTYLE, "AcDbDimStyleTableRecord", name, 0, 105);
-      for (const [code, v] of [[40, 1], [41, 2.5], [42, 0.625], [43, 3.75], [44, 1.25], [140, 2.5], [141, 2.5], [147, 0.625]]) t.num(code, v);
+    const dimstyles = drawing.dimstyles?.size ? [...drawing.dimstyles.values()] : [];
+    if (!dimstyles.some((d) => d.name.toLowerCase() === "standard")) dimstyles.unshift({ name: "Standard", values: {} });
+    table("DIMSTYLE", dimstyles, (d) => {
+      record("DIMSTYLE", tables.DIMSTYLE, "AcDbDimStyleTableRecord", d.name, 0, 105);
+      // 既定（メートル）の値に、読んだ図面の値（幾何公差が使う値: model.js の DIM_VARS）を重ねる
+      const values = { 40: 1, 41: 2.5, 42: 0.625, 43: 3.75, 44: 1.25, 140: 2.5, 141: 2.5, 147: 0.625, ...d.values };
+      for (const [code, v] of Object.entries(values)) if (code !== "176" && code !== "178") t.num(Number(code), v);
+      for (const code of [176, 178]) if (values[code] !== undefined) t.int(code, colorIndexOf(values[code]));
       for (const [code, v] of [[77, 1], [78, 8], [271, 2], [272, 2], [279, 0], [280, 0]]) t.int(code, v);
     }, "AcDbDimStyleTable");
     table("BLOCK_RECORD", [...drawing.blocks.values()], (b) => {

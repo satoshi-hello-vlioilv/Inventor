@@ -112,6 +112,9 @@ const drawingViewer = new DrawingViewer({ stage: $("stage"), canvas: $("view2d")
   onClick: (hit) => editTool.click(hit) || measureTool.click(hit),
   insets: overlayInsets,
 });
+/** 文字の 1 行の幅（画面と同じフォントで測る。幾何公差の枠・マルチ引出線の文字の枠と、書き出し） */
+const measureText = (t, line) => drawingViewer.measureText(t, line);
+
 // 選ぶ・測る（docs/ui.md §19）。図面の図を見ている間だけ
 const measureTool = new MeasureTool({
   viewer: drawingViewer,
@@ -152,11 +155,10 @@ async function saveDrawing(format) {
     if (spec.kind === "sxf") {
       const { drawing } = sheet.model;
       const pick = (on) => new Set([...sheet.layers].filter(([, v]) => v === on).map(([k]) => k));
-      ({ bytes, notes } = drawingToSfc(drawing, drawing.layouts[sheet.layout], { hidden: pick(false), shown: pick(true), fileName: name,
-        measure: (t, line) => drawingViewer.measureText(t, line) }));
+      ({ bytes, notes } = drawingToSfc(drawing, drawing.layouts[sheet.layout], { hidden: pick(false), shown: pick(true), fileName: name, measure: measureText }));
       notes = sfcNotes(notes);
     } else {
-      ({ bytes, notes } = drawingToDxf(sheet.model.drawing, { version: spec.version }));
+      ({ bytes, notes } = drawingToDxf(sheet.model.drawing, { version: spec.version, measure: measureText }));
       notes = dxfNotes(notes);
     }
     const path = await saveFile({ name, title: `${spec.label} で保存`, filter: { label: spec.label, extensions: [spec.extension] }, content: bytes });
@@ -417,7 +419,7 @@ function renderSheet(fit) {
   const { drawing } = sheet.model;
   const layout = drawing.layouts[sheet.layout];
   const pick = (on) => new Set([...sheet.layers].filter(([, v]) => v === on).map(([k]) => k));
-  sheet.scene = buildScene(drawing, layout, { hidden: pick(false), shown: pick(true) });
+  sheet.scene = buildScene(drawing, layout, { hidden: pick(false), shown: pick(true), measure: measureText });
   drawingViewer.show(sheet.scene, { fit });
   if (fit) { // 別の図面・レイアウト
     editTool.stop();

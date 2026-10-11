@@ -1,5 +1,6 @@
 // 図面の説明（DOM に依存しない）: 指した図形の一行（種類・寸法・画層）と、右の欄の要約（図形の内訳・画層・まだ描かない図形）。
 
+import { GDT, gdtRuns } from "../formats/cad2d/gdt.js";
 import { scaleText } from "../formats/cad2d/model.js";
 import { mtextLines, singleLine } from "./text.js";
 
@@ -10,7 +11,7 @@ export const TYPE_LABEL = {
   LINE: "線分", CIRCLE: "円", ARC: "円弧", ELLIPSE: "楕円", LWPOLYLINE: "ポリライン", POLYLINE: "ポリライン", SPLINE: "スプライン",
   TEXT: "文字", MTEXT: "マルチテキスト", ATTDEF: "属性定義", ATTRIB: "属性", INSERT: "ブロック参照", DIMENSION: "寸法",
   HATCH: "ハッチング", SOLID: "塗り潰し", "3DFACE": "3D 面", LEADER: "引出線", POINT: "点", RAY: "放射線", XLINE: "構築線",
-  VIEWPORT: "ビューポート",
+  VIEWPORT: "ビューポート", MULTILEADER: "マルチ引出線", ACAD_TABLE: "表", TOLERANCE: "幾何公差",
 };
 // まだ描かない図形の名前（DWG の種類・DXF の名前）
 const UNSUPPORTED_LABEL = {
@@ -101,6 +102,12 @@ export function describeItem(item, units = "", scale = 1) {
     }
     case "HATCH": parts.push(e.solid ? "塗り潰し" : `模様 ${e.pattern || "ユーザー定義"}`, `境界 ${e.loops?.length ?? 0}`); break;
     case "LEADER": parts.push(`点 ${e.points?.length ?? 0}`); break;
+    case "MULTILEADER":
+      if (e.text) parts.push(quote(mtextLines(e.text.text).join(" ")));
+      else if (e.content?.block) parts.push(`「${e.content.block}」`);
+      parts.push(`引出線 ${(e.leaders ?? []).reduce((n, l) => n + (l.lines?.length ?? 0), 0)}`);
+      break;
+    case "TOLERANCE": parts.push(quote(toleranceText(e.text), 32)); break;
     case "VIEWPORT": if (e.viewHeight > 0 && e.height > 0) parts.push(`尺度 ${scaleText(e.height / e.viewHeight)}`); break;
     default: break;
   }
@@ -108,6 +115,11 @@ export function describeItem(item, units = "", scale = 1) {
   parts.push(`画層 ${item.layer}`);
   return parts.join(" · ");
 }
+
+/** 幾何公差の文字を読める形に（記号は名前・欄は「|」・段は「/」） */
+export const toleranceText = (text) => String(text ?? "").split(/\r?\n|\^J/)
+  .map((row) => row.split(/%%v/i).map((f) => gdtRuns(f).map((r) => (r.glyph ? GDT[r.glyph].name : r.text)).join(" ")).filter(Boolean).join(" | "))
+  .filter(Boolean).join(" / ");
 
 /** 膨らみのある頂点の並び（閉じた形）の面積（多角形の面積 ± 円弧の辺の弓形の面積） */
 function bulgedArea(points, bulges) {
@@ -167,6 +179,13 @@ export function itemDetails(item, units = "", scale = 1) {
     }
     case "TEXT": case "ATTDEF": case "ATTRIB": rows.push(["文字", singleLine(e.text) || e.tag || ""], ["高さ", length(e.height, units)], ["位置", point(e.p)]); break;
     case "MTEXT": rows.push(["文字", mtextLines(e.text).join(" ")], ["高さ", length(e.height, units)]); break;
+    case "MULTILEADER":
+      if (e.text) rows.push(["文字", mtextLines(e.text.text).join(" ")], ["高さ", length(e.textHeight ?? 0, units)]);
+      else if (e.content?.block) rows.push(["ブロック", e.content.block]);
+      rows.push(["引出線", String((e.leaders ?? []).reduce((n, l) => n + (l.lines?.length ?? 0), 0))]);
+      break;
+    case "TOLERANCE": rows.push(["公差", toleranceText(e.text)], ["寸法スタイル", e.dimstyle ?? "Standard"], ["位置", point(e.p)]); break;
+    case "ACAD_TABLE": rows.push(["挿入点", point(e.p)], ["回転", angle(Math.atan2(e.direction?.[1] ?? 0, e.direction?.[0] ?? 1))]); break;
     case "INSERT": {
       const [sx, sy] = e.scale ?? [1, 1];
       rows.push(["ブロック", e.block], ["挿入点", point(e.p)]);

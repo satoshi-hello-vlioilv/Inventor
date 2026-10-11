@@ -938,6 +938,253 @@ function readDictionary(o) {
   for (const entry of object.entries) entry[1] = hs.handle();
 }
 
+// ---- 注記: 幾何公差・表・マルチ引出線と、寸法スタイル（並びは ACadSharp の DwgObjectReader と同じ。MIT） ---------------------------
+
+/** 幾何公差（TOLERANCE。仕様書 20.4.47） */
+function readTolerance(o) {
+  const { r, version, object } = o;
+  if (version <= R14) {
+    r.bs();
+    r.bd(); // 高さ
+    r.bd(); // 作ったときの DIMGAP
+  }
+  object.p = xyz(r);
+  object.direction = xyz(r);
+  object.extrusion = xyz(r);
+  object.text = r.text();
+  object.dimstyle = o.hs.handle();
+}
+
+/** 表（ACAD_TABLE）: ブロック参照の値（中身を描いた無名のブロック）と横の向き。R2010+ の向きは表の中身の後ろにあるので、参照の回転から */
+function readTable(o) {
+  readInsert(o);
+  const { r, version, object } = o;
+  if (version < R2010) {
+    r.bs(); // 表の印
+    object.direction = xyz(r);
+  } else object.direction = [Math.cos(object.rotation), Math.sin(object.rotation), 0];
+}
+
+/** マルチ引出線（MULTILEADER）: 注記の中身（引出線・文字かブロック）と、共通の値 */
+function readMultiLeader(o) {
+  const { r, version, object, hs } = o;
+  if (version >= R2010) r.bs(); // 版（2）
+  object.context = readMleaderContext(o);
+  hs.handle(); // 引出線のスタイル
+  r.bl(); // 上書きの印
+  object.leaderType = r.bs();
+  object.lineColor = r.cmc();
+  object.lineLinetype = hs.handle();
+  object.lineLineweight = lineweightValue(r.bl());
+  object.landing = Boolean(r.bit());
+  object.dogleg = Boolean(r.bit());
+  r.bd(); // 折れ線の長さ（引出線ごとにもある）
+  object.arrow = hs.handle();
+  r.bd(); // 矢印の大きさ（注記の中身にもある）
+  object.contentType = r.bs();
+  hs.handle(); // 文字のスタイル（注記の中身にもある）
+  object.attachment = { left: r.bs(), right: r.bs() };
+  r.bs(); // 文字の角度の種類
+  r.bs(); // 文字の揃え
+  r.cmc(); // 文字の色（注記の中身にもある）
+  object.frame = Boolean(r.bit());
+  hs.handle(); // ブロック（注記の中身にもある）
+  r.cmc();
+  r.bd3();
+  r.bd();
+  r.bs();
+  r.bit(); // 注釈尺度
+  object.arrows = [];
+  if (version < R2010) {
+    for (let i = 0, n = r.bl(); i < n; i++) {
+      r.bit(); // 既定か
+      object.arrows.push([i, hs.handle()]);
+    }
+  }
+  for (let i = r.bl(); i > 0; i--) { // ブロックの属性
+    hs.handle();
+    r.text();
+    r.bs();
+    r.bd();
+  }
+  r.bit(); // 文字の向きが逆
+  r.bs();
+  r.bs(); // 文字を付ける点
+  r.bd(); // 尺度
+  if (version >= R2010) {
+    object.attachment.vertical = r.bs() === 1;
+    object.attachment.bottom = r.bs();
+    object.attachment.top = r.bs();
+  }
+  if (version >= R2013) r.bit();
+}
+
+/** マルチ引出線の注記の中身（引出線の根・線・文字かブロック・平面） */
+function readMleaderContext(o) {
+  const { r, version, hs } = o;
+  const ctx = { leaders: [] };
+  for (let i = r.bl(); i > 0; i--) {
+    const leader = { lines: [] };
+    r.bit();
+    r.bit();
+    leader.last = xyz(r);
+    leader.doglegDirection = xyz(r);
+    for (let k = r.bl(); k > 0; k--) {
+      xyz(r);
+      xyz(r);
+    }
+    r.bl(); // 番号
+    leader.doglegLength = r.bd();
+    for (let n = r.bl(); n > 0; n--) {
+      const line = { points: [] };
+      for (let k = r.bl(); k > 0; k--) line.points.push(xyz(r));
+      for (let b = r.bl(); b > 0; b--) { // 切れ目
+        r.bl();
+        for (let k = r.bl(); k > 0; k--) {
+          xyz(r);
+          xyz(r);
+        }
+      }
+      line.index = r.bl();
+      if (version >= R2010) {
+        r.bs(); // 線の種類
+        const color = r.cmc();
+        hs.handle(); // 線種
+        r.bl(); // 太さ
+        r.bd(); // 矢印の大きさ
+        const arrow = hs.handle();
+        const overrides = r.bl();
+        if (overrides & 2) line.color = color;
+        if (overrides & 32) line.arrow = arrow;
+      }
+      leader.lines.push(line);
+    }
+    if (version >= R2010) leader.vertical = r.bs() === 1;
+    ctx.leaders.push(leader);
+  }
+  ctx.scale = r.bd();
+  ctx.base = xyz(r);
+  ctx.textHeight = r.bd();
+  ctx.arrowSize = r.bd();
+  ctx.landingGap = r.bd();
+  r.bs();
+  r.bs();
+  r.bs();
+  r.bs();
+  if (r.bit()) {
+    const t = (ctx.text = {});
+    t.text = r.text();
+    t.extrusion = xyz(r);
+    t.style = hs.handle();
+    t.p = xyz(r);
+    t.direction = xyz(r);
+    r.bd(); // 回転
+    t.width = r.bd();
+    r.bd(); // 高さ
+    t.lineSpacing = r.bd();
+    r.bs();
+    t.color = r.cmc();
+    t.attach = r.bs();
+    r.bs(); // 流れの向き
+    r.cmc(); // 背景の色
+    r.bd();
+    r.bl();
+    r.bit();
+    r.bit();
+    r.bs(); // 段組み
+    r.bit();
+    r.bd();
+    r.bd();
+    r.bit();
+    for (let k = r.bl(); k > 0; k--) r.bd();
+    r.bit();
+    r.bit();
+  } else if (r.bit()) {
+    const b = (ctx.block = {});
+    b.block = hs.handle();
+    b.extrusion = xyz(r);
+    b.p = xyz(r);
+    b.scale = xyz(r);
+    b.rotation = r.bd();
+    b.color = r.cmc();
+    for (let k = 0; k < 16; k++) r.bd(); // 変換の行列
+  }
+  xyz(r); // 平面の原点・x・y
+  xyz(r);
+  xyz(r);
+  r.bit();
+  if (version >= R2010) {
+    r.bs(); // 上・下に付ける文字の付け方（共通の値にもある）
+    r.bs();
+  }
+  return ctx;
+}
+
+/** 線の太さ（BL の DXF の値: -1 画層・-2 ブロック・-3 既定、ほかは 1/100 mm） */
+const lineweightValue = (v) => (v > 1000 || v < -3 ? -3 : v);
+
+/** 寸法スタイル（DIMSTYLE。仕様書 20.4.69）: 幾何公差が使う値（model.js の DIM_VARS）と文字スタイルを拾い、ほかは読み飛ばす */
+function readDimStyle(o) {
+  const { r, version, object, hs } = o;
+  object.name = readTableName(o);
+  const v = (object.values = {});
+  const bits = (n) => { for (let i = 0; i < n; i++) r.bit(); };
+  const bds = (n) => { for (let i = 0; i < n; i++) r.bd(); };
+  const bss = (n) => { for (let i = 0; i < n; i++) r.bs(); };
+  if (version <= R14) {
+    bits(11);
+    r.byte();
+    r.byte();
+    bits(2);
+    r.byte();
+    r.byte();
+    r.byte();
+    bits(1);
+    r.byte();
+    r.byte();
+    r.byte();
+    r.byte();
+    bss(6);
+    v[40] = r.bd();
+    v[41] = r.bd();
+    bds(7);
+    v[140] = r.bd();
+    bds(6);
+    v[147] = r.bd();
+    for (let i = 0; i < 5; i++) r.text();
+    v[176] = r.bs();
+    r.bs();
+    v[178] = r.bs();
+  } else {
+    r.text();
+    r.text();
+    v[40] = r.bd();
+    v[41] = r.bd();
+    bds(7);
+    if (version >= R2007) {
+      bds(2);
+      r.bs();
+      r.cmc();
+    }
+    bits(6);
+    bss(3);
+    if (version >= R2007) r.bs();
+    v[140] = r.bd();
+    bds(6);
+    v[147] = r.bd();
+    r.bd();
+    r.bit();
+    r.bs();
+    bits(4);
+    v[176] = r.cmc();
+    r.cmc();
+    v[178] = r.cmc();
+  }
+  // 残り（小数の桁・線の太さなど）は読まない。ハンドル: 外部参照のブロック・文字スタイル（DIMTXSTY）
+  hs.handle();
+  object.textStyle = hs.handle();
+}
+
 const READERS = {
   TEXT: readText, ATTRIB: readAttrib, ATTDEF: readAttdef, BLOCK: readBlock,
   INSERT: (o) => readInsert(o), MINSERT: (o) => readInsert(o, true),
@@ -947,7 +1194,7 @@ const READERS = {
   ELLIPSE: readEllipse, SPLINE: readSpline, RAY: readRay, XLINE: readRay, MTEXT: readMtext, LEADER: readLeader,
   LWPOLYLINE: readLwpolyline, HATCH: readHatch, VIEWPORT: readViewport,
   BLOCK_HEADER: readBlockHeader, LAYER: readLayer, STYLE: readStyle, LTYPE: readLtype, LAYOUT: readLayout, DICTIONARY: readDictionary,
-  DBCOLOR: readDbColor,
+  DBCOLOR: readDbColor, DIMSTYLE: readDimStyle, TOLERANCE: readTolerance, ACAD_TABLE: readTable, MULTILEADER: readMultiLeader,
   "3DSOLID": readModelerGeometry, REGION: readModelerGeometry, BODY: readModelerGeometry,
   PLANESURFACE: readModelerGeometry, EXTRUDEDSURFACE: readModelerGeometry, LOFTEDSURFACE: readModelerGeometry,
   REVOLVEDSURFACE: readModelerGeometry, SWEPTSURFACE: readModelerGeometry, NURBSURFACE: readModelerGeometry,

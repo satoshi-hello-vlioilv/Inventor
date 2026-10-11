@@ -3,6 +3,8 @@
 //   B・BB・3B・BS・BL・BLL・BD・DD・RC・RS・RL・RD・MC・MS・H・T/TU/TV・BE・BT・CMC・ENC・OT
 // 版で変わる読み方（R2000 の BE・BT、R2004 の CMC・ENC、R2007 の文字列、R2010 の OT）は version（1015 など）で切り替える。
 
+import { nearestAci } from "../../viewer2d/colors.js";
+
 export class DwgError extends Error {}
 
 export const R13 = 1012, R14 = 1014, R2000 = 1015, R2004 = 1018, R2007 = 1021, R2010 = 1024, R2013 = 1027, R2018 = 1032;
@@ -325,13 +327,16 @@ export class BitReader {
   }
 }
 
-/** CMC の RGB の値から色。上位バイト 0xC0 = BYLAYER、最下位ビットが 1（0xC1・0xC3）= 色番号（下位バイト）、0xC2 = RGB */
+/**
+ * CMC の RGB の値から色。上位バイト 0xC0 = BYLAYER、最下位ビットが 1（0xC1・0xC3）= 色番号（下位バイト）、0xC2 = RGB。
+ * RGB の色の番号（BS）は R2004+ では 0 なので、近い色番号を付ける（0 のままだと「ブロックの色」になる。DXF の 62 と同じ考え）
+ */
 export function colorFromRgb(index, rgb) {
   const kind = rgb >>> 24;
   if (kind === 0xc0) return { index: 256 };
   if (!kind) return { index };
   if (kind & 1) return { index: rgb & 0xff };
-  return { index, rgb: rgb & 0xffffff };
+  return { index: index > 0 && index < 256 ? index : nearestAci(rgb & 0xffffff), rgb: rgb & 0xffffff };
 }
 
 const latin1Decoder = new TextDecoder("windows-1252");
