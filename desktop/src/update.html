@@ -7,20 +7,23 @@
 <!--
   起動のとき、配る版にそろえている間に出す画面（exe に入る。program フォルダがまだ無い新しい PC でも出せる）。
   窓（main.rs）が {{ want }}（そろえる版）・{{ have }}（今の版）・{{ log }}（記録の場所）を埋める。
-  進み具合は /__update/progress（update::Progress）を 0.3 秒ごとに見る。色は fail.html・app.css と同じ。
+  進み具合は /__update/progress（update::Progress）を 0.3 秒ごとに見る。見た目は起動の幕（app.css の .boot）・fail.html と同じ。
 -->
 <style>
  :root {
-  --bg: #e8ecf0; --panel: #f8fafc; --ink: #16202b; --muted: #566272; --rule: #cdd5de; --track: #dde3ea;
-  --accent: #1a62c4; --critical: #b3261e; --critical-soft: rgba(179, 38, 30, 0.08);
- }
- @media (prefers-color-scheme: dark) {
-  :root { --bg: #141a21; --panel: #1a2129; --ink: #e5eaf0; --muted: #98a4b2; --rule: #2e3a47; --track: #26303b; --accent: #5e9dff; --critical: #ff8a80; --critical-soft: rgba(255, 138, 128, 0.1); }
+  --ink: #eef4ff; --muted: rgba(233, 241, 255, 0.72); --rule: rgba(255, 255, 255, 0.16); --track: rgba(255, 255, 255, 0.18);
+  --accent: #8fc0ff; --critical: #ffb4ab; --critical-soft: rgba(255, 138, 128, 0.12);
  }
  * { box-sizing: border-box; }
  html, body { height: 100%; }
- body { margin: 0; display: grid; place-items: center; background: var(--bg); color: var(--ink); font: 14px/1.7 "Yu Gothic UI", "Meiryo", system-ui, sans-serif; }
- .card { width: min(92vw, 560px); background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; padding: 24px 28px; display: grid; gap: 12px; }
+ /* 起動の幕（program/app/static/css/app.css の .boot）と同じ製品の色の 1 枚。テーマに関わらず同じ */
+ body { margin: 0; display: grid; place-items: center; align-content: center; gap: 20px; padding: 24px;
+        background: linear-gradient(140deg, #0c1f3a, #12376b 60%, #1a62c4); color: #eef4ff; font: 14px/1.7 "Yu Gothic UI", "Meiryo", system-ui, sans-serif; }
+ .brand { display: flex; align-items: center; gap: 12px; font-size: 20px; font-weight: 600; }
+ .brand svg { width: 40px; height: 40px; }
+ .card { background: rgba(255, 255, 255, 0.07); border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 14px; padding: 24px 28px;
+         box-shadow: 0 24px 64px rgba(0, 0, 0, 0.35); backdrop-filter: blur(6px); }
+ .card { width: min(92vw, 560px); display: grid; gap: 12px; }
  h1 { margin: 0; font-size: 18px; }
  .versions { margin: 0; color: var(--muted); font-variant-numeric: tabular-nums; }
  .versions b { color: var(--ink); }
@@ -31,11 +34,12 @@
  .card.failed h1 { color: var(--critical); }
  pre { margin: 0; padding: 12px 14px; border-radius: 8px; background: var(--critical-soft); border: 1px solid var(--rule);
        white-space: pre-wrap; word-break: break-all; font: 12.5px/1.6 Consolas, "Cascadia Mono", monospace; }
- a.button { justify-self: start; padding: 8px 16px; border-radius: 8px; background: var(--accent); color: #fff; text-decoration: none; font-weight: 600; }
+ a.button { justify-self: start; padding: 8px 16px; border-radius: 8px; background: #eef4ff; color: #0c1f3a; text-decoration: none; font-weight: 600; }
  [hidden] { display: none !important; }
 </style>
 </head>
 <body>
+<div class="brand"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2 19.6 7.6 12 12 4.4 7.6z" fill="#5e9dff"/><path d="M4.4 7.6 12 12v8.8l-7.6-4.4z" fill="#1a62c4"/><path d="M19.6 7.6v8.8L12 20.8V12z" fill="#12468c"/></svg>Inventor 3Dツール</div>
 <section class="card" id="card" aria-live="polite" aria-labelledby="title">
   <h1 id="title">版をそろえています</h1>
   <p class="versions">今の版 <b>{{ have }}</b> → 配っている版 <b>{{ want }}</b></p>

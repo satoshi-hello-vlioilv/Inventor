@@ -35,6 +35,8 @@ import { closeSettings, initSettings, isSettingsOpen, offerShortcut, showNews } 
 import { selectViewTab, setViewTabs } from "./ui/viewtabs.js";
 import { renderAsmPanel, renderAsmStructure, renderDrawingPanel, renderHeader, renderHtmlPanel, renderIptPanel, renderModel3dPanel, renderSpecPanel, setPanelMode } from "./ui/panel.js";
 import { startDialog } from "./ui/start.js";
+import { bootDone, bootStep } from "./ui/boot.js";
+import { renderUses, showEnvironment } from "./ui/welcome.js";
 import { hiddenIds } from "./ui/tree.js";
 import { describeAssembly, describeBody, describeMeshes, describeSolidTree, describeStructure } from "./viewer/describe.js";
 import { VIEWS, Viewer } from "./viewer/viewer.js";
@@ -837,7 +839,7 @@ async function receive(items) {
 
 // 開ける形式の案内（ファイルを選ぶ窓・最初の画面の札・ドロップの案内）は formats/open.js の並びから作る
 $("file-input").accept = ACCEPT;
-$("dropzone").querySelector(".formats").replaceChildren(...FORMATS.map(([name]) => Object.assign(document.createElement("span"), { textContent: name })));
+renderUses(FORMATS);
 $("drop-overlay").querySelector("p").textContent = `ドロップして開く（${FORMAT_NAMES}）`;
 acceptFiles({ input: $("file-input"), openers: [$("open"), $("welcome-open"), $("start-open")], dropzone: $("dropzone"), overlay: $("drop-overlay"),
   isDropzoneShown: () => !$("stage-empty").hidden }, receive);
@@ -859,6 +861,8 @@ const noServer = (what) => (error) => {
   showAlert(`${what}を読み込めませんでした。${error.message}。`);
   return null;
 };
+// 起動の幕: 画面の部品は組み上がった。サンプルの一覧と受け取ったファイルを待つ（ui/boot.js）
+bootStep("files");
 // 一覧と受け取ったファイルは同時に尋ねる（待ち時間を重ねない）
 const samplesReady = listSamples().catch(noServer("サンプルの一覧"));
 const LAUNCH = "起動で受け取ったファイル";
@@ -878,6 +882,7 @@ startDialog.setSamples(samples, async (item) => {
 async function takeLaunch(launch) {
   const { items, parts, missing } = launch ?? { items: [], parts: [], missing: [] };
   parts.forEach((item) => library.add(item)); // 組立と同じフォルダの部品（組立が参照する部品を探す置き場）
+  if (items.length) bootStep("open");
   if (items.length) await receive(items); // 開き終えてから起動画面（案内）を出す（開くと起動画面は閉じるため）
   if (missing.length) {
     const note = `${missing.join("、")} は見つかりませんでした（起動してから画面が受け取るまでに、移動・削除された可能性があります）。`;
@@ -891,5 +896,7 @@ initBuild(); // 保存先と、作っている途中の仕事（画面を開き�
 initSettings();
 onLaunch(async (claim) => takeLaunch(await claim.catch(noServer(LAUNCH))));
 await takeLaunch(await launchReady); // 何も受け取っていなければ、3D の場所に始め方が見えている
+bootDone();
+showEnvironment(); // 始め方の版とこの PC の状態（Inventor・Python）
 showNews(); // 起動でそろえた後なら、その版で変わったことを右下に 1 度だけ
 offerShortcut(); // デスクトップにショートカットが無ければ、右下で尋ねる（開いた物を見る邪魔をしないよう、開き終えてから）

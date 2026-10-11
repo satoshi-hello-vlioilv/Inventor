@@ -252,38 +252,67 @@ kbd { font: 500 var(--fs-xs)/1.35 var(--font-num); padding: 0 5px; border: 1px s
 .stage-legend span::before { content: ""; width: 10px; height: 10px; border-radius: 3px; background: var(--tone); }
 .stage-legend [data-tone="wait"]::before { background: var(--steel); }
 
-/* ---- 始め方（何も開いていないとき。3D の場所に出す）---- */
+/* ---- 始め方（何も開いていないとき。3D の場所に出す。案 K: docs/ui.md §24）----
+   名前と版 → 受け口 1 行（主のボタンは「ファイルを選ぶ」だけ）→ できること 4 列 → キー → この PC の状態。縦 1 本の流れ */
 .welcome {
   position: absolute; inset: 0; overflow: auto; display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 22px; padding: 32px 24px;
+  gap: 20px; padding: 32px 24px;
 }
+.welcome-name { display: flex; align-items: center; gap: 12px; }
+.welcome-name .logo { width: 36px; height: 36px; }
+.welcome-name h2 { margin: 0; font-size: 26px; font-weight: 600; letter-spacing: 0.01em; }
+.welcome-name small { color: var(--muted); font: 500 var(--fs-s) var(--font-num); }
 .welcome-drop {
-  box-sizing: border-box; width: min(720px, 100%); padding: 34px 28px 26px; display: flex; flex-direction: column; align-items: center; gap: 10px;
-  text-align: center; border: 2px dashed var(--rule); border-radius: 16px; background: color-mix(in srgb, var(--surface) 82%, transparent);
-  transition: border-color 0.15s, background-color 0.15s;
+  box-sizing: border-box; width: min(720px, 100%); padding: 10px 10px 10px 20px; display: flex; align-items: center; gap: 12px;
+  border: 1px solid var(--rule); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow-1);
+  transition: border-color 0.15s, background-color 0.15s, box-shadow 0.15s;
 }
-.welcome-drop.is-over { border-color: var(--accent); background: var(--accent-soft); }
-.welcome-drop svg { width: 44px; height: 44px; fill: none; stroke: var(--accent); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-.welcome-drop h2 { margin: 0; font-size: var(--fs-xl); font-weight: 600; }
-.formats { margin: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
-.formats span { padding: 1px 8px; border-radius: 6px; font: 500 var(--fs-xs)/1.6 var(--font-num); color: var(--muted); background: var(--surface-2); border: 1px solid var(--rule-soft); }
-.welcome-actions { margin-top: 8px; display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+.welcome-drop.is-over { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 4px var(--accent-soft); }
+.welcome-drop svg { width: 22px; height: 22px; fill: none; stroke: var(--accent); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.welcome-drop p { flex: 1; margin: 0; font-size: var(--fs-l); color: var(--muted); }
+.welcome-actions { display: flex; gap: 8px; }
 .welcome-actions .primary, .welcome-actions .secondary { min-height: 44px; padding-inline: 22px; font-size: var(--fs-l); }
-.welcome-sub { margin: 2px 0 0; font-size: var(--fs-xs); color: var(--muted); }
-.paths { width: min(720px, 100%); display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
-.path { padding: 16px 18px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--rule); box-shadow: var(--shadow-1); }
-.path h3 { margin: 0 0 12px; display: flex; align-items: center; gap: 8px; font-size: var(--fs-s); font-weight: 600; }
-.path-tag { padding: 1px 8px; border-radius: 6px; font-size: var(--fs-xs); }
-.path-tag.is-view { color: var(--muted); background: var(--surface-2); border: 1px solid var(--rule); }
-.path-tag.is-make { color: var(--accent-ink); background: var(--accent); }
-.path-flow { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: var(--fs-s); color: var(--muted); }
-.path-flow b { display: inline-block; margin-inline-end: 6px; padding: 0 7px; border-radius: 5px; font: 500 var(--fs-xs)/1.7 var(--font-num); color: var(--ink); background: var(--surface-2); border: 1px solid var(--rule-soft); }
-.path-flow.is-steps { flex-direction: row; flex-wrap: wrap; gap: 6px 4px; align-items: center; color: var(--ink); }
-.path-flow.is-steps li { display: inline-flex; align-items: center; gap: 6px; }
-.path-flow.is-steps li:not(:last-child)::after { content: "→"; color: var(--muted); margin-inline-start: 2px; } /* 矢印は行末に（行頭に来ないように） */
-.path-flow i { width: 20px; height: 20px; display: inline-grid; place-items: center; border-radius: 50%; font: 600 var(--fs-xs) var(--font-num); font-style: normal; color: var(--accent); background: var(--accent-soft); }
-.path-flow small { font: 500 var(--fs-xs) var(--font-num); color: var(--muted); }
-.welcome-note { margin: 0; max-width: 720px; font-size: var(--fs-xs); color: var(--muted); text-align: center; text-wrap: balance; }
+.welcome-uses { width: min(760px, 100%); margin: 4px 0 0; padding: 0; list-style: none; display: grid; grid-template-columns: 1fr 1fr 1.35fr 1fr; }
+.welcome-uses li { display: grid; justify-items: center; align-content: start; gap: 2px; padding: 4px 12px; text-align: center; }
+.welcome-uses li + li { border-inline-start: 1px solid var(--rule-soft); }
+.welcome-uses svg { width: 22px; height: 22px; margin-bottom: 4px; fill: none; stroke: var(--accent); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.welcome-uses b { font-size: var(--fs-s); }
+.welcome-uses small { color: var(--muted); font-size: var(--fs-xs); }
+.welcome-uses code { font: 500 var(--fs-xs)/1.6 var(--font-num); color: var(--muted); }
+.welcome-keys { margin: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 22px; font-size: var(--fs-xs); color: var(--muted); }
+.welcome-keys span { display: inline-flex; align-items: center; gap: 6px; }
+.welcome-foot { display: grid; justify-items: center; gap: 4px; margin-top: 4px; }
+.welcome-env { margin: 0; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 4px 0; font-size: var(--fs-xs); color: var(--muted); font-variant-numeric: tabular-nums; }
+.welcome-env span { display: inline-flex; align-items: center; gap: 6px; }
+.welcome-env span + span::before { content: ""; width: 1px; height: 12px; margin: 0 12px; background: var(--rule); }
+.welcome-env i { width: 7px; height: 7px; border-radius: 50%; background: var(--steel); }
+.welcome-env .is-ok i { background: var(--ok); }
+.welcome-env .is-warn i { background: var(--warn); }
+.welcome-note { margin: 0; max-width: 760px; font-size: var(--fs-xs); color: var(--muted); text-align: center; text-wrap: balance; }
+
+/* ---- 起動の幕（index.html の #boot。ui/boot.js が段階を進めて消す。案 K: docs/ui.md §24）----
+   製品の色（濃い青）の 1 枚。テーマに関わらず同じ（窓の地の色から続けて出る）。スクリプトが止まっても 20 秒で消える */
+.boot {
+  position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; color: #fff;
+  background: linear-gradient(140deg, #0c1f3a, #12376b 60%, #1a62c4);
+  transition: opacity 0.25s ease, visibility 0.25s;
+  animation: boot-fallback 0.01s linear 20s forwards !important; /* 動きを減らす設定（下）でも消えるよう、強さを上げる */
+}
+.boot.is-done { opacity: 0; visibility: hidden; }
+@keyframes boot-fallback { to { opacity: 0; visibility: hidden; } }
+.boot-card { display: grid; justify-items: center; gap: 14px; padding: 24px; text-align: center; }
+.boot-card .logo { width: 72px; height: 72px; }
+.boot-card b { font-size: 26px; font-weight: 600; letter-spacing: 0.01em; }
+.boot-card > span { max-width: 460px; color: rgba(233, 241, 255, 0.78); }
+.boot-bar { width: 220px; height: 3px; border-radius: 3px; background: rgba(255, 255, 255, 0.18); overflow: hidden; }
+.boot-bar i { display: block; width: 40%; height: 100%; border-radius: 3px; background: #8fc0ff; animation: boot-run 1.2s ease-in-out infinite; }
+@keyframes boot-run { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+.boot-steps { margin: 0; padding: 0; list-style: none; display: flex; gap: 18px; font-size: var(--fs-xs); color: rgba(233, 241, 255, 0.55); }
+.boot-steps li::before { content: "○ "; }
+.boot-steps .is-done { color: #8fe0a8; }
+.boot-steps .is-done::before { content: "● "; }
+.boot-steps .is-now { color: #dce9ff; }
+.boot-steps .is-now::before { content: "◐ "; }
 
 /* ---- 右の欄: 段階の帯 → 中身（スクロール）→ 行動ドック ---- */
 .side {
@@ -672,7 +701,8 @@ details.card.more summary .h-note { margin-inline-start: 8px; }
 @media (max-width: 760px) {
   .app, .app.is-html { height: auto; grid-template-columns: minmax(0, 1fr); grid-template-areas: "bar" "stage" "side"; }
   .stage, .app.is-html .stage, .app.is-html .source { height: 62vh; }
-  .paths { grid-template-columns: minmax(0, 1fr); }
+  .welcome-uses { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 12px; }
+  .welcome-drop { flex-wrap: wrap; }
   .brand span, .appbar kbd { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; } }

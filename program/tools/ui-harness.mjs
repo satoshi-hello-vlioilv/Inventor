@@ -45,6 +45,7 @@ export async function launch() {
   const dev = (p) => fetch(`${base}/__dev/${p}`, { method: "POST" }).then((r) => r.json());
   return {
     browser,
+    base, // 開発用サーバーの番地（起動の途中を撮るときなど、自分で頁を開く）
     dev,
     /** 起動直後（サンプルの一覧まで組み上がった）の頁 */
     async newPage(theme, view = VIEW) {

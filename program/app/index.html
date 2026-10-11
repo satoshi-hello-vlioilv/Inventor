@@ -31,6 +31,17 @@
   右の欄は 3 層: 段階の帯（作るまでの流れの現在地）→ 中身（要約が先、詳しくは後）→ 行動ドック（次にすることを 1 つだけ主のボタンで）。
   何も開いていないときは、3D の場所に始め方（ドロップ・サンプル・2 つの使い道）を出す。
 -->
+<!-- 起動の幕（案 K: docs/ui.md §24）: HTML を読んだ直後から、画面が使えるまで出す（ui/boot.js が段階を進めて消す）。
+     スクリプトが止まっても、20 秒で CSS だけで消える（app.css の .boot） -->
+<div class="boot" id="boot" role="status" aria-live="polite" aria-label="起動しています">
+  <div class="boot-card">
+    <svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><path class="logo-top" d="M12 3.2 19.6 7.6 12 12 4.4 7.6z"/><path class="logo-left" d="M4.4 7.6 12 12v8.8l-7.6-4.4z"/><path class="logo-right" d="M19.6 7.6v8.8L12 20.8V12z"/></svg>
+    <b>Inventor 3Dツール</b>
+    <span>Inventor の部品・組立と 2D の図面を、Inventor なしで開いて確かめる。three.js の 3D は CAD に</span>
+    <div class="boot-bar"><i></i></div>
+    <ol class="boot-steps"><li data-step="ui" class="is-now">画面</li><li data-step="files">受け取ったファイル</li><li data-step="open">開く</li></ol>
+  </div>
+</div>
 <div class="app is-empty" id="app">
   <header class="appbar">
     <div class="brand">
@@ -89,38 +100,26 @@
     <canvas class="view" id="view"></canvas>
     <canvas class="view view2d" id="view2d" hidden></canvas>
     <div class="page-pop" id="page-pop" role="dialog" aria-label="ページを選ぶ" hidden></div><!-- ページ送りの中央を押すと開く番号の升目（main.js） -->
+    <!-- 始め方（何も開いていないとき。案 K: docs/ui.md §24）: 名前と版 → 受け口 1 行（主のボタンは「ファイルを選ぶ」だけ）→ できること 4 列 → キー → この PC の状態 -->
     <div class="welcome" id="stage-empty">
-      <div class="welcome-drop" id="dropzone">
+      <div class="welcome-name">
+        <svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><path class="logo-top" d="M12 3.2 19.6 7.6 12 12 4.4 7.6z"/><path class="logo-left" d="M4.4 7.6 12 12v8.8l-7.6-4.4z"/><path class="logo-right" d="M19.6 7.6v8.8L12 20.8V12z"/></svg>
+        <h2>Inventor 3Dツール</h2><small id="welcome-version" hidden></small>
+      </div>
+      <div class="welcome-drop" id="dropzone" title="exe（Inventor3DTool.exe）にドロップしても開きます">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5v11m-4.5-4.5L12 14.5l4.5-4.5"/><path d="M4 15.5v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
-        <h2>ファイルをここにドロップ</h2>
-        <p class="formats"></p><!-- 開ける形式の札（main.js が formats/open.js の並びから作る） -->
+        <p>ファイルをここにドロップ</p>
         <div class="welcome-actions">
-          <button type="button" class="primary" id="welcome-open">ファイルを選ぶ</button>
           <button type="button" class="secondary" id="welcome-samples">サンプルで試す</button>
+          <button type="button" class="primary" id="welcome-open">ファイルを選ぶ</button>
         </div>
-        <p class="welcome-sub"><kbd>Ctrl+O</kbd> でも開けます。exe（Inventor3DTool.exe）にドロップしても開きます</p>
       </div>
-      <div class="paths">
-        <section class="path">
-          <h3><span class="path-tag is-view">見る</span>部品・組立・STEP・図面</h3>
-          <ol class="path-flow">
-            <li><b>.ipt</b><b>.iam</b><b>.stp</b></li>
-            <li>形・外形寸法・穴やねじ・部品表（材質・質量）</li>
-            <li><b>.dwg</b><b>.dxf</b><b>.pdf</b><b>.jww</b><b>.sfc</b><b>.p21</b></li>
-            <li>2D の図面・画層・寸法と文字・PDF の 3D</li>
-          </ol>
-        </section>
-        <section class="path">
-          <h3><span class="path-tag is-make">CAD にする</span>three.js の 3D（.html）</h3>
-          <ol class="path-flow is-steps">
-            <li><i>1</i>取り込む</li>
-            <li><i>2</i>単位を確かめる</li>
-            <li><i>3</i>作る<small>.stp・.ipt・.iam</small></li>
-            <li><i>4</i>照合する</li>
-          </ol>
-        </section>
-      </div>
-      <p class="welcome-note">ファイルはこの PC の中だけで解析し、外へは送りません（HTML が読み込む three.js などは、そのページの指定どおり取得します）。</p>
+      <ul class="welcome-uses" id="welcome-uses"></ul><!-- できること（ui/welcome.js が formats/open.js の並びから作る） -->
+      <p class="welcome-keys"><span><kbd>Ctrl+O</kbd>開く</span><span><kbd>ドラッグ</kbd>回す</span><span><kbd>ホイール</kbd>拡大</span><span><kbd>M</kbd>図面を測る</span><span><kbd>Ctrl+Z</kbd>元に戻す</span></p>
+      <footer class="welcome-foot">
+        <p class="welcome-env" id="welcome-env" hidden></p><!-- この PC の状態（版・Inventor・Python。ui/welcome.js） -->
+        <p class="welcome-note">ファイルはこの PC の中だけで解析し、外へは送りません（HTML が読み込む three.js などは、そのページの指定どおり取得します）</p>
+      </footer>
     </div>
     <div class="toolbar">
       <div class="tool-group" role="group" aria-label="レイアウト" id="layout-tabs" data-mode="drawing"></div>
