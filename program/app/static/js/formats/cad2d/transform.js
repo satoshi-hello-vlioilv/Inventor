@@ -121,6 +121,25 @@ const TRANSFORMS = {
   SOLID: (e, m) => ({ ...e, points: points(ocsTransform(m, e.extrusion), e.points) }),
   "3DFACE": (e, m) => ({ ...e, points: points(m, e.points) }),
   LEADER: (e, m) => ({ ...e, points: points(m, e.points) }),
+  ACAD_TABLE: (e, m) => {
+    const o = ocsTransform(m, e.extrusion);
+    return { ...e, p: applyPoint(o, e.p), direction: rotateVector(m, e.direction ?? [1, 0, 0]), scale: (e.scale ?? [1, 1, 1]).map((k) => k * scaleOf(m)) };
+  },
+  // 幾何公差の大きさは寸法スタイルで決まる（拡大は寸法スタイルの上書きが要るので、まだ受け付けない）
+  TOLERANCE: (e, m) => {
+    if (Math.abs(scaleOf(m) - 1) > 1e-9) throw new EditError("幾何公差の大きさは寸法スタイルで決まるので、拡大・縮小はまだできません");
+    return { ...e, p: applyPoint(m, e.p), direction: rotateVector(m, e.direction ?? [1, 0, 0]) };
+  },
+  MULTILEADER: (e, m) => {
+    const s = scaleOf(m), turn = angleOf(m);
+    const text = e.text && { ...e.text, p: applyPoint(m, e.text.p), direction: rotateVector(m, e.text.direction ?? [1, 0, 0]), width: (e.text.width ?? 0) * s };
+    const content = e.content && { ...e.content, p: applyPoint(m, e.content.p), rotation: (e.content.rotation ?? 0) + turn,
+      scale: (e.content.scale ?? [1, 1, 1]).map((k) => k * s) };
+    const leaders = e.leaders.map((l) => ({ ...l, last: l.last && applyPoint(m, l.last), doglegDirection: rotateVector(m, l.doglegDirection ?? [1, 0, 0]),
+      doglegLength: (l.doglegLength ?? 0) * s, lines: l.lines.map((line) => ({ ...line, points: points(m, line.points) })) }));
+    return { ...e, base: applyPoint(m, e.base ?? [0, 0, 0]), scale: (e.scale ?? 1) * s, textHeight: (e.textHeight ?? 0) * s, arrowSize: (e.arrowSize ?? 0) * s,
+      landingGap: (e.landingGap ?? 0) * s, text, content, leaders };
+  },
   RAY: (e, m) => ({ ...e, p: applyPoint(m, e.p), direction: rotateVector(m, e.direction) }),
   XLINE: (e, m) => ({ ...e, p: applyPoint(m, e.p), direction: rotateVector(m, e.direction) }),
   PATH: (e, m) => ({ ...e, width: (e.width ?? 0) * scaleOf(m), dashes: e.dashes?.map((d) => d * scaleOf(m)), clip: undefined,

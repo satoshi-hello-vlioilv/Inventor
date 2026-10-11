@@ -7,20 +7,20 @@
 <!--
   デスクトップ版の窓が、アプリの中身（program フォルダ）を見つけられないときに出す画面（exe に入る）。
   窓（desktop/src/main.rs の fail_page）が {{ detail }}（理由）と {{ log }}（記録の場所）を埋める。
-  色は画面（program/app/static/css/app.css）の値に合わせる。
+  見た目は起動の幕（program/app/static/css/app.css の .boot）・update.html と同じ。
 -->
 <style>
- :root {
-  --bg: #e8ecf0; --panel: #f8fafc; --ink: #16202b; --muted: #566272; --rule: #cdd5de;
-  --accent: #1a62c4; --critical: #b3261e; --critical-soft: rgba(179, 38, 30, 0.08);
- }
- @media (prefers-color-scheme: dark) {
-  :root { --bg: #141a21; --panel: #1a2129; --ink: #e5eaf0; --muted: #98a4b2; --rule: #2e3a47; --accent: #5e9dff; --critical: #ff8a80; --critical-soft: rgba(255, 138, 128, 0.1); }
- }
+ :root { --ink: #eef4ff; --muted: rgba(233, 241, 255, 0.72); --rule: rgba(255, 255, 255, 0.16); --critical: #ffb4ab; --critical-soft: rgba(255, 138, 128, 0.12); }
  * { box-sizing: border-box; }
  html, body { height: 100%; }
- body { margin: 0; display: grid; place-items: center; background: var(--bg); color: var(--ink); font: 14px/1.7 "Yu Gothic UI", "Meiryo", system-ui, sans-serif; }
- .card { width: min(92vw, 640px); background: var(--panel); border: 1px solid var(--rule); border-radius: 12px; padding: 24px 28px; }
+ /* 起動の幕（program/app/static/css/app.css の .boot）と同じ製品の色の 1 枚。テーマに関わらず同じ */
+ body { margin: 0; display: grid; place-items: center; align-content: center; gap: 20px; padding: 24px;
+        background: linear-gradient(140deg, #0c1f3a, #12376b 60%, #1a62c4); color: #eef4ff; font: 14px/1.7 "Yu Gothic UI", "Meiryo", system-ui, sans-serif; }
+ .brand { display: flex; align-items: center; gap: 12px; font-size: 20px; font-weight: 600; }
+ .brand svg { width: 40px; height: 40px; }
+ .card { background: rgba(255, 255, 255, 0.07); border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 14px; padding: 24px 28px;
+         box-shadow: 0 24px 64px rgba(0, 0, 0, 0.35); backdrop-filter: blur(6px); }
+ .card { width: min(92vw, 640px); }
  h1 { margin: 0 0 4px; font-size: 18px; color: var(--critical); }
  .lead { margin: 0 0 16px; color: var(--muted); }
  ol { margin: 0 0 16px; padding-left: 1.4em; }
@@ -32,6 +32,7 @@
 </style>
 </head>
 <body>
+<div class="brand"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2 19.6 7.6 12 12 4.4 7.6z" fill="#5e9dff"/><path d="M4.4 7.6 12 12v8.8l-7.6-4.4z" fill="#1a62c4"/><path d="M19.6 7.6v8.8L12 20.8V12z" fill="#12468c"/></svg>Inventor 3Dツール</div>
 <section class="card" role="alert" aria-labelledby="title">
   <h1 id="title">アプリの中身が見つかりません</h1>
   <p class="lead">この exe は、配られたフォルダの中（<code>program</code> フォルダと並ぶ場所）に置いたまま起動してください。</p>

@@ -22,6 +22,18 @@ export const ACI = Array.from({ length: 256 }, (_, i) => {
   return floorHex(...hsv(hue, k % 2 ? 0.5 : 1, VALUES[k >> 1]));
 });
 
+/** 真の色（24 ビットの整数）に近い色番号（1〜255。7 は白とみる）。色番号を持たない RGB の色（DWG の CMC）に、DXF と同じく近い番号を付ける */
+export function nearestAci(rgb) {
+  const target = [(rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255];
+  let best = 7, distance = Infinity;
+  for (let i = 1; i < 256; i++) {
+    const c = ACI[i] ?? "#ffffff";
+    const d = [1, 3, 5].reduce((s, k, j) => s + (parseInt(c.slice(k, k + 2), 16) - target[j]) ** 2, 0);
+    if (d < distance) [best, distance] = [i, d];
+  }
+  return best;
+}
+
 /** 真の色（24 ビットの整数）→ "#rrggbb" */
 export const rgbHex = (rgb) => `#${(rgb & 0xffffff).toString(16).padStart(6, "0")}`;
 

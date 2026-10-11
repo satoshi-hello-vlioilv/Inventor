@@ -1,5 +1,6 @@
 // 図面のモデル（formats/cad2d/model.js）の 1 つのレイアウトを、描くもの（線・塗り・文字）の並びにする（DOM に依存しない）。
-//   buildScene(drawing, layout, { hidden, shown }) → {（hidden・shown: 利用者が隠した・表示にした画層。shown はファイルの off・凍結より強い）
+//   buildScene(drawing, layout, { hidden, shown, measure }) → {（hidden・shown: 利用者が隠した・表示にした画層。shown はファイルの off・凍結より強い。
+//     measure(文字, 1 行) → 幅: 文字の幅で形が決まるもの（幾何公差の枠・マルチ引出線の文字の枠）に使う。無ければ見積もる）
 //     strokes: [{ color, lineweight, dashes, lines: [{ item, points: Float64Array(x, y, …), width?, weight?, cap?, alpha? }] }]（線の種類ごとにまとめる。
 //              weight: PDF の線の太さ = 幅は太さの表示を切ると細線、cap: 線端 0 平ら・1 丸・2 四角）
 //     fills:   [{ item, color, rings: [Float64Array], rule?, alpha? }]（rule が無ければ偶奇の規則。SOLID・ハッチング・PDF の塗り）
@@ -22,10 +23,11 @@
 import { IDENTITY, apply, multiply, rotationZ, scaling, translation } from "../core/matrix.js";
 import { bulgeArc, bulgePoints, flattenSubpath, interpolateFit, neutralSpline, ocsAxes, toOcs, toWcs } from "../formats/cad2d/curves.js";
 import { acisShape } from "../formats/acis/index.js";
+import { annotationParts } from "../formats/cad2d/annotation.js";
 import { insertMatrices } from "../formats/cad2d/placement.js";
 import { sampleCurve } from "../model/curves.js";
 import { ACI, rgbHex } from "./colors.js";
-import { mtextLines, singleLine } from "./text.js";
+import { estimateTextWidth, mtextLines, singleLine } from "./text.js";
 
 const DEFAULT_LINEWEIGHT = 25; // LWDEFAULT（0.25 mm）
 const MAX_DEPTH = 24; // ブロックの入れ子の上限（自分を含むブロックの無限の入れ子を止める）
@@ -35,7 +37,7 @@ const TAU = 2 * Math.PI;
 
 const nameKey = (name) => String(name ?? "").toLowerCase();
 
-export function buildScene(drawing, layout, { hidden = new Set(), shown = new Set() } = {}) {
+export function buildScene(drawing, layout, { hidden = new Set(), shown = new Set(), measure = null } = {}) {
   const layers = new Map([...drawing.layers.values()].map((l) => [nameKey(l.name), l]));
   const linetypes = new Map([...drawing.linetypes.values()].map((l) => [nameKey(l.name), l]));
   const blocks = new Map([...drawing.blocks.values()].map((b) => [nameKey(b.name), b]));
@@ -479,6 +481,22 @@ export function buildScene(drawing, layout, { hidden = new Set(), shown = new Se
     }
   }
 
+  // ---- 注記（表・幾何公差・マルチ引出線） -----------------------------------------------------------------------------
+  /** 文字の 1 行の幅（図面の長さ。高さ h） */
+  const textWidth = (line, h) => (measure ? measure({ height: h }, line) : estimateTextWidth(line, h));
+
+  /** 表: 中身を描いた無名のブロックを、表の向きに回して置く（ブロック参照と同じ） */
+  function table(e, layer, ctx, item, depth) {
+    const local = toOcs(ocsAxes(e.extrusion), e.direction ?? [1, 0, 0]);
+    insert({ ...e, scale: e.scale ?? [1, 1, 1], rotation: Math.atan2(local[1], local[0]), columns: 1, rows: 1, attribs: [] }, layer, ctx, item, depth);
+  }
+
+  /** 幾何公差・マルチ引出線: 部品（formats/cad2d/annotation.js）を、この図形の色・線種・太さを継いで描く（寸法のブロックと同じ） */
+  function annotation(e, layer, ctx, item, depth) {
+    const sub = { ...ctx, layer, color: color(e.color, layer, ctx), linetype: linetypeName(e, layer, ctx), lineweight: lineweight(e, layer, ctx) };
+    for (const part of annotationParts(e, drawing, textWidth)) draw(part, sub, item, depth + 1, true);
+  }
+
   /** 図形 1 つを描く。値が壊れていて描けない図形（大きさが数でない円など）は飛ばして数え、図面の残りは描く */
   function draw(e, ctx, item, depth = 0, inBlock = false) {
     const mark = e.clip ? marks() : null;
@@ -584,6 +602,8 @@ export function buildScene(drawing, layout, { hidden = new Set(), shown = new Se
         return;
       }
       case "LEADER": return leader(e, layer, ctx, item);
+      case "ACAD_TABLE": return table(e, layer, ctx, item, depth);
+      case "TOLERANCE": case "MULTILEADER": return annotation(e, layer, ctx, item, depth);
       case "ACIS": { // 3D ソリッドなど: 稜線を上から見て描く（AutoCAD の 2D ワイヤフレームと同じ）。読めない形は読み取りが数えてある
         const shape = acisShape(e.acis);
         if (shape.error) return;

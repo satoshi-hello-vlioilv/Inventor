@@ -267,7 +267,8 @@ fn window(app: &AppHandle, start: &str) -> tauri::Result<WebviewWindow> {
         .inner_size(1600.0, 1000.0)
         .min_inner_size(960.0, 600.0)
         .maximized(true)
-        .background_color(tauri::window::Color(0xe8, 0xec, 0xf0, 0xff)) // 画面の地（app.css の --bg）。読み込みの間に白く光らない
+        // 起動の幕（app.css の .boot・update.html）の濃い青。読み込みの間に、明るい地から濃い幕へ光らない
+        .background_color(tauri::window::Color(0x0f, 0x2a, 0x52, 0xff))
         // ファイルのドロップは画面が読む（ui/files.js）。Tauri は既定で窓へのドロップを横取りするので切る
         .disable_drag_drop_handler()
         .on_navigation(|u| {

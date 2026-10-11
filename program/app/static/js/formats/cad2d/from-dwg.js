@@ -17,6 +17,7 @@ const ENTITY = {
   DIMENSION_ORDINATE: "DIMENSION", DIMENSION_LINEAR: "DIMENSION", DIMENSION_ALIGNED: "DIMENSION", DIMENSION_ANG3PT: "DIMENSION",
   DIMENSION_ANG2LN: "DIMENSION", DIMENSION_RADIUS: "DIMENSION", DIMENSION_DIAMETER: "DIMENSION",
   HATCH: "HATCH", SOLID: "SOLID", TRACE: "SOLID", "3DFACE": "3DFACE", LEADER: "LEADER", RAY: "RAY", XLINE: "XLINE", VIEWPORT: "VIEWPORT",
+  TOLERANCE: "TOLERANCE", ACAD_TABLE: "ACAD_TABLE", MULTILEADER: "MULTILEADER",
   // ACIS の形を持つもの（3D ソリッド・リージョン・ボディ・面）
   "3DSOLID": "ACIS", REGION: "ACIS", BODY: "ACIS", PLANESURFACE: "ACIS", EXTRUDEDSURFACE: "ACIS", LOFTEDSURFACE: "ACIS",
   REVOLVEDSURFACE: "ACIS", SWEPTSURFACE: "ACIS", NURBSURFACE: "ACIS",
@@ -63,6 +64,8 @@ export function drawingFromDwg(bytes) {
       drawing.linetypes.set(cadText(o.name), { name: cadText(o.name), description: cadText(o.description), dashes: o.dashes });
     } else if (o.kind === "STYLE" && !o.shape) {
       drawing.styles.set(cadText(o.name), { name: cadText(o.name), font: o.font, bigFont: o.bigFont, height: o.height, widthFactor: o.widthFactor, oblique: o.oblique });
+    } else if (o.kind === "DIMSTYLE" && o.values) {
+      drawing.dimstyles.set(cadText(o.name), { name: cadText(o.name), values: o.values, textStyle: name(o.textStyle) ?? "Standard" });
     }
   }
 
@@ -170,6 +173,10 @@ export function drawingFromDwg(bytes) {
         return Object.assign(e, { solid: o.kind, acis: o.acis });
       case "LEADER": return Object.assign(e, { points: o.points, arrow: o.arrow, pathType: o.pathType, extrusion: o.extrusion });
       case "RAY": case "XLINE": return Object.assign(e, { p: o.p, direction: o.direction });
+      case "TOLERANCE":
+        return Object.assign(e, { p: o.p, direction: o.direction, text: cadText(o.text), dimstyle: name(o.dimstyle) ?? "Standard", overrides: {}, extrusion: o.extrusion });
+      case "ACAD_TABLE": return Object.assign(e, { block: name(o.block), p: o.p, scale: o.scale, direction: o.direction, extrusion: o.extrusion });
+      case "MULTILEADER": return Object.assign(e, multileader(o, name));
       case "VIEWPORT":
         return Object.assign(e, { center: o.center, width: o.width, height: o.height, viewCenter: o.viewCenter, viewHeight: o.viewHeight,
           twist: o.twist ?? 0, viewTarget: o.viewTarget, viewDirection: o.viewDirection });
@@ -213,6 +220,26 @@ export function drawingFromDwg(bytes) {
   drawing.models3d = solids3d(drawing); // 3D ソリッドがあれば「図面 ⇄ 3D」のタブで 3D も見せる
   drawing.failures = failures;
   return drawing;
+}
+
+/** マルチ引出線（DXF の読み取りと同じ形。model.js）。ハンドルの参照は名前に */
+function multileader(o, name) {
+  const c = o.context, t = c.text, b = c.block;
+  const linetype = name(o.lineLinetype) ?? "ByBlock";
+  const arrows = [...(o.arrows ?? [])];
+  for (const leader of c.leaders) for (const line of leader.lines) if (line.arrow) arrows.push([line.index, line.arrow]);
+  return {
+    scale: c.scale, base: c.base, textHeight: c.textHeight, arrowSize: c.arrowSize, landingGap: c.landingGap,
+    leaderType: o.leaderType, lineColor: o.lineColor, lineLinetype: /^(bylayer|byblock|continuous)$/i.test(linetype) ? linetype.toUpperCase() : linetype,
+    lineLineweight: o.lineLineweight, landing: o.landing, dogleg: o.dogleg, frame: o.frame,
+    attachment: { vertical: false, top: 9, bottom: 9, ...o.attachment },
+    text: t ? { text: cadText(t.text), p: t.p, direction: t.direction, extrusion: t.extrusion, width: t.width * c.scale, lineSpacing: t.lineSpacing,
+      color: t.color, attach: t.attach, style: name(t.style) ?? "Standard" } : null,
+    content: b ? { block: name(b.block) ?? "", p: b.p, scale: b.scale, rotation: b.rotation, extrusion: b.extrusion, color: b.color } : null,
+    leaders: c.leaders.map((l) => ({ last: l.last, doglegDirection: l.doglegDirection, doglegLength: l.doglegLength, vertical: Boolean(l.vertical),
+      lines: l.lines.map((line) => ({ points: line.points, index: line.index, ...(line.color && { color: line.color }) })) })),
+    arrow: name(o.arrow) ?? "", arrows: arrows.map(([index, h]) => [index, name(h) ?? ""]),
+  };
 }
 
 // 文字の値。生成の印は 2（左右の反転）・4（上下の反転）だけが意味を持つので、ほかのビットは捨てる

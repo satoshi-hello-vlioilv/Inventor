@@ -4,7 +4,7 @@
 // 指定が無ければ中身で決める（Jw_cad の DXF は指定が無く Shift_JIS）。
 
 import { completeSpline } from "./curves.js";
-import { cadText, createDrawing, normalizeLayouts, unitsOf } from "./model.js";
+import { cadText, createDrawing, dimstyle, nameReferences, normalizeLayouts, rawColor, unitsOf } from "./model.js";
 
 export class DxfError extends Error {}
 
@@ -360,6 +360,89 @@ function hatch(tags) {
     elevation: get(tags, 30, 0), extrusion: extrusion(tags), style: get(tags, 75, 0), gradient: get(tags, 450, 0) === 1 };
 }
 
+/** 寸法スタイルの上書き（拡張データ「ACAD」の「DSTYLE」: 1070 の寸法変数の番号と、続く値の組）→ { 番号: 値 } */
+function dimOverrides(tags) {
+  const out = {};
+  const at = tags.findIndex(([code, value], i) => code === 1000 && value === "DSTYLE" && tags[i - 1]?.[0] === 1001);
+  if (at < 0) return out;
+  for (let i = at + 2; i + 1 < tags.length && tags[i][0] !== 1002 && tags[i][0] !== 1001; i += 2) if (tags[i][0] === 1070) out[tags[i][1]] = tags[i + 1][1];
+  return out;
+}
+
+/** 点の群（10〜18・110〜112 の x と、続く y・z）を 1 つの値にまとめた並び（同じコードが何度も出るマルチ引出線を順に読む） */
+function merged(tags) {
+  const out = [];
+  for (let i = 0; i < tags.length; i++) {
+    const [code, value] = tags[i];
+    if ((code >= 10 && code <= 18) || (code >= 110 && code <= 112)) {
+      const p = [value, 0, 0];
+      if (tags[i + 1]?.[0] === code + 10) p[1] = tags[++i][1];
+      if (tags[i + 1]?.[0] === code + 20) p[2] = tags[++i][1];
+      out.push([code, p]);
+    } else out.push([code, value]);
+  }
+  return out;
+}
+
+// マルチ引出線の中身の値（文字・ブロック。ezdxf の MTextData・BlockData と同じ区切り）
+const MLEADER_TEXT = new Set([304, 11, 340, 12, 13, 42, 43, 44, 45, 170, 90, 171, 172, 91, 141, 92, 291, 292, 173, 293, 142, 143, 294, 144, 295]);
+const MLEADER_BLOCK = new Set([341, 14, 15, 16, 46, 93, 47]);
+
+/** マルチ引出線（AcDbMLeader: 300 CONTEXT_DATA{ … 301 } の中に、中身と引出線 302 LEADER{ … 303 }・304 LEADER_LINE{ … 305 }） */
+function multileader(tags) {
+  const all = merged(subclass(tags, "AcDbMLeader"));
+  const start = all.findIndex(([c, v]) => c === 300 && v === "CONTEXT_DATA{");
+  const end = all.findIndex(([c, v], i) => i > start && c === 301 && v === "}");
+  const context = start < 0 ? [] : all.slice(start + 1, end < 0 ? all.length : end);
+  const rest = end < 0 ? [] : all.slice(end + 1);
+  const ctx = { leaders: [] };
+  let content = null, values = null;
+  for (let i = 0; i < context.length; i++) {
+    const [code, value] = context[i];
+    if (code === 302) { // 引出線: 303 } まで。その中の線は 304 LEADER_LINE{ … 305 }
+      const leader = { lines: [] };
+      for (i++; i < context.length && context[i][0] !== 303; i++) {
+        const [c, v] = context[i];
+        if (c === 304) {
+          const line = { points: [] };
+          for (i++; i < context.length && context[i][0] !== 305; i++) {
+            const [lc, lv] = context[i];
+            if (lc === 10) line.points.push(lv);
+            else if (lc === 91) line.index = lv;
+            else if (lc === 92) line.color = lv;
+          }
+          leader.lines.push(line);
+        } else if (!(c in leader)) leader[c] = v;
+      }
+      ctx.leaders.push(leader);
+      continue;
+    }
+    if (content && content.has(code)) {
+      if (!(code in values)) values[code] = value;
+      continue;
+    }
+    content = null;
+    if (code === 290 && value) [content, values] = [MLEADER_TEXT, (ctx.text = {})];
+    else if (code === 296 && value) [content, values] = [MLEADER_BLOCK, (ctx.block = {})];
+    else if (!(code in ctx)) ctx[code] = value;
+  }
+  const t = ctx.text, b = ctx.block;
+  const scale = ctx[40] ?? 1;
+  return {
+    scale, base: ctx[10] ?? [0, 0, 0], textHeight: ctx[41] ?? 0, arrowSize: ctx[140] ?? 0, landingGap: ctx[145] ?? 0,
+    leaderType: get(rest, 170, 1), lineColor: rawColor(get(rest, 91, -1056964608)), lineLineweight: get(rest, 171, -2),
+    landing: Boolean(get(rest, 290, 1)), dogleg: Boolean(get(rest, 291, 1)), frame: Boolean(get(rest, 292, 0)),
+    attachment: { vertical: get(rest, 271, 0) === 1, left: get(rest, 173, 1), right: get(rest, 95, 1), top: get(rest, 273, 9), bottom: get(rest, 272, 9) },
+    text: t ? { text: String(t[304] ?? ""), p: t[12] ?? [0, 0, 0], direction: t[13] ?? [1, 0, 0], extrusion: t[11] ?? [0, 0, 1], width: (t[43] ?? 0) * scale,
+      lineSpacing: t[45] ?? 1, color: rawColor(t[90] ?? -1056964608), attach: t[171] ?? 1, refs: { style: t[340] } } : null,
+    content: b ? { p: b[15] ?? [0, 0, 0], scale: b[16] ?? [1, 1, 1], rotation: b[46] ?? 0, extrusion: b[14] ?? [0, 0, 1], color: rawColor(b[93] ?? -1056964608),
+      refs: { block: b[341] } } : null,
+    leaders: ctx.leaders.map((l) => ({ last: l[10] ?? null, doglegDirection: l[11] ?? [1, 0, 0], doglegLength: l[40] ?? 0, vertical: l[271] === 1,
+      lines: l.lines.map((line) => ({ points: line.points, index: line.index ?? 0, ...(line.color !== undefined && { color: rawColor(line.color) }) })) })),
+    refs: { linetype: get(rest, 341), arrow: get(rest, 342), arrows: rest.flatMap(([c, v], i) => (c === 94 && rest[i + 1]?.[0] === 345 ? [[v, rest[i + 1][1]]] : [])) },
+  };
+}
+
 const DIMENSION_KIND = ["linear", "aligned", "angular", "diameter", "radius", "angular3", "ordinate"];
 
 /** DXF の図形 1 つ（と、続く子: POLYLINE の VERTEX・INSERT の ATTRIB）→ モデルの図形。描かない種類は null */
@@ -426,6 +509,13 @@ function entity(record, children, unsupported) {
       for (let i = 0; i < tags.length; i++) if (tags[i][0] === 10) points.push([tags[i][1], get(tags.slice(i), 20, 0), get(tags.slice(i), 30, 0)]);
       return { ...e("LEADER"), points, arrow: get(tags, 71, 1) === 1, pathType: get(tags, 72, 0), extrusion: extrusion(tags) };
     }
+    case "ACAD_TABLE": // 表: 中身を描いた無名のブロック（*T…）を、向き（11）に回して置く
+      return { ...e("ACAD_TABLE"), block: String(get(tags, 2, "")), p: point(tags, 10), scale: [get(tags, 41, 1), get(tags, 42, 1), get(tags, 43, 1)],
+        direction: point(tags, 11, [1, 0, 0]), extrusion: extrusion(tags) };
+    case "TOLERANCE":
+      return { ...e("TOLERANCE"), p: point(tags, 10), direction: point(tags, 11, [1, 0, 0]), text: String(get(tags, 1, "")), dimstyle: String(get(tags, 3, "Standard")),
+        overrides: dimOverrides(record.tags), extrusion: extrusion(tags) };
+    case "MULTILEADER": case "MLEADER": return { ...e("MULTILEADER"), ...multileader(tags) };
     case "RAY": return { ...e("RAY"), p: point(tags, 10), direction: point(tags, 11) };
     case "XLINE": return { ...e("XLINE"), p: point(tags, 10), direction: point(tags, 11) };
     case "VIEWPORT":
@@ -469,6 +559,7 @@ export function drawingFromDxf(bytes) {
   const unsupported = drawing.unsupported;
 
   // 表
+  const names = { linetypes: new Map(), styles: new Map(), blocks: new Map() };
   if (parts.TABLES) {
     for (const r of records(tags, ...parts.TABLES)) {
       const t = r.tags;
@@ -484,7 +575,12 @@ export function drawingFromDxf(bytes) {
       } else if (r.type === "STYLE") {
         drawing.styles.set(String(get(t, 2, "")), { name: String(get(t, 2, "")), font: String(get(t, 3, "")), bigFont: String(get(t, 4, "")),
           height: get(t, 40, 0), widthFactor: get(t, 41, 1), oblique: get(t, 50, 0) * RAD });
+      } else if (r.type === "DIMSTYLE") {
+        drawing.dimstyles.set(String(get(t, 2, "")), dimstyle(String(get(t, 2, "")), (code) => get(t, code)));
       }
+      // ハンドル → 名前（マルチ引出線・寸法スタイルは、線種・文字スタイル・ブロックをハンドルで指す。寸法スタイルのハンドルは 105）
+      const kind = { LTYPE: "linetypes", STYLE: "styles", BLOCK_RECORD: "blocks" }[r.type];
+      if (kind) names[kind].set(String(get(t, 5, "")).toUpperCase(), String(get(t, 2, "")));
     }
   }
 
@@ -513,20 +609,19 @@ export function drawingFromDxf(bytes) {
   }
 
   // レイアウト（OBJECTS の LAYOUT。330 のブロックの記録のハンドル → ブロックの名前は、TABLES の BLOCK_RECORD から）
-  const recordNames = new Map();
-  if (parts.TABLES) for (const r of records(tags, ...parts.TABLES)) if (r.type === "BLOCK_RECORD") recordNames.set(String(get(r.tags, 5, "")).toUpperCase(), String(get(r.tags, 2, "")));
   const layouts = [];
   if (parts.OBJECTS) {
     for (const r of records(tags, ...parts.OBJECTS)) {
       if (r.type !== "LAYOUT") continue;
       const t = subclass(r.tags, "AcDbLayout");
       const owners = t.filter((x) => x[0] === 330).map((x) => String(x[1]).toUpperCase());
-      const block = owners.map((h) => recordNames.get(h)).find(Boolean);
+      const block = owners.map((h) => names.blocks.get(h)).find(Boolean);
       layouts.push({ name: String(get(t, 1, "")), block, tabOrder: get(t, 71, 0),
         limits: [[get(t, 10, 0), get(t, 20, 0)], [get(t, 11, 0), get(t, 21, 0)]] });
     }
   }
   if (!layouts.length && drawing.blocks.get(paperName)?.entities.length) layouts.push({ name: "Layout1", block: paperName, tabOrder: 1 });
   drawing.layouts = normalizeLayouts(layouts, drawing.blocks, modelName);
+  nameReferences(drawing, names);
   return drawing;
 }
