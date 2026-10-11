@@ -12,6 +12,7 @@
 import { readable } from "./colors.js";
 import { HitIndex, textOutline } from "./hit.js";
 import { SnapIndex } from "./snap.js";
+import { CAP_HEIGHT, baselineOffsets, wrapLines } from "./text.js";
 
 const ZOOM_STEP = 1.0015; // ホイール 1 単位あたりの拡大率
 const MIN_DASH_PX = 3; // 破線の 1 周期が画面でこれより短ければ、実線で描く
@@ -20,8 +21,6 @@ const HIT_PX = 6; // 指した点からこの距離（画面の px）までの�
 const SNAP_PX = 12; // 吸い付く点を探す距離（画面の px）
 const CLICK_PX = 4; // 押してから離すまでにこれ以上動いたら、押したのではなくドラッグ（移動）
 const FIT_MARGIN = 0.06;
-const CAP_HEIGHT = 0.72; // フォントの大きさ（em）に対する大文字の高さ（図面の文字の高さ = 大文字の高さ）
-const DESCENT = 0.25; // TEXT の「下」揃え: 基線から下の部分（大文字の高さに対する比）
 const PAPER = "#ffffff"; // PDF の紙（テーマに依らず白。PDF の色は白い紙の上の色）
 const PAPER_EDGE = "#b8bec6";
 const BOX_EDGE = "#9aa3ad"; // 解けない画像の枠
@@ -469,9 +468,7 @@ export class DrawingViewer {
     if (t.mirror) ctx.scale(-1, 1);
     if (t.flip) ctx.scale(1, -1);
     if (t.oblique) ctx.transform(1, 0, -Math.tan(t.oblique), 1, 0, 0);
-    const f = t.font;
-    const family = f?.family === "serif" ? SERIF : f?.family === "monospace" ? MONO : this.font;
-    ctx.font = `${f?.italic ? "italic " : ""}${f?.weight === 700 ? "bold " : ""}${h / CAP_HEIGHT}px ${family}`;
+    ctx.font = this.#fontOf(t, h);
     ctx.fillStyle = color;
     ctx.textAlign = t.align === "center" ? "center" : t.align === "right" ? "right" : "left";
     ctx.textBaseline = "alphabetic";
@@ -485,14 +482,29 @@ export class DrawingViewer {
         factor = 1;
       }
     }
-    if (t.mtext && t.width > 0) lines = wrap(ctx, lines, (t.width * scale) / factor);
+    if (t.mtext && t.width > 0) lines = wrapLines(lines, (t.width * scale) / factor, (line) => ctx.measureText(line).width);
     ctx.scale(factor, 1);
-    // 行の基線（上向きが正）。1 行目の基線 first から、行の間隔ずつ下へ
-    const n = lines.length;
-    const lineHeight = h * (t.mtext ? (5 / 3) * (t.lineSpacing || 1) : 1.6);
-    const block = h + lineHeight * (n - 1);
-    const first = t.valign === "top" ? -h : t.valign === "middle" ? block / 2 - h : t.valign === "bottom" ? lineHeight * (n - 1) + (t.mtext ? 0 : DESCENT * h) : 0;
-    lines.forEach((line, i) => ctx.fillText(line, 0, -(first - lineHeight * i)));
+    // 行の基線（上向きが正。viewer2d/text.js）
+    const offsets = baselineOffsets(t, lines.length);
+    lines.forEach((line, i) => ctx.fillText(line, 0, -offsets[i] * h));
+  }
+
+  /** 文字のフォント（Canvas の font。h: 大文字の高さ px） */
+  #fontOf(t, h) {
+    const f = t.font;
+    const family = f?.family === "serif" ? SERIF : f?.family === "monospace" ? MONO : this.font;
+    return `${f?.italic ? "italic " : ""}${f?.weight === 700 ? "bold " : ""}${h / CAP_HEIGHT}px ${family}`;
+  }
+
+  /** 文字 t（scene の texts の 1 つ）の 1 行の幅（図面の長さ。幅の係数は掛けない）。画面と同じフォントで測る（書き出しが使う） */
+  measureText(t, line) {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.font = this.#fontOf(t, 100);
+    const w = ctx.measureText(line).width;
+    ctx.restore();
+    return (w / 100) * t.height;
   }
 
   #drawHighlight(dpr, px, items, m = null) {
@@ -702,23 +714,3 @@ function snapMark(ctx, kind, x, y, r) {
   ctx.stroke();
 }
 
-/** MTEXT の折り返し（幅 width を越える行を、語か文字の切れ目で折る） */
-function wrap(ctx, lines, width) {
-  const out = [];
-  for (const line of lines) {
-    if (ctx.measureText(line).width <= width) {
-      out.push(line);
-      continue;
-    }
-    let current = "";
-    for (const token of line.match(/[⺀-鿿豈-﫿＀-￯]|[^\s⺀-鿿豈-﫿＀-￯]+|\s+/g) ?? []) {
-      const next = current + token;
-      if (current && ctx.measureText(next).width > width) {
-        out.push(current.trimEnd());
-        current = token.trimStart();
-      } else current = next;
-    }
-    out.push(current);
-  }
-  return out;
-}

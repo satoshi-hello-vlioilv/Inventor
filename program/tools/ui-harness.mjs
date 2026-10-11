@@ -211,7 +211,9 @@ export const STATES = [
   // 図面を直す（docs/editing.md §6）: 中心線を選んだ様子（選んだ図形のカードに画層）・動かす途中（基点 → カーソルの所に影と札）
   ["edit-select", async (p) => { await p.keyboard.press("Escape"); await p.keyboard.press("Escape"); await selectForEdit(p); }, "[data-edit=move]"],
   ["edit", async (p) => { await moveForEdit(p); }, "#edit-stop"],
-  ["edit-done", async (p) => { await p.mouse.click(...editMap(82, -12)); await sleep(500); }, "#save-dxf"],
+  ["edit-done", async (p) => { await p.mouse.click(...editMap(82, -12)); await sleep(500); }, "#save"],
+  // 保存の形式のメニュー（見出しの札。docs/ui.md §23）
+  ["save-menu", async (p) => { await p.click("#save-format"); await sleep(300); }, "#save-menu [aria-checked=\"true\"]"],
   ["layout", async (p) => { await p.click("#layout-tabs button:nth-child(2)"); await sleep(600); await hoverDrawing(p); }, "[data-next], #open"],
   // PDF: ページの多い図面（ページ送り）・3D を含む PDF（主役の場所のタブ: 3D → 図面）
   ["pages", async (p) => { await openFile(p, await manyPages()); }, "[data-next], #open"],

@@ -251,3 +251,16 @@ test("色: 色番号の規則・地に読める色（白地のシアン・黄を
   assert.equal(readable("#ff0000", "#ffffff", "#1b2430", 3), "#ff0000");
   assert.equal(readable("#00ffff", "#ffffff", "#1b2430", 0), "#00ffff", "下限 0 は補正しない");
 });
+
+test("頂点の多いポリライン（頂点ごとの幅つき 10 万）も描く（引数に広げて呼び出しの上限を越えない）", () => {
+  const n = 100000;
+  const e = { type: "LWPOLYLINE", handle: "1", layer: "0", color: { index: 7 }, linetype: "BYLAYER", lineweight: -1, ltscale: 1, invisible: false,
+    points: Array.from({ length: n }, (_, i) => [i, Math.sin(i)]), bulges: new Array(n).fill(0), widths: Array.from({ length: n }, () => [0, 0]),
+    constWidth: 0, closed: true, elevation: 0 };
+  const drawing = { format: "dxf", units: { code: 4, name: "mm" }, ltscale: 1, layers: new Map([["0", { name: "0", color: { index: 7 }, linetype: "Continuous", lineweight: -3 }]]),
+    linetypes: new Map(), styles: new Map(), blocks: new Map([["*Model_Space", { name: "*Model_Space", entities: [e] }]]),
+    layouts: [{ name: "Model", block: "*Model_Space", model: true }], unsupported: new Map(), failures: [] };
+  const scene = buildScene(drawing, drawing.layouts[0]);
+  assert.equal(scene.broken, 0);
+  assert.equal(scene.strokes[0].lines[0].points.length, (n + 1) * 2);
+});
