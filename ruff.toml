@@ -1,0 +1,5 @@
+# Python の lint の規則（CLAUDE.md「push の前に、ローカルで全ての確かめを通す」の ruff check program）。
+# ruff の版で既定の規則が変わる（0.17 で大きく増えた）ので、規則をここで決め、手元と CI のどの版でも同じ結果にする。
+# 選ぶ規則は ruff 0.15 までの既定（pycodestyle の E4・E7・E9 と Pyflakes の F）。
+[lint]
+select = ["E4", "E7", "E9", "F"]

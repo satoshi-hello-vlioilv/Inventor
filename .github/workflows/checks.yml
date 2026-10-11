@@ -24,8 +24,9 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+      # ruff は版で既定の規則が変わるので、規則は ruff.toml で決め、版も手元とそろえる（0.17 で既定の規則が増え、手元で通る物が落ちた）
       - name: 道具（ruff・OpenCascade。OpenCascade は STEP の試験を飛ばさないため）
-        run: python -m pip install ruff cadquery-ocp
+        run: python -m pip install ruff==0.15.8 cadquery-ocp
       - name: 窓（Tauri）を Linux で作るのに要る物
         run: |
           sudo apt-get update
