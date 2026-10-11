@@ -24,7 +24,7 @@ import { DimensionEditor } from "./ui/dimedit.js";
 import { DrawingEditTool } from "./ui/drawedit.js";
 import { MeasureTool } from "./ui/measure.js";
 import { SAVE_FORMATS, SaveMenu } from "./ui/savemenu.js";
-import { onFlow, setNext, updateFlow } from "./ui/flow.js";
+import { flow, onFlow, setNext, updateFlow } from "./ui/flow.js";
 import "./ui/steps.js";
 import { claimLaunch, listSamples, onLaunch, saveFile } from "./desktop.js";
 import { PartLibrary, acceptFiles } from "./ui/files.js";
@@ -32,7 +32,7 @@ import { initBuild } from "./ui/build.js";
 import { setupUnit } from "./ui/units.js";
 import { closeSettings, initSettings, isSettingsOpen, offerShortcut, showNews } from "./ui/settings.js";
 import { selectViewTab, setViewTabs } from "./ui/viewtabs.js";
-import { renderAsmPanel, renderAsmStructure, renderDrawingPanel, renderHeader, renderHtmlPanel, renderIptPanel, renderModel3dPanel, renderSpecPanel, setPanelMode } from "./ui/panel.js";
+import { markSpecRows, renderAsmPanel, renderAsmStructure, renderDrawingPanel, renderHeader, renderHtmlPanel, renderIptPanel, renderModel3dPanel, renderSpecPanel, setPanelMode } from "./ui/panel.js";
 import { startDialog } from "./ui/start.js";
 import { bootDone, bootStep } from "./ui/boot.js";
 import { waitFor } from "./ui/waiting.js";
@@ -316,7 +316,11 @@ onFlow((s) => {
   $("stage-legend").hidden = !tones.some((tone) => tone !== "wait"); // 塗った部品が無ければ（全て待ち）出さない
 });
 
-// 結果の升目（ui/build.js）にカーソルを合わせると、その部品を 3D で強調する
+// 作った結果を部品の行に出す（変換データ。表示中の変換データで作ったとき。ui/panel.js の markSpecRows）
+const markParts = (s = flow()) => specParts && current?.rows && markSpecRows(current.rows, specParts, s.own ? s.job : null);
+onFlow((s) => markParts(s));
+
+// 結果の升目（ui/build.js。HTML の取り込み）にカーソルを合わせると、その部品を 3D で強調する
 const resultHover = rowHandlers((g) => g.ids);
 $("build-summary").addEventListener("pointerover", (event) => {
   const part = specParts?.[event.target.closest("[data-part]")?.dataset.part];
@@ -754,6 +758,7 @@ function showSpec(spec, { keepView = false } = {}) {
   });
   current = { info: describe.partInfo, rows };
   specParts = describe.groups;
+  markParts(); // 描き直した行にも、作った結果を出し直す
   highlight([]);
   setSpec(spec, openSpec.name);
 }

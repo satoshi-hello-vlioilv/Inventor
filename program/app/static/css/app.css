@@ -500,6 +500,37 @@ details.card.more summary .h-note { margin-inline-start: 8px; }
 .feature .note { grid-column: 2 / 4; font-size: var(--fs-xs); color: var(--caution-ink); display: flex; gap: 6px; align-items: baseline; }
 .feature .note::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--warn); transform: translateY(-1px); }
 .feature[data-tone] { border-inline-start: 3px solid var(--tone); padding-inline-start: 10px; }
+/* 部品の番号（作った結果の番号・3D と同じ）と、作った結果（案 K: docs/ui.md §26）。番号の札は結果の色（升目と同じ淡い地＋色の文字） */
+.feature:has(> .no) { grid-template-columns: 2.5em minmax(2.8em, max-content) 1fr auto; }
+.feature:has(> .no) > .sub, .feature:has(> .no) > .note, .feature > .verdict-line, .feature > .fix { grid-column: 3 / 5; }
+.feature .no {
+  grid-row: span 2; align-self: start; height: 24px; margin-top: 1px; display: grid; place-items: center; border: 1.5px solid var(--rule); border-radius: 6px;
+  font: 600 var(--fs-xs) var(--font-num); font-variant-numeric: tabular-nums; color: var(--muted);
+}
+.feature .no[data-tone]:not([data-tone="wait"]) {
+  border-color: var(--tone); background: color-mix(in srgb, var(--tone) 16%, var(--surface)); color: color-mix(in srgb, var(--tone) 80%, var(--ink));
+}
+.feature .no[data-tone="warn"] { color: var(--caution-ink); }
+.verdict-line { display: flex; gap: 6px; align-items: baseline; font-size: var(--fs-xs); color: var(--tone-ink); }
+.verdict-line::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--tone); transform: translateY(-1px); }
+.verdict-line b { font-weight: 600; white-space: nowrap; }
+.verdict-line[data-tone="warn"] span { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+/* 寸法を直す: 行（ボタン）を押すと寸法を直す欄が開く。行の中の行動の札（入れ子のボタンにしない） */
+.feature > .fix {
+  justify-self: start; margin-top: 4px; padding: 3px 12px; border: 1px solid var(--accent); border-radius: 6px; background: var(--surface);
+  color: var(--accent); font-size: var(--fs-xs); font-weight: 600;
+}
+.feature:hover > .fix, .feature:focus-visible > .fix { background: var(--accent); color: var(--accent-ink); }
+/* 一致・待ちの部品の畳み（押すと開く） */
+.part-group-toggle {
+  width: 100%; margin-top: 8px; display: flex; justify-content: space-between; gap: 8px; align-items: baseline; padding: 9px 12px;
+  border: 1px solid var(--rule); border-radius: 8px; background: var(--surface-2); color: var(--ink); font: inherit; font-size: var(--fs-s); text-align: start;
+}
+.part-group-toggle:hover { border-color: var(--accent); }
+.part-group-title { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; min-width: 0; }
+.part-group-title b { color: var(--tone-ink); font-weight: 600; white-space: nowrap; }
+.part-group-title span { font: var(--fs-xs) var(--font-num); color: var(--muted); }
+.part-group-open { flex: none; color: var(--accent); font-weight: 600; font-size: var(--fs-xs); }
 [data-tone="exact"] { --tone: var(--steel); }
 [data-tone="approx"] { --tone: var(--approx); }
 [data-tone="excluded"] { --tone: var(--rule); }
