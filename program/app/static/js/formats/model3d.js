@@ -1,6 +1,7 @@
 // 図面の中の 3D（drawing.models3d の 1 つ。3D の PDF の U3D・PRC と、DWG の 3D ソリッドの ACIS）を、3D 表示のメッシュと部品の一覧にする
 // （DOM に依存しない）。
-//   read3d(models3d の 1 つ) → { meshes, view（viewer.show({ meshes, view }) に渡す）, parts, warnings, units（"mm" か null = ファイルの単位） }
+//   read3d(models3d の 1 つ, { progress }) → { meshes, view（viewer.show({ meshes, view }) に渡す）, parts, warnings, units（"mm" か null = ファイルの単位） }
+//     progress({ stage, done, total }) … 進み具合（図面の 3D ソリッドは形ごと。裏で計算するとき、待つ間の表示に使う。work/tasks.js）
 // 形式ごとの読み取りは、同じ形の結果を返す:
 //   { meshes: [{ name, instance, positions, normals, index, groups: [{ start, count, color }], matrix（列優先の 4×4）, faces, vertices }],
 //     views: [{ name, matrix（カメラ → 世界。列優先。−Z の向きを見て +Y が上）}], warnings, lengthUnit? }
@@ -9,29 +10,31 @@
 
 import { apply, multiply, translation } from "../core/matrix.js";
 import { acisMesh, acisShape } from "./acis/index.js";
+import { edgeLines } from "../viewer/tessellate.js";
 import { U3dError, readU3d } from "./u3d/index.js";
 
 export class Model3dError extends Error {}
 
 // 形式ごとの読み取り（model3d の項目 → 上の同じ形の結果）
 const READERS = { U3D: ({ bytes }) => readU3d(bytes), ACIS: readSolids };
+const quiet = () => {};
 
 /**
  * @param {{ format: string, bytes?: Uint8Array, view?: { c2w: number[] } | { node: string } | null }} model3d
  *   PDF の 3D（pdf/three-d.js の extract3d の結果。U3D）か、図面の 3D ソリッド（cad2d/solids3d.js。ACIS）
  */
-export function read3d(model3d) {
+export function read3d(model3d, { progress = quiet } = {}) {
   const { format, view = null } = model3d;
   const read = READERS[format];
   if (!read) throw new Model3dError(`${format} 形式の 3D は、まだ表示できません。`);
   let result;
   try {
-    result = read(model3d);
+    result = read(model3d, progress);
   } catch (error) {
     if (error instanceof U3dError) throw new Model3dError(`${format} として読めませんでした（${error.message}）。`);
     throw error;
   }
-  return { ...viewerMeshes(result), view: pdfView(view) ?? fileView(result.views ?? [], view?.node), warnings: result.warnings, units: result.lengthUnit ?? null };
+  return { ...viewerMeshes(result, progress), view: pdfView(view) ?? fileView(result.views ?? [], view?.node), warnings: result.warnings, units: result.lengthUnit ?? null };
 }
 
 const unit = (v) => {
@@ -58,17 +61,24 @@ function fileView(views, name = "DefaultView") {
 
 /**
  * 読んだ結果 → 3D 表示のメッシュ。部品（モデルのノードの置き方）ごとに 1 つ、陰影ごとに群（色はファイルの材質の色）。
+ * edges: 稜線の線分（置く前の座標。画面で作ると大きな図面で 1 秒近く止まるので、ここで作る。viewer.js の #showMeshes）
  * parts: 部品の一覧（名前・三角形と頂点の数 faces・vertices・群の id。id で 3D と欄の行を結ぶ）
  *   図面の 3D ソリッドは solid: { label（種類と番号）, layer, path（ブロック参照の道筋）, size（外形 mm）, shape（形のデータの番号）} も持つ（一覧を木にする）
  */
-function viewerMeshes(result, prefix = "3d") {
+function viewerMeshes(result, progress = quiet, prefix = "3d") {
   const parts = [];
+  const edgesOf = new Map(); // 稜線は形ごとに 1 回（同じ形を何か所にも置くとき、三角形の列を共有している）
+  const shapes = new Set(result.meshes.map((m) => m.positions)).size;
   const meshes = result.meshes.map((m, i) => {
+    if (!edgesOf.has(m.positions)) {
+      progress({ stage: "稜線を作っています", done: edgesOf.size, total: shapes });
+      edgesOf.set(m.positions, edgeLines(m.positions, m.index));
+    }
     const ids = m.groups.map((g, k) => `${prefix}:${i}:${k}`);
     parts.push({ name: m.instance ? `${m.name}（${m.instance + 1}）` : m.name, faces: m.faces, vertices: m.vertices, ids,
       ...(m.solid && { solid: m.solid }) });
     return {
-      positions: m.positions, normals: m.normals, index: m.index, matrix: m.matrix,
+      positions: m.positions, normals: m.normals, index: m.index, matrix: m.matrix, edges: edgesOf.get(m.positions),
       groups: m.groups.map((g, k) => ({ start: g.start, count: g.count, id: ids[k], tone: "exact", color: g.color })),
     };
   });
@@ -99,15 +109,18 @@ const SOUTH_EAST = { direction: [1, -1, 1].map((v) => v / Math.sqrt(3)), up: [-1
  * 図面の 3D ソリッド → 3D 表示のメッシュ。ソリッドごとに 1 つ（同じ形を何か所にも置くなら、三角形は 1 回だけ作って使い回す）。
  * 置き方は図面の座標（行優先）→ 列優先、図面の単位 → mm
  */
-function readSolids({ solids, unit = 1 }) {
+function readSolids({ solids, unit = 1 }, progress = quiet) {
   const meshOf = new Map(), warnings = [];
   let faces = 0, drawn = 0, unreadable = 0;
+  const total = new Set(solids.map((s) => s.acis)).size;
   for (const s of solids) {
     if (!meshOf.has(s.acis)) {
+      progress({ stage: "3D ソリッドの面を作っています", done: meshOf.size, total });
       const shape = acisShape(s.acis);
       meshOf.set(s.acis, shape.error ? null : acisMesh(shape));
     }
   }
+  progress({ stage: "3D ソリッドの面を作っています", done: total, total });
   // 建物の図面などは原点から遠い（数千 inch）。表示の単精度で面がちらつかないよう、形ごとの中心と全体の中心を原点へ寄せる
   const placed = solids.map((s) => ({ s, m: meshOf.get(s.acis) })).filter(({ m }) => m);
   const centers = placed.map(({ s, m }) => apply(s.matrix, m.center));

@@ -169,7 +169,7 @@ export function prepareForDxf(source, { measure = null } = {}) {
   // 図形（1 つの図形が DXF の幾つかの図形になるもの: パス）
   const entity = (e, child = false) => {
     if (!child && !writable(e)) return count(notes.dropped, e.type), null;
-    if (!finite({ ...e, attribs: undefined, solid: undefined, acis: undefined })) return count(notes.dropped, "値の壊れた図形"), null;
+    if (!finite({ ...e, attribs: undefined, solid: undefined, acis: undefined, wire: undefined })) return count(notes.dropped, "値の壊れた図形"), null;
     if ((e.type === "INSERT" || e.type === "DIMENSION") && !keptNames.has(e.block)) return count(notes.dropped, `${e.type}（ブロックが無い）`), null;
     const out = { ...e, handle: handle(e.handle), layer: layerMap.get(e.layer || "0") };
     if (e.linetype !== undefined) out.linetype = e.linetype === "BYLAYER" ? "BYLAYER" : ltOf(e.linetype);

@@ -3,7 +3,7 @@
 //   画像だけの符号化（DCTDecode = JPEG・JPXDecode・JBIG2Decode・CCITTFaxDecode）は解かずに止め、残りの符号化の名前を返す
 //   （JPEG は画面の側が画像として解く）。
 
-import { Inflate } from "fflate";
+import { Inflate } from "../../vendor.js";
 import { PdfName } from "./objects.js";
 
 const IMAGE_FILTERS = new Set(["DCTDecode", "DCT", "JPXDecode", "JBIG2Decode", "CCITTFaxDecode", "CCF"]);

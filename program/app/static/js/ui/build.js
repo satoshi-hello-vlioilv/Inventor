@@ -167,9 +167,10 @@ function renderSummary(j) {
 /** この PC で勧める作り方を主（塗り）のボタンにする（again: 作り終えた後。「作り直す」として控えめに並べる）。Inventor が無ければ STEP を勧め、理由を添える */
 function renderChoices(again) {
   const [inventor, step] = [$("build"), $("build-step")];
+  const capturing = flow().capture === "run"; // 取り込み直している間は、前の取り込みの形で作らせない（形を見分けるのは裏の計算で、画面は動く）
   for (const button of [inventor, step]) {
-    button.disabled = !spec || asking;
-    button.title = !spec ? "作れる部品がありません" : "";
+    button.disabled = !spec || asking || capturing;
+    button.title = capturing ? "取り込み終えると作れます" : !spec ? "作れる部品がありません" : "";
   }
   inventor.className = !again && inventorHere ? "primary" : "secondary";
   step.className = !again && !inventorHere ? "primary" : "secondary";

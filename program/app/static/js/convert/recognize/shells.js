@@ -7,7 +7,7 @@
 //   裏返しに作られた面（内側から見せるための面など）も、立体の一部として扱える
 // - 閉じた立体: 全ての稜線を、殻の中の 2 枚の三角形が逆向きに 1 回ずつ使う。厚みのない殻（床の表裏など）は立体としない
 
-import * as THREE from "three";
+import { THREE } from "../../vendor.js";
 import { cross, dot, length, sub } from "../../core/vec.js";
 import { pointAt, weld } from "./mesh.js";
 

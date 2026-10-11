@@ -45,6 +45,7 @@ export function detectFormat(name, bytes) {
 
 /** 読み取りの失敗を、利用者に見せる説明にする */
 export function explainError(error) {
+  if (error?.explained) return error.explained; // 裏（Worker）で読んだときは、仕事が説明を付けて返す（work/tasks.js）
   if (error instanceof ModelError || error instanceof Model3dError) return error.message;
   if (error instanceof CfbError) return `Inventor のファイル形式（OLE2）ではありません。${FORMAT_NAMES} のいずれかを選んでください。`;
   if (error instanceof StepError) return `STEP として読めませんでした（${error.message}）。`;

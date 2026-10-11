@@ -1,10 +1,10 @@
 // three.js による 3D 表示。ipt の面、または HTML から取り出した部品を描き、視点・稜線・強調表示を受け持つ。
 // 色は CSS のテーマトークンから読み、ライト／ダークの切り替えに追従する。
 
-import * as THREE from "three";
+import { THREE } from "../vendor.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { AXES } from "./describe.js";
-import { edgeSegments, faceGeometry, meshVolume, partGeometry } from "./tessellate.js";
+import { EDGE_ANGLE_DEG, edgeSegments, faceGeometry, meshVolume, partGeometry } from "./tessellate.js";
 
 export const VIEWS = { iso: [1, 1, 1], top: [0, 1, 1e-4], front: [0, 0, 1], right: [1, 0, 0] };
 const TRANSITION_MS = 380;
@@ -12,7 +12,6 @@ const FIT_FILL = 0.85; // 全体表示で、形が画面（縦・横）に占め
 const reduceMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 const token = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
-const EDGE_ANGLE_DEG = 25; // 取り込んだメッシュで稜線として描く折れ角
 const FOCUS_TONES = new Set(["warn", "bad", "run"]); // 目を向ける印（不一致・失敗・作成中）。あれば、ほかの部品を透かす
 const GHOST_OPACITY = 0.12;
 // 面・部品の色の種類 → 色の名前（CSS の変数）。ok〜run は作った結果の印（mark）
@@ -179,8 +178,15 @@ export class Viewer {
       mesh.userData.ids = m.groups.map((g) => g.id);
       this.model.add(mesh);
       this.surfaces.push(mesh);
-      // 群が 1 つのメッシュ（図面の 3D ソリッドなど）は、稜線にもその id を付ける（消した部品の稜線を残さない）
-      const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geometry, EDGE_ANGLE_DEG), this.edgeMaterial);
+      // 群が 1 つのメッシュ（図面の 3D ソリッドなど）は、稜線にもその id を付ける（消した部品の稜線を残さない）。
+      // 稜線を裏で作ってあれば（m.edges。置く前の座標）、置き方を当てて使う
+      let lines;
+      if (m.edges) {
+        lines = new THREE.BufferGeometry();
+        lines.setAttribute("position", new THREE.Float32BufferAttribute(m.edges, 3)); // 複製される（同じ形の置き場所で使い回す元データは変えない）
+        lines.applyMatrix4(matrix);
+      } else lines = new THREE.EdgesGeometry(geometry, EDGE_ANGLE_DEG);
+      const edges = new THREE.LineSegments(lines, this.edgeMaterial);
       if (m.groups.length === 1) edges.userData.id = m.groups[0].id;
       this.model.add(edges);
     }

@@ -343,7 +343,8 @@ export function renderDrawingPanel({ drawing, describe, layout, visible, display
  *   tree … 図面の 3D ソリッドの木（describeSolidTree の nodes と、開閉・消した行 state）。あれば木で描く（ui/tree.js）
  * @returns {Map<string, HTMLElement>} 部品のキー → 行（木では、行の key と部品のキー。閉じた枝の中の部品は、その枝の行）
  */
-export function renderModel3dPanel({ format, describe, error = "", warnings = [], units = null }, handlers) {
+/** pending … 裏で作っている途中（前に開いた物の一覧を残さず、作り終えると並ぶことを示す） */
+export function renderModel3dPanel({ format, describe, error = "", warnings = [], units = null, pending = false }, handlers) {
   $("model3d-units").textContent = units ? `大きさは ${units}` : "大きさはファイルの単位"; // 図面の 3D ソリッドは mm に直してある
   definitionList("model3d-info", [
     ["形式", format],
@@ -372,5 +373,5 @@ export function renderModel3dPanel({ format, describe, error = "", warnings = []
   }
   return renderRows("model3d-parts", describe?.groups ?? [],
     (g) => ({ kind: String(g.number).padStart(2, "0"), dim: g.name || "（名前なし）", count: null, sub: `三角形 ${g.faces}` }), handlers,
-    error ? "読めなかったので、部品はありません" : "表示できる形がありません");
+    pending ? "3D を作り終えると、部品をここに並べます" : error ? "読めなかったので、部品はありません" : "表示できる形がありません");
 }

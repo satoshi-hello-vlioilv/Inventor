@@ -22,7 +22,7 @@
 
 import { IDENTITY, apply, multiply, rotationZ, scaling, translation } from "../core/matrix.js";
 import { bulgeArc, bulgePoints, flattenSubpath, interpolateFit, neutralSpline, ocsAxes, toOcs, toWcs } from "../formats/cad2d/curves.js";
-import { acisShape } from "../formats/acis/index.js";
+import { acisWire } from "../formats/acis/index.js";
 import { annotationParts } from "../formats/cad2d/annotation.js";
 import { insertMatrices } from "../formats/cad2d/placement.js";
 import { sampleCurve } from "../model/curves.js";
@@ -605,10 +605,10 @@ export function buildScene(drawing, layout, { hidden = new Set(), shown = new Se
       case "ACAD_TABLE": return table(e, layer, ctx, item, depth);
       case "TOLERANCE": case "MULTILEADER": return annotation(e, layer, ctx, item, depth);
       case "ACIS": { // 3D ソリッドなど: 稜線を上から見て描く（AutoCAD の 2D ワイヤフレームと同じ）。読めない形は読み取りが数えてある
-        const shape = acisShape(e.acis);
-        if (shape.error) return;
+        const wire = e.wire !== undefined ? e.wire : acisWire(e.acis); // 裏で読んだ図面は、稜線を先に作ってある（attachWires）
+        if (!wire) return;
         const st = style(e, layer, ctx), toWorld = place(ctx, null);
-        for (const body of shape.bodies) for (const edge of body.edges) stroke(st, item, edge.map(toWorld));
+        for (const edge of wire) stroke(st, item, edge.map(toWorld));
         return;
       }
       case "RAY": case "XLINE": {

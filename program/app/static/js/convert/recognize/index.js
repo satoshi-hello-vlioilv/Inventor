@@ -197,17 +197,20 @@ const OPEN_REASON = {
 /**
  * フックが取り出したシーン全体を認識する。
  * @param {{ meshes: object[], revision?: string, excluded?: object }} snapshot
- * @param {{ unit?: number }} [options]  unit: シーンの 1 単位が何 mm か
+ * @param {{ unit?: number, progress?: Function }} [options]  unit: シーンの 1 単位が何 mm か。progress({ stage, done, total }): 進み具合（work/tasks.js）
  * @returns {{ revision, parts: object[], excluded: object, unit: number }}
  *   部品は sources（元のメッシュ・インスタンス・三角形の番号）を持つ。縫い合わせた部品は複数の元を持ち、
  *   塞いだ部品は tris の末尾 caps 枚が塞いだ三角形（元のメッシュに無い）
  */
-export function recognizeSnapshot(snapshot, { unit = 1 } = {}) {
+export function recognizeSnapshot(snapshot, { unit = 1, progress = () => {} } = {}) {
   const parts = [];
+  const total = snapshot.meshes.reduce((n, mesh) => n + (mesh.instances?.length ?? 1), 0); // 進み具合（形を置いた数）
+  let done = 0;
   const open = []; // 開いた殻（メッシュをまたいで縫い合わせる候補）
   const push = (part) => parts.push(verify({ id: parts.length, ...part }));
   snapshot.meshes.forEach((mesh, meshIndex) => {
     (mesh.instances ?? [mesh.matrix]).forEach((matrix, instance) => {
+      progress({ stage: "形を見分けています", done: done++, total });
       const tol = tolerance(mesh.positions, matrix, unit, TOL);
       const { points, tris, source } = weldTriangles(transformPoints(mesh.positions, matrix, unit), mesh.index, tol);
       const origin = [matrix[12] * unit, matrix[13] * unit, matrix[14] * unit];
@@ -224,6 +227,7 @@ export function recognizeSnapshot(snapshot, { unit = 1 } = {}) {
   });
 
   // 開いた面: メッシュをまたいで縫い合わせ、平らな縁を塞ぎ、継ぎ目の刻みをそろえて立体にする。立体にならないものは除外
+  progress({ stage: "開いた面を縫い合わせています", done: total, total });
   const { solids, open: rest } = closeOpenShells(open);
   for (const solid of solids) {
     const first = open[Math.min(...solid.members.keys())];

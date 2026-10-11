@@ -2,7 +2,7 @@
 // 3D 表示用の形（組立と同じ「部品ごとの形 × 配置」）と、部品の説明を作る。DOM に依存しない（Node で評価する）。
 // 面取り（押し出しの端面の縁）も描く。同じ作り方で、寸法を直した部品の STEP 用の閉じた三角形（solidMesh）も作る。
 
-import * as THREE from "three";
+import { THREE } from "../vendor.js";
 import { describeChamfers, KIND_LABEL } from "../html/describe.js";
 import { arcAngles, loopIntegrals, offsetIntoMaterial, reverseLoop } from "./recognize/geometry2d.js";
 

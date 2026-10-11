@@ -165,6 +165,20 @@
     <p class="stage-legend" id="stage-legend" hidden><span data-tone="ok">一致</span><span data-tone="warn">不一致</span><span data-tone="bad">失敗</span><span data-tone="run">作成中</span><span data-tone="wait">待ち</span></p>
     <div class="readout" id="readout" aria-live="polite"><span class="chip">面にカーソルを合わせると、種類と寸法を表示します</span></div>
   </main>
+  <!-- 待つ間の表示（裏の計算を待つ間。案 H: 主役の場所だけを覆い、横長のカードの左に輪と %、右に何をしているか・数・経過・取りやめる。
+       ui/waiting.js。docs/ui.md §25）。主役の場所の枠に重ねる（HTML の元のページの層の上。見出しと右の欄は覆わない） -->
+  <div class="waiting" id="waiting" role="status" aria-live="polite" hidden>
+    <div class="waiting-card">
+      <div class="waiting-ring" id="waiting-ring"><span id="waiting-percent"></span></div>
+      <div class="waiting-body">
+        <p class="waiting-title" id="waiting-title"></p>
+        <p class="waiting-detail" id="waiting-detail" hidden></p>
+        <p class="waiting-meta"><span id="waiting-stage"></span><span class="waiting-count" id="waiting-count"></span></p>
+        <p class="waiting-time" id="waiting-time"></p>
+        <button type="button" class="secondary" id="waiting-cancel" hidden>取りやめる <kbd>Esc</kbd></button>
+      </div>
+    </div>
+  </div>
 
   <aside class="side" aria-label="仕様と操作">
     <nav class="steps" id="steps" data-ui="steps" aria-label="CAD ファイルを作るまでの流れ" hidden>

@@ -24,6 +24,17 @@ const IAM = "Assembly_全体_Φ54.5.iam";
 const HTML = "LS4_parts_viewer.html";
 const DRAWING = "A1_円筒_部品図.dxf";
 const PDF3D = "U3D_SimpleShapes_3D.pdf";
+const SOLIDS = "ACadSharp_sample_R2004.dwg"; // 3D ソリッドのある DWG（開くと 3D から見せる）
+
+/** 裏の計算のその仕事を、決まった進み具合で止めて待つ間の表示を出す（ui_server.py の /__dev/stall）。endWait で取りやめて戻す */
+const stall = (dev, task, stage, done, total) => dev(`stall?task=${task}&stage=${encodeURIComponent(stage)}${done === undefined ? "" : `&done=${done}&total=${total}`}`);
+async function endWait(p, dev) {
+  await dev("stall");
+  if (await p.locator("#waiting:not([hidden])").count()) {
+    await p.keyboard.press("Escape");
+    await sleep(700);
+  }
+}
 
 /** ページの多い PDF（試験用に作る 40 ページの図面。ページ送りの見え方を撮る） */
 async function manyPages() {
@@ -200,7 +211,13 @@ async function moveForEdit(page) {
 export const STATES = [
   ["start", async () => {}, "[data-next], #start-open"],
   ["empty", async (p) => { await p.keyboard.press("Escape"); }, "[data-next], #open"],
-  ["library", openLibrary, "#start-open"],
+  // 待つ間の表示（docs/ui.md §25）: ファイルを開く・図面の 3D を作る・HTML の形を見分ける。裏の仕事を決まった進み具合で止めて撮る
+  ["wait-open", async (p, dev) => {
+    await stall(dev, "readModel", "ファイルを読んでいます");
+    await p.setInputFiles("#file-input", { name: SOLIDS, mimeType: "application/octet-stream", buffer: fs.readFileSync(path.join(PROGRAM, "samples/dwg", SOLIDS)) });
+    await sleep(1600);
+  }, "#waiting-cancel"],
+  ["library", async (p, dev) => { await endWait(p, dev); await openLibrary(p); }, "#start-open"],
   ["ipt", async (p) => { await openSample(p, IPT); }, "[data-next]"],
   ["asm", async (p) => { await openSample(p, IAM); }, "[data-next]"],
   // 入れ子の組立（サブ組立 2 種類 × 2 と、直下の部品）。構成の木の見え方を撮る
@@ -221,13 +238,24 @@ export const STATES = [
   ["pages-pop", async (p) => { await p.click("#layout-tabs .pager-now"); await p.waitForSelector("#page-pop:not([hidden])"); await sleep(200); }, "#page-pop [aria-current=\"true\"]"],
   ["pdf3d", async (p) => { await openSample(p, PDF3D); }, "[data-next], #open"],
   ["pdf3d-sheet", async (p) => { await p.click('#view-tab-list [data-view="sheet"]'); await sleep(600); }, "[data-next], #open"],
-  ["html", async (p) => {
+  ["wait-3d", async (p, dev) => {
+    await stall(dev, "read3d", "3D ソリッドの面を作っています", 31, 76);
+    await openSample(p, SOLIDS);
+    await sleep(1200);
+  }, "#waiting-cancel"],
+  ["html", async (p, dev) => {
+    await endWait(p, dev);
     await openSample(p, HTML);
     await p.waitForFunction(() => /取り込み/.test(document.querySelector("#source-status")?.textContent ?? "") && /r\d+/.test(document.querySelector("#source-status").textContent), null, { timeout: 30000 });
   }, "[data-next], #build-step"],
   // 主役の場所のタブで「元のページ」に切り替えた様子（取り込みのボタンが見えるか）
   ["source", async (p) => { await p.click('#view-tab-list [data-view="source"]'); await sleep(400); }, "[data-next], #capture"],
-  ["spec", async (p) => { await openFile(p, FIXTURE("reel")); }, "[data-next], #build"],
+  ["wait-html", async (p, dev) => {
+    await stall(dev, "recognize", "形を見分けています", 412, 1180);
+    await p.click("#capture");
+    await sleep(1600);
+  }, "#waiting-cancel"],
+  ["spec", async (p, dev) => { await endWait(p, dev); await openFile(p, FIXTURE("reel")); }, "[data-next], #build"],
   ["ask", async (p, dev) => { await dev("env?ready=0"); await p.click("#build"); await p.waitForSelector("#build-ask:not([hidden])"); }, "[data-next], #build-install"],
   ["building", async (p, dev) => {
     await dev("env?ready=1"); await dev("freeze");
@@ -327,6 +355,7 @@ export async function walk(page, dev, visit, only = null) {
  *   contrast  … 見えている文字のコントラスト比の最小（WCAG。4.5 未満は読みにくい）
  *   stage     … 3D 表示が画面に占める割合（ほかの欄が重なっている部分は除く）
  *   status    … 作る仕事の状態の見え方（進み具合の棒・段階の表示があるか）
+ *   boot      … 起動の幕が残っているか（起動の後の状態で残っていれば誤り。知らせと重なる: docs/ui.md §24）
  */
 export function measure(nextSelector) {
   const visible = (el) => {
@@ -414,5 +443,6 @@ export function measure(nextSelector) {
     contrast: { min: Number(minContrast.toFixed(2)), worst },
     stage: Number(stage.toFixed(2)),
     status: { bar: visible(document.querySelector("#build-bar")), steps: visible(document.querySelector("[data-ui='steps']")) },
+    boot: Boolean(document.getElementById("boot")),
   };
 }
