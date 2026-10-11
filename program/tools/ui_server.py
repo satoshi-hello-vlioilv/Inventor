@@ -19,6 +19,8 @@
                                                   （update.rs と同じ形）
     POST /__dev/shortcut?made=1                   置き場の入口から入れて、ショートカットを作った後（開いた画面が 1 度知らせる）
     POST /__dev/samples?off=1                     サンプルが無い（配る形。サンプルは配らない）
+    POST /__dev/stall?task=read3d&stage=…&done=31&total=76   裏の計算（Worker）のその仕事を、決まった進み具合で止める（待つ間の表示を撮る。
+                                                  引数無しで止めるのをやめる）。そのため /static/js/work/worker.js は、本物（?real）を包んだ物を配る
 """
 from __future__ import annotations
 
@@ -130,6 +132,22 @@ UPDATE = {"role": "developer", "reachable": True, "local": "2.1.0", "release": "
           "news": False, "legacy": False}
 SHORTCUTS = {"desktop": "ok", "start": "missing"}
 MADE: list[str] = []  # 置き場の入口から入れたときに作ったショートカット（/__dev/shortcut?made=1）
+STALL: dict = {}  # 止める裏の仕事 { 仕事の名前: 進み具合 }（/__dev/stall）
+# 裏の計算の入口を包む（開発用サーバーだけ）: 止める仕事は、決まった進み具合を送ったまま答えない。ほかは本物へ渡す
+WORKER_WRAPPER = """import "./worker.js?real";
+const real = self.onmessage;
+self.onmessage = (event) => {
+  const { id, name } = event.data;
+  if (name) {
+    const request = new XMLHttpRequest();
+    request.open("GET", "/__dev/stall", false);
+    request.send();
+    const stall = JSON.parse(request.responseText)[name];
+    if (stall) return void self.postMessage({ id, progress: stall });
+  }
+  real(event);
+};
+"""
 SAMPLES_OFF = [False]  # サンプルが無い配る形（/__dev/samples?off=1）  # ショートカットの状態の模擬（既定はデスクトップにある: いつもの起動。無いときは /__dev/shortcut で）
 SHORTCUT_LABELS = {"desktop": "デスクトップ", "start": "スタートメニュー"}
 
@@ -222,6 +240,8 @@ class Handler(BaseHTTPRequestHandler):
         body = self.rfile.read(int(self.headers.get("Content-Length") or 0)) if method == "POST" else b""
         if path in ("/", "/index.html"):
             return self.send(200, (APP / "index.html").read_text(encoding="utf-8").replace("{{ token }}", TOKEN).encode("utf-8"), TYPES[".html"])
+        if path == "/static/js/work/worker.js" and "real" not in query and url.query != "real":
+            return self.send(200, WORKER_WRAPPER.encode("utf-8"), TYPES[".js"])
         if path.startswith("/static/"):
             return self.file(APP / "static", path[len("/static/"):])
         if path.startswith("/samples/"):
@@ -234,6 +254,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.json({"path": "C:\\Users\\sato\\Documents\\" + str(asked.get("name"))})
         if path == "/__dev/saved":
             return self.json({"saved": SAVED})
+        if path == "/__dev/stall" and method == "GET":
+            return self.json(STALL)
         if path.startswith("/__dev/"):
             if path == "/__dev/freeze":
                 BUILD.frozen = True
@@ -262,6 +284,11 @@ class Handler(BaseHTTPRequestHandler):
                     UPDATE["news"] = query["news"][0] == "1"
                 if "legacy" in query:
                     UPDATE["legacy"] = query["legacy"][0] == "1"
+            elif path == "/__dev/stall":
+                STALL.clear()
+                if "task" in query:
+                    STALL[query["task"][0]] = {"stage": query.get("stage", [""])[0],
+                                               **{k: int(query[k][0]) for k in ("done", "total") if k in query}}
             elif path == "/__dev/env":
                 for k in ENV:
                     if k in query:

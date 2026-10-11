@@ -5,9 +5,7 @@
 // 面どうしは隙間なくつながる。円筒・円錐は展開図（角度 θ × 高さ h）の上で分割し、内側だけを細かくしてから曲面に戻す。
 // 自由曲面（B スプライン）はパラメータ (u, v) の平面の上で同じように分割する。
 
-import Constrainautor from "@kninnug/constrainautor";
-import Delaunator from "delaunator";
-import * as THREE from "three";
+import { Constrainautor, Delaunator, THREE } from "../vendor.js";
 import { locateOnSurface, projectToSurface, surfaceDerivs, surfaceDomain } from "../model/nurbs.js";
 
 const ARC_STEP = Math.PI / 32; // 曲面の分割の細かさ（稜線の円弧のサンプリングと同じ刻み）
@@ -655,10 +653,14 @@ export const MESHERS = { plane, cylinder: revolved, cone: revolved, torus: revol
 export const isRenderable = (face) => face.type in MESHERS;
 
 /**
- * 三角形の向きを頂点法線に揃えてから BufferGeometry にする（表裏の判定と陰影を正しくするため）。
+ * 面の三角形を、向きを頂点法線に揃えて数の列にする（表裏の判定と陰影を正しくするため）。GPU・DOM を使わないので、裏（Worker）でも作れる。
  * oriented … 分割が向きをそろえて返した（展開図の向きから決まる）ので、揃え直さない
+ * @returns {{ positions: Float32Array, normals: Float32Array, index: Uint32Array } | null}
  */
-function toGeometry({ points, normals, index, oriented = false }) {
+export function faceArrays(face) {
+  const raw = MESHERS[face.type]?.(face);
+  if (!raw?.index.length) return null;
+  const { points, normals, index, oriented = false } = raw;
   const e1 = new THREE.Vector3(), e2 = new THREE.Vector3();
   for (let k = 0; !oriented && k < index.length; k += 3) {
     const [a, b, c] = [index[k], index[k + 1], index[k + 2]];
@@ -666,17 +668,39 @@ function toGeometry({ points, normals, index, oriented = false }) {
     e2.subVectors(points[c], points[a]);
     if (e1.cross(e2).dot(normals[a]) < 0) [index[k + 1], index[k + 2]] = [c, b];
   }
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.Float32BufferAttribute(points.flatMap((p) => p.toArray()), 3));
-  geometry.setAttribute("normal", new THREE.Float32BufferAttribute(normals.flatMap((p) => p.toArray()), 3));
-  geometry.setIndex(index);
-  return geometry;
+  const flat = (vectors) => {
+    const out = new Float32Array(vectors.length * 3);
+    vectors.forEach((v, i) => out.set([v.x, v.y, v.z], i * 3));
+    return out;
+  };
+  return { positions: flat(points), normals: flat(normals), index: Uint32Array.from(index) };
 }
 
-/** @returns {THREE.BufferGeometry | null} */
+/**
+ * モデル（部品・組立）の全ての面の三角形を先に作り、面に持たせる（face.mesh）。裏で読むとき（work/tasks.js）に使い、
+ * 画面は GPU に渡すだけになる。progress({ stage, done, total }) … 進み具合（面の数）
+ */
+export function prepareMeshes(model, progress = () => {}) {
+  const bodies = model.scene?.bodies ?? model.scene?.parts?.flatMap((p) => p.bodies ?? []) ?? [];
+  const faces = bodies.flatMap((b) => b.faces);
+  const stage = "面を三角形に分けています";
+  faces.forEach((face, i) => {
+    if (i % 50 === 0) progress({ stage, done: i, total: faces.length });
+    face.mesh = faceArrays(face);
+  });
+  progress({ stage, done: faces.length, total: faces.length });
+  return model;
+}
+
+/** @returns {THREE.BufferGeometry | null}（先に作った三角形 face.mesh があれば、それを使う） */
 export function faceGeometry(face) {
-  const raw = MESHERS[face.type]?.(face);
-  return raw && raw.index.length ? toGeometry(raw) : null;
+  const arrays = face.mesh !== undefined ? face.mesh : faceArrays(face);
+  if (!arrays) return null;
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(arrays.positions, 3));
+  geometry.setAttribute("normal", new THREE.BufferAttribute(arrays.normals, 3));
+  geometry.setIndex(new THREE.BufferAttribute(arrays.index, 1));
+  return geometry;
 }
 
 /**
@@ -705,6 +729,20 @@ export function partGeometry(bodies) {
   geometry.setAttribute("normal", new THREE.Float32BufferAttribute(normals, 3));
   geometry.setIndex(index);
   return { geometry, volume: meshVolume(geometry), unsupported };
+}
+
+export const EDGE_ANGLE_DEG = 25; // 三角形のメッシュで稜線として描く折れ角
+
+/**
+ * 三角形のメッシュの稜線（折れ角が EDGE_ANGLE_DEG を越える辺と、縁の辺）を線分の座標列にする（THREE.EdgesGeometry と同じ）。
+ * 裏で作って表示に渡す（図面の 3D ソリッドなど。画面の流れで作ると、大きな図面で 1 秒近く止まる）
+ * @returns {Float32Array}
+ */
+export function edgeLines(positions, index) {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  if (index) geometry.setIndex(new THREE.BufferAttribute(index, 1));
+  return new THREE.EdgesGeometry(geometry, EDGE_ANGLE_DEG).getAttribute("position").array;
 }
 
 /** 閉じた三角形メッシュの体積（発散定理: Σ a・(b × c) / 6）。面の向きが外向きなら正 */

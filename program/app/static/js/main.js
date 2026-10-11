@@ -1,5 +1,6 @@
 // アプリの入口: 受け取ったファイルを読み（formats/open.js）、3D（viewer/）と右の欄（ui/panel.js）に表示し、両者を連動させる。
 // 次にすること（主のボタン 1 つ）は ui/flow.js が決め、段階の帯（ui/steps.js）と行動ドックに出す（docs/ui.md）。
+// 重い計算（ファイルの読み取り・図面の 3D・HTML の認識）は裏（work/。Worker）で動かし、待つ間は ui/waiting.js が表示する。
 //   .ipt・.iam・.stp … モデル（部品・組立）として読み、表示する
 //   .dwg・.dxf・.pdf・.jww・.sfc・.p21 … 2D の図面として読み（formats/cad2d）、Canvas に描く（viewer2d/）。レイアウト（PDF はページ）の切り替え・画層の表示・
 //                      図形の読み出し。3D を含む PDF は、主役の場所のタブで 3D（formats/model3d.js → viewer/）に切り替える
@@ -11,10 +12,8 @@
 
 import { buildInventorSpec, readSpec } from "./convert/inventor.js";
 import { describeSpec, previewScene } from "./convert/preview.js";
-import { recognizeSnapshot } from "./convert/recognize/index.js";
-import { read3d } from "./formats/model3d.js";
-import { ACCEPT, FORMATS, FORMAT_NAMES, OPENABLE, detectFormat, explainError, partOf, readModel } from "./formats/open.js";
-import { buildDisplayMeshes, describeRecognition } from "./html/describe.js";
+import { ACCEPT, FORMATS, FORMAT_NAMES, OPENABLE, detectFormat, explainError, partOf } from "./formats/open.js";
+import { describeRecognition } from "./html/describe.js";
 import { SourceFrame } from "./html/frame.js";
 import { DrawingEdits } from "./edit/drawing.js";
 import { History } from "./edit/history.js";
@@ -23,9 +22,10 @@ import { drawingToSfc, sfcNotes } from "./formats/cad2d/to-sxf.js";
 import { saveSpec, setSpec } from "./ui/convert.js";
 import { DimensionEditor } from "./ui/dimedit.js";
 import { DrawingEditTool } from "./ui/drawedit.js";
+import { DrawingCompare } from "./ui/compare.js";
 import { MeasureTool } from "./ui/measure.js";
 import { SAVE_FORMATS, SaveMenu } from "./ui/savemenu.js";
-import { onFlow, setNext, updateFlow } from "./ui/flow.js";
+import { flow, onFlow, setNext, updateFlow } from "./ui/flow.js";
 import "./ui/steps.js";
 import { claimLaunch, listSamples, onLaunch, saveFile } from "./desktop.js";
 import { PartLibrary, acceptFiles } from "./ui/files.js";
@@ -33,9 +33,11 @@ import { initBuild } from "./ui/build.js";
 import { setupUnit } from "./ui/units.js";
 import { closeSettings, initSettings, isSettingsOpen, offerShortcut, showNews } from "./ui/settings.js";
 import { selectViewTab, setViewTabs } from "./ui/viewtabs.js";
-import { renderAsmPanel, renderAsmStructure, renderDrawingPanel, renderHeader, renderHtmlPanel, renderIptPanel, renderModel3dPanel, renderSpecPanel, setPanelMode } from "./ui/panel.js";
+import { markSpecRows, renderAsmPanel, renderAsmStructure, renderDrawingPanel, renderHeader, renderHtmlPanel, renderIptPanel, renderModel3dPanel, renderSpecPanel, setPanelMode } from "./ui/panel.js";
 import { startDialog } from "./ui/start.js";
 import { bootDone, bootStep } from "./ui/boot.js";
+import { waitFor } from "./ui/waiting.js";
+import { isAbort, runTask, warmUp } from "./work/pool.js";
 import { renderUses, showEnvironment } from "./ui/welcome.js";
 import { hiddenIds } from "./ui/tree.js";
 import { describeAssembly, describeBody, describeMeshes, describeSolidTree, describeStructure } from "./viewer/describe.js";
@@ -65,8 +67,15 @@ let assembly = null; // 表示中（または部品を開く前）の組立 { mo
 let source = null; // 表示中の元のページ（SourceFrame）
 let sourceName = ""; // 表示中の HTML のファイル名
 let captured = null; // 最後に取り込んだシーン { snapshot, at, unit }（単位を変えたら認識し直す）
+// 開いている物の裏の計算の取りやめ（別の物を開き始めたら、前の物の計算を止める）
+let scope = new AbortController();
+function renewScope() {
+  scope.abort();
+  scope = new AbortController();
+  return scope;
+}
 let sheet = null; // 表示中の図面 { model, layout（番号）, layers: Map<画層, 表示するか>（利用者が切り替えたもの）, scene, rows,
-//                  view（主役の場所のタブ: "sheet" か 3D の PDF の "3d:番号"）, shown3d: Map<番号, read3d の結果か { error }>,
+//                  view（主役の場所のタブ: "sheet" か 3D の PDF の "3d:番号"）, shown3d: Map<番号, Promise<read3d の結果か { error }>>,
 //                  trees3d: Map<番号, { open, hidden }>（図面の 3D ソリッドの木の開閉・消した行） }
 
 // ---- 強調表示（3D ⇄ パネルの双方向） -----------------------------------------
@@ -133,7 +142,8 @@ const drawingEdits = new DrawingEdits({ onChange: () => {
   editTool.refresh();
 } });
 /** 選んだ図形（scene.items の番号）。ビューポートの中に見えている図形（モデルの図形）は除く */
-const selectedItems = () => (sheet?.scene ? measureTool.selection.items.filter((i) => sheet.scene.items[i] && sheet.scene.items[i].viewport === undefined) : []);
+// 旧版と比べている間は直さない（重ねて描いた図形には、旧版の図形も入る）
+const selectedItems = () => (sheet?.scene && !compare.active ? measureTool.selection.items.filter((i) => sheet.scene.items[i] && sheet.scene.items[i].viewport === undefined) : []);
 const editTool = new DrawingEditTool({
   viewer: drawingViewer,
   edits: drawingEdits,
@@ -143,6 +153,31 @@ const editTool = new DrawingEditTool({
   notify: (text) => showNotice(text),
 });
 $("measure").addEventListener("click", () => editTool.stop()); // 測ると直す命令は同時にしない
+
+// 旧版と比べる（docs/ui.md §27・ui/compare.js）。旧版は裏の計算で読む（待つ間の表示。取りやめられる）
+const DRAWING_ACCEPT = ACCEPT.split(",").filter((ext) => /^\.(dwg|dxf|pdf|jww|sfc|p21)$/i.test(ext)).join(",");
+const compare = new DrawingCompare({
+  viewer: drawingViewer,
+  open: async (file) => {
+    const own = new AbortController();
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const model = await waitFor((onProgress) => runTask("readModel", [bytes, file.name, {}], { signal: AbortSignal.any([scope.signal, own.signal]), onProgress }),
+        { title: "旧版を開いています", detail: file.name, cancel: () => own.abort() });
+      if (model.kind === "drawing") {
+        editTool.stop();
+        return model;
+      }
+      showAlert(`${file.name}: 図面ではないので、比べられません（図面の .dwg・.dxf・.pdf・.jww・.sfc・.p21 を選んでください）。`);
+    } catch (error) {
+      if (!isAbort(error)) showAlert(`${file.name}: ${explainError(error)}`);
+    }
+    return null;
+  },
+  render: (fit) => sheet?.view === "sheet" && renderSheet(fit),
+  highlight: (items) => highlightItems(items),
+});
+$("compare-input").accept = DRAWING_ACCEPT;
 for (const b of document.querySelectorAll("[data-edit]")) b.addEventListener("click", () => measureTool.toggle(false), { capture: true });
 
 // 図面の保存（見出しの「保存」と形式の札。ui/savemenu.js）: DXF は図面全体、SXF は見ているレイアウトと画層の表示のとおり
@@ -308,7 +343,11 @@ onFlow((s) => {
   $("stage-legend").hidden = !tones.some((tone) => tone !== "wait"); // 塗った部品が無ければ（全て待ち）出さない
 });
 
-// 結果の升目（ui/build.js）にカーソルを合わせると、その部品を 3D で強調する
+// 作った結果を部品の行に出す（変換データ。表示中の変換データで作ったとき。ui/panel.js の markSpecRows）
+const markParts = (s = flow()) => specParts && current?.rows && markSpecRows(current.rows, specParts, s.own ? s.job : null);
+onFlow((s) => markParts(s));
+
+// 結果の升目（ui/build.js。HTML の取り込み）にカーソルを合わせると、その部品を 3D で強調する
 const resultHover = rowHandlers((g) => g.ids);
 $("build-summary").addEventListener("pointerover", (event) => {
   const part = specParts?.[event.target.closest("[data-part]")?.dataset.part];
@@ -320,10 +359,13 @@ $("back-to-assembly").addEventListener("click", () => assembly && showAssembly(a
 $("add-missing").addEventListener("click", () => $("file-input").click());
 
 async function loadModel(bytes, name, isSample) {
+  const mine = renewScope();
   let model;
   try {
-    model = await readModel(bytes, name, { findPart: (ref) => library.find(ref.file) });
+    model = await waitFor((onProgress) => runTask("readModel", [bytes, name, { findPart: (ref) => library.find(ref.file) }], { signal: mine.signal, onProgress }),
+      { title: "ファイルを開いています", detail: name, cancel: () => mine.abort() });
   } catch (error) {
+    if (isAbort(error)) return; // 取りやめた・別の物を開き始めた（今の表示のまま）
     console.warn(error); // 想定内の入力エラー。利用者には alert で説明する
     showAlert(`${name}: ${explainError(error)}`);
     return;
@@ -348,7 +390,8 @@ function showDrawing(model, header) {
   setMode("drawing");
   renderHeader(header);
   current = null;
-  sheet = { model, layout: 0, layers: new Map(), scene: null, rows: new Map(), view: "sheet", shown3d: new Map(), trees3d: new Map() };
+  sheet = { model, name: header.name, layout: 0, layers: new Map(), scene: null, rows: new Map(), view: "sheet", shown3d: new Map(), trees3d: new Map() };
+  compare.reset(); // 別の図面を開いたら、比べるのをやめる
   editTool.stop();
   drawingEdits.open(model.drawing);
   $("save-group").hidden = false;
@@ -384,18 +427,38 @@ function showDrawingView(key) {
 
 const FORMAT3D = { ACIS: "ACIS（3D ソリッド）" };
 
-/** 3D の PDF の 3D・図面の 3D ソリッドを表示する（読むのは初めて開いたときの 1 回だけ） */
-function show3d(index) {
+/**
+ * 3D の PDF の 3D・図面の 3D ソリッドを表示する。作るのは裏で、初めて開いたときの 1 回だけ（作っている間に図面へ戻っても作り続ける）。
+ * 待つ間は「取りやめる」で図面に戻る（作るのも止める。次に 3D を開いたら作り直す）
+ */
+async function show3d(index) {
+  const mine = sheet, key = `3d:${index}`;
   const entry = sheet.model.drawing.models3d[index];
+  viewer?.clear();
   if (!sheet.shown3d.has(index)) {
-    try {
-      sheet.shown3d.set(index, read3d(entry));
-    } catch (error) {
-      console.warn(error);
-      sheet.shown3d.set(index, { error: explainError(error) });
-    }
+    const own = new AbortController();
+    const signal = AbortSignal.any([scope.signal, own.signal]);
+    const made = waitFor((onProgress) => runTask("read3d", [entry], { signal, onProgress }),
+      { title: "3D を作っています", detail: FORMAT3D[entry.format] ?? entry.format, cancel: () => {
+        own.abort();
+        if (sheet !== mine || sheet.view !== key) return;
+        selectViewTab("sheet");
+        showDrawingView("sheet");
+      } })
+      .catch((error) => {
+        if (isAbort(error)) return null;
+        console.warn(error);
+        return { error: explainError(error) };
+      });
+    sheet.shown3d.set(index, made);
   }
-  const shown = sheet.shown3d.get(index);
+  const pending = sheet.shown3d.get(index);
+  // 作っている間は、前に開いた物の一覧を残さない（作り終えると並ぶ）
+  current = null;
+  renderModel3dPanel({ format: FORMAT3D[entry.format] ?? entry.format, describe: null, pending: true }, rowHandlers(() => []));
+  const shown = await pending;
+  if (!shown) mine.shown3d.delete(index); // 取りやめた: 次に開いたら作り直す
+  if (sheet !== mine || sheet.view !== key || !shown) return;
   viewer?.show({ meshes: shown.meshes ?? [], view: shown.view });
   const describe = shown.meshes ? describeMeshes(shown) : null;
   const solids = describe && describeSolidTree({ groups: describe.groups, parts: shown.parts }); // 図面の 3D ソリッドは木
@@ -421,8 +484,10 @@ function renderSheet(fit) {
   const { drawing } = sheet.model;
   const layout = drawing.layouts[sheet.layout];
   const pick = (on) => new Set([...sheet.layers].filter(([, v]) => v === on).map(([k]) => k));
-  sheet.scene = buildScene(drawing, layout, { hidden: pick(false), shown: pick(true), measure: measureText });
+  const options = { hidden: pick(false), shown: pick(true), measure: measureText };
+  sheet.scene = compare.active ? compare.scene(drawing, layout, options, sheet.name) : buildScene(drawing, layout, options);
   drawingViewer.show(sheet.scene, { fit });
+  compare.shown();
   if (fit) { // 別の図面・レイアウト
     editTool.stop();
     measureTool.reset();
@@ -435,7 +500,7 @@ function renderSheet(fit) {
     return !(l?.off || l?.frozen);
   };
   $("app").dataset.layout = layout.model ? "model" : "paper"; // 地の色をモデルと紙で変えられるように（CSS）
-  sheet.rows = renderDrawingPanel({ drawing, describe: describeDrawing(drawing, sheet.scene), layout, visible,
+  sheet.rows = renderDrawingPanel({ drawing, describe: describeDrawing(drawing, compare.active ? compare.newerScene : sheet.scene), layout, visible,
     display: (color) => drawingViewer.displayColor(color) }, {
     onToggle: (name) => {
       sheet.layers.set(name, !visible(name));
@@ -570,7 +635,7 @@ addEventListener("keydown", (event) => {
     event.preventDefault();
     return;
   }
-  if (editTool.key(event) || measureTool.key(event)) event.preventDefault();
+  if (editTool.key(event) || measureTool.key(event) || compare.key(event)) event.preventDefault();
 });
 
 /** 図面の図形の強調（読み出しの文と、画層の行の印） */
@@ -584,7 +649,8 @@ function highlightItems(items, text, layer) {
 function onDrawingHover(index) {
   const item = index === null ? null : sheet?.scene?.items[index];
   const { drawing } = sheet?.model ?? {};
-  if (item) highlightItems([index], describeItem(item, drawing.units.name, drawing.layers.get(item.layer)?.scale ?? 1), item.layer);
+  const compared = compare.hover(index); // 旧版と比べている間は、比べた結果（同じ・変わった・足した・消した）
+  if (item) highlightItems([index], compared ?? describeItem(item, drawing.units.name, drawing.layers.get(item.layer)?.scale ?? 1), item.layer);
   else highlightItems([]);
 }
 
@@ -620,9 +686,16 @@ async function capture() {
     captured = { snapshot, at: new Date() };
     captured.unit = setupUnit(sourceName, snapshot, (unit) => {
       captured.unit = unit;
-      analyze();
+      analyze().catch((error) => {
+        console.warn(error);
+        showAlert(`認識できませんでした（${error.message}）。`);
+      });
     });
-    analyze();
+    if (!(await analyze())) { // 認識を取りやめた（元のページのまま。もう一度取り込める）
+      setSourceStatus("取り込みを取りやめました");
+      setCapture("none");
+      return;
+    }
     showAlert(snapshot.meshes.length ? "" : "取り込める形状がありませんでした。元のページで部品を表示してから、もう一度取り込んでください。");
     setSourceStatus(`${captured.at.toLocaleTimeString("ja-JP")} に取り込み · three.js r${snapshot.revision ?? "?"}`);
     setCapture(snapshot.meshes.length ? "ok" : "bad", snapshot.revision);
@@ -637,19 +710,33 @@ async function capture() {
 }
 $("capture").addEventListener("click", capture);
 
-/** 取り込んだシーンを、選んだ単位で認識し、表示と変換データを作り直す */
-function analyze() {
+/** 取り込んだシーンを、選んだ単位で認識し（裏で）、表示と変換データを作り直す。→ 作り直したか（取りやめたら false） */
+let recognizing = null; // 認識の取りやめ（単位を変えて認識し直すときは、前の認識を止める）
+async function analyze() {
   const { snapshot, at, unit } = captured;
-  const recognition = recognizeSnapshot(snapshot, { unit });
+  recognizing?.abort();
+  const own = (recognizing = new AbortController());
+  const signal = AbortSignal.any([scope.signal, own.signal]);
+  let recognition, display;
+  try {
+    ({ recognition, display } = await waitFor((onProgress) => runTask("recognize", [snapshot, { unit }], { signal, onProgress }),
+      { title: "取り込んだ形を見分けています", detail: sourceName, cancel: () => own.abort() }));
+  } catch (error) {
+    if (isAbort(error)) return false;
+    throw error;
+  }
+  if (captured?.snapshot !== snapshot || captured.unit !== unit) return false; // 待つ間に取り込み直した・単位を変えた
   const describe = describeRecognition(recognition);
   const rows = renderHtmlPanel({ describe }, rowHandlers((g) => g.ids));
   current = { info: describe.partInfo, rows };
-  viewer?.show({ meshes: buildDisplayMeshes(snapshot, recognition) });
+  viewer?.show({ meshes: display });
   highlight([]);
   setSpec(buildInventorSpec({ file: sourceName, revision: snapshot.revision, capturedAt: at.toISOString() }, recognition), sourceName);
+  return true;
 }
 
 function loadHtml(text, name, isSample = false) {
+  renewScope();
   showAlert("");
   assembly = null;
   setMode("html");
@@ -702,6 +789,7 @@ function showSpec(spec, { keepView = false } = {}) {
   });
   current = { info: describe.partInfo, rows };
   specParts = describe.groups;
+  markParts(); // 描き直した行にも、作った結果を出し直す
   highlight([]);
   setSpec(spec, openSpec.name);
 }
@@ -737,6 +825,7 @@ function loadSpec(text, name, isSample = false) {
     showAlert(`${name}: ${error.message}`);
     return;
   }
+  renewScope();
   showAlert("");
   assembly = null;
   setMode("spec");
@@ -896,7 +985,8 @@ initBuild(); // 保存先と、作っている途中の仕事（画面を開き�
 initSettings();
 onLaunch(async (claim) => takeLaunch(await claim.catch(noServer(LAUNCH))));
 await takeLaunch(await launchReady); // 何も受け取っていなければ、3D の場所に始め方が見えている
-bootDone();
 showEnvironment(); // 始め方の版とこの PC の状態（Inventor・Python）
+await bootDone(); // 起動の幕が消え終わってから知らせを出す（幕と重ねない）
 showNews(); // 起動でそろえた後なら、その版で変わったことを右下に 1 度だけ
 offerShortcut(); // デスクトップにショートカットが無ければ、右下で尋ねる（開いた物を見る邪魔をしないよう、開き終えてから）
+warmUp(); // 裏の計算の Worker を先に用意する（最初にファイルを開くときに待たせない）

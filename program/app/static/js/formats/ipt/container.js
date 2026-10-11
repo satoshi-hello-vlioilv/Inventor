@@ -1,6 +1,6 @@
 // コンテナ層: .ipt (OLE2) から RSe セグメントを取り出し、Zstandard を展開する。
 
-import { decompress } from "fzstd";
+import { decompress } from "../../vendor.js";
 import { readCfb } from "./cfb.js";
 
 const RSE_STORAGE = "RSeStorage/";

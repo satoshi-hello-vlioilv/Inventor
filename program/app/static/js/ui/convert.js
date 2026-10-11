@@ -4,7 +4,7 @@
 import { formatSpec } from "../convert/inventor.js";
 import { saveFile } from "../desktop.js";
 import { setBuildSpec } from "./build.js";
-import { updateFlow } from "./flow.js";
+import { onFlow, updateFlow } from "./flow.js";
 
 const $ = (id) => document.getElementById(id);
 let spec = null, fileName = "";
@@ -13,6 +13,10 @@ function note(text) {
   $("save-note").textContent = text;
   $("save-note").hidden = !text;
 }
+
+/** 保存・コピーは、作れる部品があり、取り込み直している途中でないときだけ（取り込み直す間は前の取り込みの変換データを出さない） */
+const lock = (s) => ($("save-spec").disabled = $("copy-spec").disabled = !spec?.parts.length || s.capture === "run");
+onFlow(lock);
 
 /**
  * 変換データを差し替える（null で「まだ取り込んでいない」）。
@@ -30,9 +34,8 @@ export function setSpec(next, sourceName = "") {
     : kinds ? `部品 ${kinds} 種類（配置 ${placed} か所）${placed > 1 ? "と組立" : ""}を作ります` +
       `${approx ? `。うち近似の ${approx} 種類は三角形のまま` : ""}${skipped ? `。近似の ${skipped} 個は作りません` : ""}`
       : "作れる形がありません";
-  $("save-spec").disabled = $("copy-spec").disabled = !kinds;
   note("");
-  updateFlow({ parts: kinds });
+  updateFlow({ parts: kinds }); // 保存・コピーの可否（lock）も、この知らせで決まる
   setBuildSpec(kinds ? spec : null);
 }
 

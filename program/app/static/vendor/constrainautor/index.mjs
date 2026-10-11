@@ -1,4 +1,4 @@
-import { incircle, orient2d } from 'robust-predicates';
+import { incircle, orient2d } from '../robust-predicates/index.js'; // 同梱どうしは相対の道（Worker でも読めるように。README.md）
 
 /**
  * A set of numbers, stored as bits in a typed array. The amount of numbers /

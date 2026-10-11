@@ -8,6 +8,7 @@
 //   --accent         … 指した図形・選んだ図形の強調、測った線と札（--accent-ink は札の文字）
 //   --caution-ink    … 吸い付く点の印
 // 図の上の印（setOverlay）: 測った線・点・吸い付く点の印・札を、図面の座標で渡し、画面の大きさ（px）で描く（拡大しても太さが変わらない）。
+//   印は層ごとに置く（OVERLAY_LAYERS の順に下から描く）。比べた違いの印（marks）と、測る・直す道具の印（tool）は互いを消さない。
 
 import { readable } from "./colors.js";
 import { HitIndex, textOutline } from "./hit.js";
@@ -18,6 +19,7 @@ const ZOOM_STEP = 1.0015; // ホイール 1 単位あたりの拡大率
 const MIN_DASH_PX = 3; // 破線の 1 周期が画面でこれより短ければ、実線で描く
 const MIN_TEXT_PX = 1.5; // 文字の高さが画面でこれより小さければ描かない
 const HIT_PX = 6; // 指した点からこの距離（画面の px）までの図形を拾う
+const OVERLAY_LAYERS = ["marks", "tool"]; // 図の上の印の層（下から）。marks … 図面に残す印（改訂の雲）・tool … 測る・直す道具の印
 const SNAP_PX = 12; // 吸い付く点を探す距離（画面の px）
 const CLICK_PX = 4; // 押してから離すまでにこれ以上動いたら、押したのではなくドラッグ（移動）
 const FIT_MARGIN = 0.06;
@@ -29,6 +31,19 @@ const CAPS = ["butt", "round", "square"]; // PDF の線端
 const SERIF = '"Yu Mincho", "YuMincho", "MS Mincho", "Hiragino Mincho ProN", "Noto Serif JP", serif';
 const MONO = '"MS Gothic", "Osaka-Mono", "Noto Sans Mono CJK JP", monospace';
 const PREPARED = new WeakMap(); // 画像 → 描ける形（Canvas・ImageBitmap）
+
+/**
+ * 範囲 box（図面の座標 { min, max }）が、場所（size の px から重ねた帯 insets を除いた内側）の真ん中に収まる見え方
+ * { scale, x, y }（画面の px = (図面の座標 − origin) × scale + (x, y)。y は上向き）。帯が場所の半分を越えるなら、場所の半分は使う
+ */
+export function fitView(box, origin, { width, height }, { top = 0, right = 0, bottom = 0, left = 0 } = {}) {
+  const w = Math.max(box.max[0] - box.min[0], 1e-9), h = Math.max(box.max[1] - box.min[1], 1e-9);
+  const aw = Math.max(width - left - right, width / 2), ah = Math.max(height - top - bottom, height / 2);
+  const x0 = Math.min(left, width - aw), y0 = Math.min(top, height - ah);
+  const scale = Math.min(aw / w, ah / h) * (1 - 2 * FIT_MARGIN);
+  const [cx, cy] = [(box.min[0] + box.max[0]) / 2 - origin[0], (box.min[1] + box.max[1]) / 2 - origin[1]]; // 範囲の中心（原点から）
+  return { scale, x: x0 + aw / 2 - cx * scale, y: y0 + ah / 2 + cy * scale };
+}
 
 export class DrawingViewer {
   /**
@@ -45,7 +60,7 @@ export class DrawingViewer {
     this.onHover = onHover ?? (() => {});
     this.onClick = onClick ?? (() => {});
     this.selected = null; // 選んだ図形（強調が残る）
-    this.overlay = null; // 図の上の印（setOverlay）
+    this.overlays = new Map(OVERLAY_LAYERS.map((layer) => [layer, null])); // 図の上の印（setOverlay）。層 → 印
     this.insets = insets ?? (() => ({ top: 0, right: 0, bottom: 0, left: 0 }));
     this.scene = null;
     this.view = { scale: 1, x: 0, y: 0 }; // 画面の px = (world - origin) × scale + (x, y)。y は上向き
@@ -68,7 +83,7 @@ export class DrawingViewer {
     this.snapper = new SnapIndex(scene, this.index);
     this.highlighted = null;
     this.selected = null;
-    this.overlay = null;
+    for (const layer of this.overlays.keys()) this.overlays.set(layer, null);
     this.highlightKey = "";
     if (fit) this.fit();
     else this.requestRender();
@@ -81,18 +96,11 @@ export class DrawingViewer {
     this.requestRender();
   }
 
-  /** 全体が収まるように */
-  fit() {
-    const ext = this.scene?.extents;
-    const { width, height } = this.#size();
-    if (!ext || !width || !height) return this.requestRender();
-    const w = Math.max(ext.max[0] - ext.min[0], 1e-9), h = Math.max(ext.max[1] - ext.min[1], 1e-9);
-    // 重ねた帯の内側（帯が場所の半分を越えるなら、場所の半分は使う）
-    const { top = 0, right = 0, bottom = 0, left = 0 } = this.insets();
-    const aw = Math.max(width - left - right, width / 2), ah = Math.max(height - top - bottom, height / 2);
-    const x0 = Math.min(left, width - aw), y0 = Math.min(top, height - ah);
-    const scale = Math.min(aw / w, ah / h) * (1 - 2 * FIT_MARGIN);
-    this.view = { scale, x: x0 + aw / 2, y: y0 + ah / 2 };
+  /** 全体（box を渡せば、その範囲 { min, max }。図面の座標）が収まるように */
+  fit(box = null) {
+    const ext = box ?? this.scene?.extents;
+    const size = this.#size();
+    if (ext && size.width && size.height) this.view = fitView(ext, this.origin, size, this.insets());
     this.requestRender();
   }
 
@@ -135,7 +143,8 @@ export class DrawingViewer {
     };
     for (const s of this.scene?.strokes ?? []) for (const line of s.lines) if (want.has(line.item)) flat(line.points);
     for (const f of this.scene?.fills ?? []) if (want.has(f.item)) f.rings.forEach(flat);
-    for (const t of [...(this.scene?.texts ?? []), ...(this.scene?.points ?? [])]) if (want.has(t.item)) grow(t.x, t.y);
+    for (const t of this.scene?.texts ?? []) if (want.has(t.item)) flat(textOutline(t)); // 文字は外形（起点だけでは、注記を囲めない）
+    for (const t of this.scene?.points ?? []) if (want.has(t.item)) grow(t.x, t.y);
     return box.min[0] <= box.max[0] ? box : null;
   }
   /** 直す命令の見本: 図形（items）を変換 m（図面の座標の { a, b, c, d, e, f }。formats/cad2d/transform.js）で動かした影。null で消す */
@@ -145,11 +154,13 @@ export class DrawingViewer {
   }
 
   /**
-   * 図の上の印（null で消す）。座標は図面の座標
-   * @param {{ lines?: { a, b, dashed? }[], points?: [x, y][], snap?: { x, y, kind, label }, tags?: { x, y, text }[] } | null} overlay
+   * 図の上の印（null で消す）。座標は図面の座標。層（layer）ごとに置き換わり、ほかの層の印は残る
+   * @param {{ lines?: { a, b, dashed?, color?, width? }[], points?: [x, y][], snap?: { x, y, kind, label }, tags?: { x, y, text, color? }[] } | null} overlay
+   *   color … 線・札の色（"#rrggbb"。無ければ --accent）・width … 線の太さ（画面の px。無ければ 2）
+   * @param {"marks" | "tool"} layer
    */
-  setOverlay(overlay) {
-    this.overlay = overlay;
+  setOverlay(overlay, layer = "tool") {
+    this.overlays.set(layer, overlay);
     this.requestRender();
   }
 
@@ -406,7 +417,7 @@ export class DrawingViewer {
       this.#drawHighlight(dpr, px, this.ghost.items, this.ghost.m);
       ctx.globalAlpha = 1;
     }
-    if (this.overlay) this.#drawOverlay(dpr);
+    for (const overlay of this.overlays.values()) if (overlay) this.#drawOverlay(dpr, overlay);
   }
 
   /** 画像: 単位の正方形 → 図面 の行列で、画素の行 0（上）が正方形の上辺に来るように描く */
@@ -548,18 +559,18 @@ export class DrawingViewer {
   }
 
   /** 図の上の印（画面の px で描く） */
-  #drawOverlay(dpr) {
-    const { ctx, overlay: o } = this;
+  #drawOverlay(dpr, o) {
+    const { ctx } = this;
     const accent = this.#token("--accent") || "#1a62c4";
     const ink = this.#token("--accent-ink") || "#fff";
     const surface = this.#token("--surface") || "#fff";
     const caution = this.#token("--caution-ink") || "#8a5a12";
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.lineJoin = ctx.lineCap = "round";
-    for (const { a, b, dashed } of o.lines ?? []) {
+    for (const { a, b, dashed, color, width } of o.lines ?? []) {
       const [x0, y0] = this.toScreen(...a), [x1, y1] = this.toScreen(...b);
-      ctx.strokeStyle = accent;
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = color ?? accent;
+      ctx.lineWidth = width ?? 2;
       ctx.setLineDash(dashed ? [6, 4] : []);
       ctx.beginPath();
       ctx.moveTo(x0, y0);
@@ -595,7 +606,7 @@ export class DrawingViewer {
     for (const t of o.tags ?? []) {
       const [x, y] = this.toScreen(t.x, t.y);
       const w = ctx.measureText(t.text).width + 16;
-      ctx.fillStyle = accent;
+      ctx.fillStyle = t.color ?? accent;
       ctx.beginPath();
       ctx.roundRect(x + 10, y - 11, w, 22, 6);
       ctx.fill();

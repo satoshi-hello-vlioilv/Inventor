@@ -37,6 +37,7 @@ npm test
   Windows 向けの部分（`#[cfg(windows)]`）を変えたときは、`rustup target add x86_64-pc-windows-msvc` のうえで
   `cargo clippy --target x86_64-pc-windows-msvc --all-targets -- -D warnings` も通す（Linux の確かめでは、その部分をコンパイルしない）
 - Windows の本物の WebView2 での自己診断は CI（`.github/workflows/desktop.yml`）が行う。手元で同じ手順を試すときは [docs/desktop.md](docs/desktop.md) §7
+- 上の 3 つは CI（`.github/workflows/checks.yml`。Linux）も PR と main への push のたびに回す（手元で通してから push する決まりは変わらない。CI は回し忘れの網）
 
 ## アプリを変えたら、版（program/version.json）を上げる
 

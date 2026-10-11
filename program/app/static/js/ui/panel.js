@@ -41,11 +41,12 @@ export function renderHeader({ eyebrow, name, meta, isSample, thumbnailUrl }) {
  * 強調表示の行を作る（カーソル・キーボードのフォーカスで連動）。
  * @returns {HTMLButtonElement}
  */
-function featureRow({ kind, dim, count, sub, note, tone, title }, onEnter, onLeave, onClick) {
+function featureRow({ number, kind, dim, count, sub, note, tone, title }, onEnter, onLeave, onClick) {
   const button = el("button", "feature");
   button.type = "button";
   if (tone) button.dataset.tone = tone;
   if (title) button.title = title;
+  if (number) button.append(el("span", "no", number)); // 部品の番号（作った結果の番号・3D と同じ）
   button.append(el("span", "kind", kind), el("span", "dim", dim), el("span", "count", count === null ? "" : `×${count}`)); // null: 数を出さない
   if (sub) button.append(el("span", "sub", sub));
   if (note) button.append(el("span", "note", note));
@@ -57,8 +58,8 @@ function featureRow({ kind, dim, count, sub, note, tone, title }, onEnter, onLea
 
 function renderRows(listId, groups, toRow, { onEnter, onLeave, onClick }, emptyText) {
   const rows = new Map();
-  const items = groups.map((g) => {
-    const button = featureRow(toRow(g), () => onEnter(g), onLeave, onClick && (() => onClick(g)));
+  const items = groups.map((g, i) => {
+    const button = featureRow(toRow(g, i), () => onEnter(g), onLeave, onClick && (() => onClick(g)));
     rows.set(g.key, button);
     const li = el("li");
     li.append(button);
@@ -270,8 +271,95 @@ export function renderSpecPanel({ describe }, handlers) {
   renderTally("spec-tally", tally);
   $("parts-note").textContent = "mm · 行を押すと寸法を直せます";
   return renderRows("parts", describe.groups,
-    (g) => ({ kind: g.label, dim: g.main, count: g.ids.length, sub: g.sub, note: g.note, tone: g.tone, title: `${g.name}（押すと寸法を直せます）` }), handlers,
+    (g, i) => ({ number: partNumber(i), kind: g.label, dim: g.main, count: g.ids.length, sub: g.sub, note: g.note, tone: g.tone,
+      title: `${g.name}（押すと寸法を直せます）` }), handlers,
     "作れる部品がありません");
+}
+
+// ---- 作った結果を部品の行に出す（変換データ。案 K: docs/ui.md §26） ----------------------------------------------
+// 問題の部品（失敗・不一致）と作成中の部品だけ行を開き、行の中に理由と「寸法を直す」（行を押すと寸法を直す欄が開く）。一致・待ちの部品は
+// 1 行にまとめて畳む（押すと開く）。並びは 失敗 → 不一致 → 作成中 → 一致 → 待ち。結果が無ければ（作る前・ほかの形で作った）元の並び
+const partNumber = (i) => String(i + 1).padStart(2, "0");
+const VERDICT_LABEL = { bad: "失敗", warn: "不一致", run: "作成中" };
+const RESULT_ORDER = ["bad", "warn", "run", "ok", "wait"];
+const GROUP_LABEL = { ok: "一致した", wait: "待ち" };
+const opened = new Set(); // 開いた畳み（ok・wait）。結果が無くなったら閉じる
+
+/** 番号の並び → 範囲の文（01〜03・05〜10・12） */
+function numberRanges(indexes) {
+  const out = [];
+  for (let k = 0; k < indexes.length; k++) {
+    let end = k;
+    while (end + 1 < indexes.length && indexes[end + 1] === indexes[end] + 1) end++;
+    out.push(end > k ? `${partNumber(indexes[k])}〜${partNumber(indexes[end])}` : partNumber(indexes[k]));
+    k = end;
+  }
+  return out.join("・");
+}
+
+/**
+ * 部品の行に作った結果を出す（描き直したときも、結果が変わったときも呼ぶ）
+ * @param {Map<string, HTMLButtonElement>} rows renderSpecPanel の行（group.key → 行）
+ * @param {object[]} groups 部品（変換データの部品の順。作った結果の番号と同じ）
+ * @param {{ parts: string[], details: { diff, error }[] } | null} results 部品ごとの結果の色（ok・warn・bad・run・wait）と、差・理由
+ */
+export function markSpecRows(rows, groups, results) {
+  const list = $("parts");
+  const tones = results?.parts ?? [];
+  const shown = tones.length === groups.length && tones.length > 0;
+  if (!shown) opened.clear();
+  list.querySelectorAll(":scope > .part-group").forEach((g) => g.remove());
+  const entries = groups.map((g, i) => ({ i, row: rows.get(g.key), tone: shown ? tones[i] : null })).filter((x) => x.row);
+  for (const { i, row, tone } of entries) {
+    const no = row.querySelector(".no");
+    if (no) {
+      if (tone) no.dataset.tone = tone;
+      else delete no.dataset.tone;
+    }
+    row.querySelector(".verdict-line")?.remove();
+    row.querySelector(".fix")?.remove();
+    if (VERDICT_LABEL[tone]) {
+      const detail = results.details?.[i] ?? {};
+      const line = el("span", "verdict-line");
+      line.dataset.tone = tone;
+      line.append(el("b", null, VERDICT_LABEL[tone]));
+      const why = tone === "bad" ? detail.error : tone === "warn" ? detail.diff : "";
+      if (why) line.append(el("span", null, why));
+      row.append(line);
+      if (tone !== "run") row.append(el("span", "fix", "寸法を直す")); // 行を押すと寸法を直す欄が開く（行そのものがボタン）
+    }
+    row.parentElement.hidden = Boolean(GROUP_LABEL[tone]) && !opened.has(tone);
+  }
+  // 並べ直す（結果が無ければ元の番号の順）と、一致・待ちの畳み
+  const rank = (x) => (shown ? RESULT_ORDER.indexOf(x.tone) * 1e4 : 0) + x.i;
+  const sorted = [...entries].sort((a, b) => rank(a) - rank(b));
+  const items = [];
+  for (const tone of RESULT_ORDER) {
+    const members = sorted.filter((x) => x.tone === tone);
+    if (GROUP_LABEL[tone] && members.length) items.push(groupRow(tone, members.map((x) => x.i), () => markSpecRows(rows, groups, results)));
+    items.push(...members.map((x) => x.row.parentElement));
+  }
+  if (!shown) items.push(...sorted.map((x) => x.row.parentElement));
+  list.append(...items);
+}
+
+/** 一致・待ちの部品の畳み（押すと開く・閉じる） */
+function groupRow(tone, indexes, redraw) {
+  const li = el("li", "part-group");
+  const button = el("button", "part-group-toggle");
+  button.type = "button";
+  button.dataset.tone = tone;
+  button.setAttribute("aria-expanded", String(opened.has(tone)));
+  const title = el("span", "part-group-title");
+  title.append(el("b", null, `${GROUP_LABEL[tone]} ${indexes.length} 部品`), el("span", null, numberRanges(indexes)));
+  button.append(title, el("span", "part-group-open", opened.has(tone) ? "閉じる ▴" : "開く ▾"));
+  button.addEventListener("click", () => {
+    if (opened.has(tone)) opened.delete(tone);
+    else opened.add(tone);
+    redraw();
+  });
+  li.append(button);
+  return li;
 }
 
 /** 画層の色（"#rrggbb"。色番号 7 = 前景色は null） */
@@ -343,7 +431,8 @@ export function renderDrawingPanel({ drawing, describe, layout, visible, display
  *   tree … 図面の 3D ソリッドの木（describeSolidTree の nodes と、開閉・消した行 state）。あれば木で描く（ui/tree.js）
  * @returns {Map<string, HTMLElement>} 部品のキー → 行（木では、行の key と部品のキー。閉じた枝の中の部品は、その枝の行）
  */
-export function renderModel3dPanel({ format, describe, error = "", warnings = [], units = null }, handlers) {
+/** pending … 裏で作っている途中（前に開いた物の一覧を残さず、作り終えると並ぶことを示す） */
+export function renderModel3dPanel({ format, describe, error = "", warnings = [], units = null, pending = false }, handlers) {
   $("model3d-units").textContent = units ? `大きさは ${units}` : "大きさはファイルの単位"; // 図面の 3D ソリッドは mm に直してある
   definitionList("model3d-info", [
     ["形式", format],
@@ -372,5 +461,5 @@ export function renderModel3dPanel({ format, describe, error = "", warnings = []
   }
   return renderRows("model3d-parts", describe?.groups ?? [],
     (g) => ({ kind: String(g.number).padStart(2, "0"), dim: g.name || "（名前なし）", count: null, sub: `三角形 ${g.faces}` }), handlers,
-    error ? "読めなかったので、部品はありません" : "表示できる形がありません");
+    pending ? "3D を作り終えると、部品をここに並べます" : error ? "読めなかったので、部品はありません" : "表示できる形がありません");
 }

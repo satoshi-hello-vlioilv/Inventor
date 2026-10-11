@@ -95,7 +95,7 @@ function partDetail(p) {
  * 結果の行: STEP の行、目を向ける部品の行（不一致・失敗・作成中。一致と待ちは升目だけ）、組立の行。
  * 失敗・中止のあとは結果の出た部品だけ
  */
-function resultRows(j) {
+function resultRows(j, partsInRows) {
   const rows = [];
   if (j.step) {
     const faceted = j.step.parts?.filter((p) => p.how === "faceted") ?? [];
@@ -105,6 +105,7 @@ function resultRows(j) {
   }
   if (!j.inventor) return rows;
   const running = RUNNING.has(j.state);
+  if (partsInRows) return [...rows, ...assemblyRow(j)];
   const parts = (j.parts ?? []).filter((p) => running || (j.state === "done" && !j.inventor_error) || p.verdict);
   const prefix = commonPrefix((j.parts ?? []).map((p) => p.name));
   const current = j.state === "building" ? parts.findIndex((p) => !p.verdict) : -1;
@@ -114,12 +115,15 @@ function resultRows(j) {
     const measured = p.verdict && p.verdict !== "failed";
     rows.push(row(tone, label, p.name.slice(prefix.length) || p.name, measured ? `体積 ${pct(p.volume_diff)}` : "", p.error, partDetail(p)));
   });
-  if (j.assembly) {
-    const done = j.state === "done";
-    const [tone, label] = j.assembly.error ? ["bad", "失敗"] : done ? ["ok", "組立"] : j.state === "assembly" ? ["run", "作成中"] : ["wait", "待ち"];
-    rows.push(row(tone, label, j.assembly.file, done && !j.assembly.error ? `配置 ${j.assembly.placed} か所` : "", j.assembly.error));
-  }
-  return rows;
+  return [...rows, ...assemblyRow(j)];
+}
+
+/** 組立の行（作っていれば） */
+function assemblyRow(j) {
+  if (!j.assembly) return [];
+  const done = j.state === "done";
+  const [tone, label] = j.assembly.error ? ["bad", "失敗"] : done ? ["ok", "組立"] : j.state === "assembly" ? ["run", "作成中"] : ["wait", "待ち"];
+  return [row(tone, label, j.assembly.file, done && !j.assembly.error ? `配置 ${j.assembly.placed} か所` : "", j.assembly.error)];
 }
 
 /** 部品ごとの結果の色の種類（変換データの部品の順）: 一致 ok・不一致 warn・失敗 bad・作成中 run・待ち wait */
@@ -129,7 +133,7 @@ function partTones(j) {
 }
 
 /** 照合の要約: 帯（一致・不一致・失敗・作成中・待ちの割合）とそれぞれの数、部品ごとの升目（番号は変換データの部品の順） */
-function renderSummary(j) {
+function renderSummary(j, partsInRows) {
   const counts = { ok: 0, warn: 0, bad: 0, run: 0, wait: 0 };
   const tones = j.inventor ? partTones(j) : [];
   for (const tone of tones) counts[tone]++;
@@ -152,6 +156,7 @@ function renderSummary(j) {
     legend.append(item);
   }
   bar.setAttribute("aria-label", [...legend.children].map((c) => c.textContent).join("・"));
+  if (partsInRows) return box.replaceChildren(bar, legend); // 部品ごとの結果は部品の行に（番号・理由・寸法を直す）
   const grid = node("ol", "verdict-grid");
   grid.setAttribute("aria-label", "部品ごとの結果");
   tones.forEach((tone, i) => {
@@ -167,9 +172,10 @@ function renderSummary(j) {
 /** この PC で勧める作り方を主（塗り）のボタンにする（again: 作り終えた後。「作り直す」として控えめに並べる）。Inventor が無ければ STEP を勧め、理由を添える */
 function renderChoices(again) {
   const [inventor, step] = [$("build"), $("build-step")];
+  const capturing = flow().capture === "run"; // 取り込み直している間は、前の取り込みの形で作らせない（形を見分けるのは裏の計算で、画面は動く）
   for (const button of [inventor, step]) {
-    button.disabled = !spec || asking;
-    button.title = !spec ? "作れる部品がありません" : "";
+    button.disabled = !spec || asking || capturing;
+    button.title = capturing ? "取り込み終えると作れます" : !spec ? "作れる部品がありません" : "";
   }
   inventor.className = !again && inventorHere ? "primary" : "secondary";
   step.className = !again && !inventorHere ? "primary" : "secondary";
@@ -205,8 +211,9 @@ function render() {
 
   $("build-detail").hidden = !own || !job.detail;
   $("build-detail").textContent = own ? job.detail ?? "" : "";
-  $("build-results").replaceChildren(...(own ? resultRows(job) : []));
-  renderSummary(own ? job : {});
+  const partsInRows = mode === "spec"; // 変換データは部品の行が作る部品そのもの（番号が同じ）なので、部品ごとの結果は行に出す
+  $("build-results").replaceChildren(...(own ? resultRows(job, partsInRows) : []));
+  renderSummary(own ? job : {}, partsInRows);
 
   // 次にすること: 尋ねている → 入れて作る、終わった → 保存先を開く、作れる → 勧める作り方（作っている間は無し。中止は副）
   const next = asking ? $("build-install") : finished && job.out_dir ? $("build-open") : !running && convert ? choice : null;
@@ -220,7 +227,8 @@ function publish() {
   updateFlow({
     own,
     job: { state: job.state, tone, made: madeCount(job), total: job.total ?? 0, good: job.good ?? 0, inventor: Boolean(job.inventor),
-      inventorError: Boolean(job.inventor_error), name: job.name, parts: job.inventor ? partTones(job) : [] },
+      inventorError: Boolean(job.inventor_error), name: job.name, parts: job.inventor ? partTones(job) : [],
+      details: job.inventor ? (job.parts ?? []).map((p) => ({ diff: p.verdict && p.verdict !== "failed" ? `体積 ${pct(p.volume_diff)}` : "", error: p.error ?? "" })) : [] },
   });
 }
 

@@ -13,6 +13,20 @@ const shapes = new WeakMap();
 const SAB = ["ACIS BinaryFile", "ASM BinaryFile"]; // ASM は "ASM BinaryFile4"（R2013+ の AcDs の節・Inventor）
 const isSab = (bytes) => SAB.some((sig) => bytes.length > sig.length && [...sig].every((c, i) => bytes[i] === c.charCodeAt(0)));
 
+/** 2D で描く稜線（形のデータ → 稜線の折れ線の並び。読めなければ null）。図面を裏で読むとき、先に作って図形に持たせる（attachWires） */
+export function acisWire(bytes) {
+  const shape = acisShape(bytes);
+  return shape.error ? null : shape.bodies.flatMap((b) => b.edges);
+}
+
+/** 図面の全ての 3D の立体に、2D で描く稜線を持たせる（e.wire。画面の流れで形を読み直さない。work/tasks.js） */
+export function attachWires(drawing) {
+  for (const block of drawing.blocks.values()) {
+    for (const e of block.entities) if (e.type === "ACIS" && e.acis && e.wire === undefined) e.wire = acisWire(e.acis);
+  }
+  return drawing;
+}
+
 /** ACIS のデータ → 形（同じバイト列なら作り直さない） */
 export function acisShape(bytes) {
   if (!bytes?.length) return { error: "形のデータがありません" };
