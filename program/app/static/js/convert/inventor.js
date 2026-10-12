@@ -336,6 +336,18 @@ export function needsStepMesh(shape) {
   return shape.kind === "revolve" && shape.loops[0].some(spindle);
 }
 
+/** 近似にした理由（三角形のまま作る理由）。ビルダーのレポートと STEP の注意に残す（変換した画面を閉じた後でも分かるように） */
+export const approximationNote = (reason) => `三角形のまま作る理由: ${reason}`;
+
+/** 部品の注意（変換データの notes）。無ければ空のオブジェクト */
+function partNotes(part) {
+  const notes = [
+    part.kind === "mesh" && part.reason && approximationNote(part.reason),
+    part.intersections && selfIntersectionNote(part.intersections),
+  ].filter(Boolean);
+  return notes.length ? { notes } : {};
+}
+
 /**
  * 認識結果から変換データを作る。
  * @param {{ file: string, revision: string|null, capturedAt: string }} source
@@ -350,7 +362,7 @@ export function buildInventorSpec(source, recognition) {
     if (!shapes.has(key)) {
       // STEP の厳密な面で書けない形は、元の形の三角形を添える（同じ形の 2 つ目以降は 1 つ目のものを使う）
       const mesh = needsStepMesh(shape) ? { mesh: meshIn(part, frame) } : {};
-      const notes = part.intersections ? { notes: [selfIntersectionNote(part.intersections)] } : {};
+      const notes = partNotes(part);
       shapes.set(key, { shape: { ...shape, ...mesh }, notes, label: labelOf(part, feature), instances: [] });
     }
     shapes.get(key).instances.push({ origin: snapPoint(frame.origin), x: snapUnit(frame.x), y: snapUnit(frame.y), z: snapUnit(frame.z) });
