@@ -150,7 +150,11 @@ describe("変換データの構造", () => {
       const exact = expectedProperties({ kind: "mesh", mesh: { positions, triangles } });
       assert.ok(exact.volume > 0);
       assert.deepEqual([part.expect.volume, part.expect.area], [exact.volume, exact.area].map((v) => Math.round(v * 1e6) / 1e6));
+      // 近似にした理由を注意に残す（ビルダーのレポートと STEP の注意で、変換した画面を閉じた後でも分かる）
+      assert.match(part.notes?.[0] ?? "", /^三角形のまま作る理由: 回転体・押し出しのどちらにも当てはまらない/, part.name);
     }
+    // 寸法で作る部品には書かない
+    assert.ok(specs.wire.parts.filter((p) => p.kind !== "mesh").every((p) => !p.notes?.some((n) => n.startsWith("三角形のまま作る理由"))));
   });
   test("ビルダーのテストに使う保存済みの変換データが、現在の出力と一致する", () => {
     for (const [name, spec] of Object.entries(specs)) {
